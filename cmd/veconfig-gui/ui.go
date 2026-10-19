@@ -17,13 +17,17 @@ type ui struct {
 	// sess is the open connection; nil when disconnected.
 	sess      *session
 	listeners []func(s *session)
+	// settings is the settings model the tabs edit (settingsmodel.go).
+	settings *settingsModel
+	tabs     *container.AppTabs
 }
 
 // newUI builds the main window of a.
 func newUI(a fyne.App) *ui {
-	u := &ui{app: a, win: a.NewWindow(appName)}
+	u := &ui{app: a, win: a.NewWindow(appName), settings: &settingsModel{}}
 	tabs := container.NewAppTabs(append(settingsTabs(u), gridTab(u))...)
-	top := container.NewVBox(demoBanner(u), connectionBar(u))
+	u.tabs = tabs
+	top := container.NewVBox(demoBanner(u), connectionBar(u), newSettingsBar(u))
 	u.win.SetContent(container.NewBorder(top, monitorPanel(u), nil, nil, tabs))
 	u.win.SetMainMenu(mainMenu(u))
 	u.win.Resize(fyne.NewSize(900, 600))
@@ -81,7 +85,11 @@ func demoBanner(u *ui) fyne.CanvasObject {
 
 // mainMenu returns the window menu.
 func mainMenu(u *ui) *fyne.MainMenu {
-	file := fyne.NewMenu(tr("File"), &fyne.MenuItem{Label: tr("Quit"), IsQuit: true})
+	file := fyne.NewMenu(tr("File"),
+		fyne.NewMenuItem(tr("Open settings file"), func() { openSettingsFile(u) }),
+		fyne.NewMenuItem(tr("Save settings file"), func() { saveSettingsFile(u) }),
+		fyne.NewMenuItemSeparator(),
+		&fyne.MenuItem{Label: tr("Quit"), IsQuit: true})
 	tools := fyne.NewMenu(tr("Tools"),
 		fyne.NewMenuItem(tr("Remote panel"), func() { showRemotePanel(u) }),
 		fyne.NewMenuItem(tr("VE.Bus monitor"), func() { showVEBusMonitor(u) }),

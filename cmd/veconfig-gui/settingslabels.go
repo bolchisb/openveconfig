@@ -1,0 +1,253 @@
+package main
+
+// Labels and presentation of the catalogue entries on the settings tabs.
+// The labels are this project's own wording. Facts (which flag is shown
+// inverted, which flags are a choice of two, the units the values are shown
+// in) are from this project's behavioural spec of the settings tabs
+// (reverse-engineered, #6), restated here in our own words.
+
+import "github.com/bolchisb/victron-veconfigure-ported/pkg/vebus"
+
+// settingLabels returns the label of each entry the settings tabs know.
+// Entries without one show their catalogue name.
+func settingLabels() map[vebus.ID]string {
+	s, f := vebus.SettingID, vebus.FlagID
+	return map[vebus.ID]string{
+		// General.
+		s(6):  tr("Input current limit, AC input 1"),
+		s(49): tr("Input current limit, AC input 2"),
+		f(30): tr("Remote panel may override the AC input 1 limit"),
+		f(15): tr("Remote panel may override the AC input 2 limit"),
+		f(28): tr("Generator-friendly dynamic current limit"),
+		f(38): tr("External current sensor fitted"),
+		f(2):  tr("Output frequency"),
+		s(64): tr("Battery bank capacity"),
+		s(65): tr("State of charge set at the end of bulk"),
+		s(72): tr("Charge efficiency used by the state-of-charge counter"),
+		s(74): tr("State of charge set when absorption ends"),
+
+		// Inverter.
+		s(5):  tr("AC output voltage"),
+		s(11): tr("Shut down at low DC voltage"),
+		s(12): tr("Restart after a low DC voltage shutdown"),
+		s(63): tr("Low DC voltage pre-alarm"),
+		f(13): tr("Use the neutral-to-earth bonding relay"),
+		f(5):  tr("Allow PowerAssist"),
+		s(48): tr("Assist current multiplier"),
+		s(73): tr("Inverter current limit while assisting"),
+		f(8):  tr("Low-load power saving on"),
+		f(31): tr("Power saving method"),
+		s(50): tr("Enter power saving below a load of"),
+		s(51): tr("Leave power saving above the entry load plus"),
+		s(83): tr("Shut down at state of charge"),
+		s(84): tr("Restart at state of charge"),
+
+		// Charger.
+		f(6):  tr("Charger on"),
+		f(36): tr("Lithium battery"),
+		f(39): tr("Battery managed by a VE.Bus BMS"),
+		s(10): tr("Charge algorithm"),
+		f(11): tr("Reduced-float storage phase"),
+		f(29): tr("Traction battery charge curve"),
+		s(2):  tr("Absorption voltage"),
+		s(3):  tr("Float voltage"),
+		s(4):  tr("Bulk charge current"),
+		s(7):  tr("Repeated absorption length"),
+		s(8):  tr("Repeated absorption interval"),
+		s(9):  tr("Absorption time (maximum with an adaptive algorithm)"),
+		s(75): tr("Battery current that ends absorption"),
+		f(4):  tr("Stop bulk charging after its safety time"),
+		f(14): tr("Accept a distorted AC input"),
+		s(86): tr("Block charging below temperature"),
+		s(87): tr("Voltage temperature-compensation slope"),
+
+		// Virtual switch: usage and options.
+		s(15): tr("The virtual switch controls"),
+		f(26): tr("Invert the virtual switch"),
+		s(43): tr("Minimum on time"),
+		f(34): tr("Shift the inverter frequency while on"),
+		s(62): tr("Inverter period while shifted"),
+
+		// Virtual switch: on conditions.
+		s(16): tr("Load above"),
+		s(19): tr("Load above, for"),
+		s(17): tr("DC voltage above"),
+		s(20): tr("DC voltage above, for"),
+		s(18): tr("DC voltage below"),
+		s(21): tr("DC voltage below, for"),
+		s(22): tr("Not charging, for"),
+		s(23): tr("Fan running, for"),
+		f(16): tr("When the bulk safety time ends"),
+		f(25): tr("On a general failure"),
+		f(17): tr("Temperature alarm level"),
+		s(24): tr("Temperature alarm, for"),
+		f(18): tr("Low battery alarm level"),
+		s(25): tr("Low battery alarm, for"),
+		f(19): tr("Overload alarm level"),
+		s(26): tr("Overload alarm, for"),
+		f(20): tr("DC ripple alarm level"),
+		s(27): tr("DC ripple alarm, for"),
+
+		// Virtual switch: off conditions.
+		s(28): tr("Load below"),
+		s(31): tr("Load below, for"),
+		s(29): tr("DC voltage above"),
+		s(32): tr("DC voltage above, for"),
+		s(30): tr("DC voltage below"),
+		s(33): tr("DC voltage below, for"),
+		s(34): tr("Charging, for"),
+		s(35): tr("Fan stopped, for"),
+		s(36): tr("Bulk finished, for"),
+		s(37): tr("No on condition, for"),
+		s(38): tr("No AC input, for"),
+		f(21): tr("Temperature alarm level"),
+		s(39): tr("Temperature alarm gone, for"),
+		f(22): tr("Low battery alarm level"),
+		s(40): tr("Low battery alarm gone, for"),
+		f(23): tr("Overload alarm level"),
+		s(41): tr("Overload alarm gone, for"),
+		f(24): tr("DC ripple alarm level"),
+		s(42): tr("DC ripple alarm gone, for"),
+
+		// Virtual switch 2.
+		s(52): tr("Start: load above"),
+		s(53): tr("Start: load above, for"),
+		s(54): tr("Start: DC voltage below"),
+		s(55): tr("Start: DC voltage below, for"),
+		s(70): tr("Start: state of charge below"),
+		s(56): tr("Stop: load below"),
+		s(57): tr("Stop: load below, for"),
+		s(58): tr("Stop: DC voltage above or charge stage (coded value)"),
+		s(59): tr("Stop: DC voltage or charge stage, for"),
+		f(32): tr("Stop when AC input is available"),
+		f(33): tr("Invert the second switch"),
+
+		// Advanced.
+		f(35): tr("Shift the inverter frequency with the DC voltage"),
+		s(66): tr("Frequency shift: start above DC voltage"),
+		s(67): tr("Frequency shift: start delay"),
+		s(68): tr("Frequency shift: stop below DC voltage"),
+		s(69): tr("Frequency shift: stop delay"),
+		s(71): tr("Temperature compensation used by assistants"),
+		f(41): tr("Give renewable energy priority"),
+		s(88): tr("DC voltage kept while renewable energy has priority"),
+	}
+}
+
+// groupLabel translates a catalogue group name. Groups without a
+// translation show the catalogue text.
+func groupLabel(group string) string {
+	switch group {
+	case "AC input current":
+		return tr("Input current limits")
+	case "System frequency":
+		return tr("System frequency")
+	case "Battery monitor":
+		return tr("Battery monitor")
+	case "Output":
+		return tr("Output")
+	case "DC input low":
+		return tr("Low DC voltage")
+	case "PowerAssist":
+		return tr("PowerAssist")
+	case "AES":
+		return tr("Low-load power saving")
+	case "State of charge shutdown":
+		return tr("Low state of charge shutdown")
+	case "Battery type":
+		return tr("Battery type")
+	case "Charge voltages and current":
+		return tr("Charge voltages and current")
+	case "Absorption":
+		return tr("Absorption")
+	case "Charger":
+		return tr("Charger")
+	case "Temperature":
+		return tr("Temperature")
+	case "Usage":
+		return tr("Usage")
+	case "On conditions":
+		return tr("Switch on when")
+	case "Off conditions":
+		return tr("Switch off when")
+	case "Options":
+		return tr("Options")
+	case "Virtual switch 2":
+		return tr("Second switch")
+	case "Frequency shift":
+		return tr("Frequency shift")
+	case "Assistants":
+		return tr("Assistants")
+	case "Renewable energy priority":
+		return tr("Renewable energy priority")
+	case "AC input voltage limits":
+		return tr("AC input voltage limits")
+	case "UPS function":
+		return tr("UPS function")
+	case "AC input frequency":
+		return tr("AC input frequency")
+	case "Grid code":
+		return tr("Grid code")
+	}
+	return group
+}
+
+// choiceLabels returns the labels of the values of enumerated settings.
+// Values the catalogue names but this table does not show the catalogue
+// text.
+func choiceLabels() map[uint16]map[uint16]string {
+	return map[uint16]map[uint16]string{
+		10: {1: tr("Fixed"), 2: tr("Adaptive"), 3: tr("Adaptive, with a gradual absorption phase")},
+		15: {
+			0: tr("Nothing (not used)"),
+			1: tr("The relay"),
+			2: tr("Disconnecting the AC input"),
+			3: tr("Second switch disconnects the AC input"),
+			4: tr("Second switch runs a generator"),
+			5: tr("The relay and disconnecting the AC input"),
+			6: tr("Disconnecting the AC input; second switch runs a generator"),
+		},
+	}
+}
+
+// flagChoices returns the flags shown as a choice of two: the label for
+// the flag off and for it on.
+func flagChoices() map[uint16][2]string {
+	alarm := [2]string{tr("Alarm"), tr("Pre-alarm")}
+	return map[uint16][2]string{
+		2:  {tr("50 Hz"), tr("60 Hz")},
+		31: {tr("Low-power modified sine"), tr("Search mode (pulses)")},
+		17: alarm, 18: alarm, 19: alarm, 20: alarm,
+		21: alarm, 22: alarm, 23: alarm, 24: alarm,
+	}
+}
+
+// invertedFlags are the flags whose label states the opposite of the flag
+// (the flag disables what the label enables): ticked means the flag is off.
+var invertedFlags = map[uint16]bool{4: true, 6: true, 8: true, 13: true}
+
+// conversion is how a setting's value is shown when it differs from the
+// model's display value (vebus.Device.Display).
+type conversion int
+
+const (
+	convNone     conversion = iota
+	convHours               // minutes shown as hours
+	convDays                // minutes shown as days
+	convSeconds             // minutes shown as seconds
+	convWatts               // a current shown as a power at the AC output voltage (setting 5)
+	convAbsolute            // a setting stored relative to another, shown as the level it stands for
+)
+
+// settingConversions lists the settings shown in another unit or as an
+// absolute level.
+var settingConversions = func() map[uint16]conversion {
+	m := map[uint16]conversion{7: convHours, 9: convHours, 8: convDays, 12: convAbsolute, 63: convAbsolute}
+	for _, id := range []uint16{19, 20, 21, 22, 23, 24, 25, 26, 27, 31, 32, 33, 34, 35, 38, 39, 40, 41, 42, 53, 55, 67, 69} {
+		m[id] = convSeconds
+	}
+	for _, id := range []uint16{16, 28, 50, 51, 52, 56} {
+		m[id] = convWatts
+	}
+	return m
+}()
