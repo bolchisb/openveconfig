@@ -22,9 +22,9 @@ func settingLabels() map[vebus.ID]string {
 		f(38): tr("External current sensor fitted"),
 		f(2):  tr("Output frequency"),
 		s(64): tr("Battery bank capacity"),
-		s(65): tr("State of charge set at the end of bulk"),
-		s(72): tr("Charge efficiency used by the state-of-charge counter"),
-		s(74): tr("State of charge set when absorption ends"),
+		s(65): tr("State of charge after bulk"),
+		s(72): tr("Charge efficiency"),
+		s(74): tr("State of charge after absorption"),
 
 		// Inverter.
 		s(5):  tr("AC output voltage"),
@@ -33,12 +33,12 @@ func settingLabels() map[vebus.ID]string {
 		s(63): tr("Low DC voltage pre-alarm"),
 		f(13): tr("Use the neutral-to-earth bonding relay"),
 		f(5):  tr("Allow PowerAssist"),
-		s(48): tr("Assist current multiplier"),
+		s(48): tr("Assist boost factor"),
 		s(73): tr("Inverter current limit while assisting"),
 		f(8):  tr("Low-load power saving on"),
 		f(31): tr("Power saving method"),
-		s(50): tr("Enter power saving below a load of"),
-		s(51): tr("Leave power saving above the entry load plus"),
+		s(50): tr("Enter power saving below"),
+		s(51): tr("Margin to leave power saving"),
 		s(83): tr("Shut down at state of charge"),
 		s(84): tr("Restart at state of charge"),
 
@@ -54,12 +54,12 @@ func settingLabels() map[vebus.ID]string {
 		s(4):  tr("Bulk charge current"),
 		s(7):  tr("Repeated absorption length"),
 		s(8):  tr("Repeated absorption interval"),
-		s(9):  tr("Absorption time (maximum with an adaptive algorithm)"),
+		s(9):  tr("Absorption time"),
 		s(75): tr("Battery current that ends absorption"),
 		f(4):  tr("Stop bulk charging after its safety time"),
 		f(14): tr("Accept a distorted AC input"),
 		s(86): tr("Block charging below temperature"),
-		s(87): tr("Voltage temperature-compensation slope"),
+		s(87): tr("Temperature compensation"),
 
 		// Virtual switch: usage and options.
 		s(15): tr("The virtual switch controls"),
@@ -130,8 +130,62 @@ func settingLabels() map[vebus.ID]string {
 		s(69): tr("Frequency shift: stop delay"),
 		s(71): tr("Temperature compensation used by assistants"),
 		f(41): tr("Give renewable energy priority"),
-		s(88): tr("DC voltage kept while renewable energy has priority"),
+		s(88): tr("Sustain voltage"),
+
+		// Grid.
+		s(44): tr("Disconnect AC input below"),
+		s(45): tr("Reconnect AC input above"),
+		s(46): tr("Disconnect AC input above"),
+		s(47): tr("Reconnect AC input below"),
+		f(3):  tr("Turn off fast AC input voltage detection"),
+		f(27): tr("Accept a wide AC input frequency range"),
 	}
+}
+
+// settingHelp returns a one-line explanation, in this project's own words,
+// of the entries whose label does not say enough.
+func settingHelp() map[vebus.ID]string {
+	s, f := vebus.SettingID, vebus.FlagID
+	return map[vebus.ID]string{
+		f(28): tr("Raises the load on the AC input slowly, for small generators."),
+		s(64): tr("0 turns the battery monitor off."),
+		s(65): tr("The battery monitor jumps to this value when bulk charging ends."),
+		s(72): tr("Share of the charge that the battery monitor counts as stored."),
+		s(74): tr("The battery monitor jumps to this value when absorption ends."),
+		s(48): tr("Leave it at the default unless you know you need another value."),
+		s(84): tr("0 turns the state-of-charge shutdown off."),
+		s(51): tr("Added to the entry load, so that the inverter does not toggle."),
+		s(9):  tr("With an adaptive algorithm, the longest absorption time."),
+		s(7):  tr("A short absorption, repeated at the interval below while floating."),
+		s(75): tr("Absorption also ends when the battery current falls below this."),
+		f(14): tr("Lets the charger run on a distorted supply, such as a small generator."),
+		s(87): tr("How much the charge voltages drop per degree the battery warms up."),
+		s(88): tr("The charger keeps the battery at least at this voltage."),
+	}
+}
+
+// settingUnits are the units of settings the catalogue gives none, as the
+// settings tabs show them.
+var settingUnits = map[uint16]string{62: "ms", 70: "%", 74: "%", 83: "%", 84: "%", 86: "°C"}
+
+// masterFlags are flags that switch the function of a group on: while the
+// flag is off, the listed settings are not used and their rows are
+// disabled. The flag is the header control of its group's card.
+// Reverse-engineered (#6): the original tool enables these groups only
+// while their flag is set.
+var masterFlags = map[uint16][]vebus.ID{
+	5:  {vebus.SettingID(48), vebus.SettingID(73)},                   // PowerAssist
+	8:  {vebus.FlagID(31), vebus.SettingID(50), vebus.SettingID(51)}, // low-load power saving (shown inverted)
+	41: {vebus.SettingID(88)},                                        // renewable energy priority
+}
+
+// masterValues are settings whose value 0 switches a function off, and the
+// settings that function uses, disabled while it is off.
+// Reverse-engineered (#6): a battery capacity of 0 turns the battery
+// monitor off, a restart level of 0 the state-of-charge shutdown.
+var masterValues = map[uint16][]vebus.ID{
+	64: {vebus.SettingID(65), vebus.SettingID(72)},
+	84: {vebus.SettingID(83)},
 }
 
 // groupLabel translates a catalogue group name. Groups without a
@@ -237,12 +291,19 @@ const (
 	convSeconds             // minutes shown as seconds
 	convWatts               // a current shown as a power at the AC output voltage (setting 5)
 	convAbsolute            // a setting stored relative to another, shown as the level it stands for
+	convPercent             // a ratio shown as a percentage
+	convMilli               // V/°C shown as mV/°C
 )
 
 // settingConversions lists the settings shown in another unit or as an
-// absolute level.
+// absolute level. The AC input reconnect levels are shown as the levels
+// 44 + 45 and 46 - 47 (catalogue RelativeTo). The charge efficiency (72)
+// is a ratio; the temperature
+// compensation slope (87) is shown in mV/°C (reverse-engineered, #6), its
+// display value is in V/°C.
 var settingConversions = func() map[uint16]conversion {
-	m := map[uint16]conversion{7: convHours, 9: convHours, 8: convDays, 12: convAbsolute, 63: convAbsolute}
+	m := map[uint16]conversion{7: convHours, 9: convHours, 8: convDays, 12: convAbsolute, 63: convAbsolute,
+		45: convAbsolute, 47: convAbsolute, 72: convPercent, 87: convMilli}
 	for _, id := range []uint16{19, 20, 21, 22, 23, 24, 25, 26, 27, 31, 32, 33, 34, 35, 38, 39, 40, 41, 42, 53, 55, 67, 69} {
 		m[id] = convSeconds
 	}

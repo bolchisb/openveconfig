@@ -9,8 +9,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -45,7 +43,7 @@ func settingsPages(u *ui) []*page {
 		if t.tab == vebus.TabCharger {
 			content = container.NewBorder(presetsBar(u), nil, nil, nil, content)
 		}
-		pg := newPage(t.title, t.desc, t.icon, t.tab, content)
+		pg := newPage(t.title, t.desc, t.icon, t.tab, withVisual(content, pageVisual(u, t.tab)))
 		pg.empty = p.empty
 		u.settings.onFind(func(e vebus.Entry) bool {
 			if e.Tab != t.tab {
@@ -70,6 +68,9 @@ type settingsPage struct {
 	// content is what the page shows; its objects are replaced on load.
 	content *fyne.Container
 	rows    []*settingRow
+	cols    *formColumns        // the label column of the rows
+	scroll  *container.Scroll   // the scroll area of the rows; nil without rows
+	lead    []fyne.CanvasObject // shown above the cards
 	// sub are the pages of the sub-tabs of a tab shown as sub-tabs.
 	sub     []*settingsPage
 	subTabs *container.AppTabs
@@ -87,7 +88,7 @@ func settingsPageContent(u *ui, tab vebus.Tab, groups ...string) fyne.CanvasObje
 }
 
 func newSettingsPage(u *ui, tab vebus.Tab, groups ...string) *settingsPage {
-	p := &settingsPage{u: u, tab: tab, groups: groups, content: container.NewStack()}
+	p := &settingsPage{u: u, tab: tab, groups: groups, content: container.NewStack(), cols: &formColumns{}}
 	p.build()
 	u.settings.onChange(func(loaded bool) {
 		if loaded {
@@ -153,8 +154,8 @@ func (p *settingsPage) empty() bool {
 	return len(p.rows) == 0
 }
 
-// show selects the sub-tab that holds e, if any, and opens the value dialog
-// of a number.
+// show selects the sub-tab that holds e, if any, scrolls to e's row and
+// focuses its control.
 func (p *settingsPage) show(e vebus.Entry) {
 	for _, s := range p.sub {
 		if s.groups[0] == e.Group && p.subTabs != nil {
@@ -168,8 +169,16 @@ func (p *settingsPage) show(e vebus.Entry) {
 		}
 	}
 	for _, r := range p.rows {
-		if r.e.ID() == e.ID() && r.edit != nil {
-			r.edit()
+		if r.e.ID() != e.ID() {
+			continue
+		}
+		if p.scroll != nil {
+			drv := fyne.CurrentApp().Driver()
+			y := drv.AbsolutePositionForObject(r.root).Y - drv.AbsolutePositionForObject(p.scroll.Content).Y
+			p.scroll.ScrollToOffset(fyne.NewPos(0, max(0, y-2*theme.Padding())))
+		}
+		if r.focus != nil {
+			p.u.win.Canvas().Focus(r.focus)
 		}
 	}
 }
@@ -187,13 +196,13 @@ func (p *settingsPage) note() fyne.CanvasObject {
 
 // build rebuilds the page for the loaded model.
 func (p *settingsPage) build() {
-	p.rows = nil
+	p.rows, p.scroll = nil, nil
 	d := p.u.settings.dev
 	var cards []fyne.CanvasObject
 	if d != nil {
 		labels := settingLabels()
 		byGroup := map[string][]vebus.Entry{}
-		var order []string
+		var order, texts []string
 		for _, e := range d.Entries() {
 			if e.Tab != p.tab || e.FlagWord || (len(p.groups) > 0 && !slices.Contains(p.groups, e.Group)) {
 				continue
@@ -202,34 +211,87 @@ func (p *settingsPage) build() {
 				order = append(order, e.Group)
 			}
 			byGroup[e.Group] = append(byGroup[e.Group], e)
-		}
-		for _, g := range order {
-			form := container.New(layout.NewFormLayout())
-			for _, e := range byGroup[g] {
-				r := p.newRow(e, labels)
-				p.rows = append(p.rows, r)
-				form.Add(r.name)
-				form.Add(container.NewBorder(nil, nil, nil, r.marker, r.control))
+			if !isMasterFlag(e) {
+				texts = append(texts, entryName(e, labels))
 			}
-			cards = append(cards, widget.NewCard("", groupLabel(g), form))
+		}
+		p.cols.fit(texts)
+		for _, g := range order {
+			head := cardTitle(groupLabel(g))
+			var rows []fyne.CanvasObject
+			for _, e := range byGroup[g] {
+				title := ""
+				if isMasterFlag(e) {
+					title = groupLabel(g)
+				}
+				r := p.newRow(e, entryName(e, labels), title)
+				p.rows = append(p.rows, r)
+				if r.header {
+					head = r.root
+				} else {
+					rows = append(rows, r.root)
+				}
+			}
+			cards = append(cards, newFormCard(head, rows...))
 		}
 	}
-	if len(cards) == 0 {
+	switch {
+	case len(cards) == 0 && len(p.lead) == 0:
 		p.content.Objects = []fyne.CanvasObject{p.note()}
-	} else {
-		p.content.Objects = []fyne.CanvasObject{container.NewVScroll(container.NewVBox(cards...))}
+	case len(cards) == 0:
+		p.content.Objects = []fyne.CanvasObject{newForm(append(slices.Clone(p.lead), p.note())...)}
+	default:
+		p.scroll = newForm(append(slices.Clone(p.lead), cards...)...)
+		p.content.Objects = []fyne.CanvasObject{p.scroll}
 	}
 	p.update()
 	p.content.Refresh()
 }
 
-// update shows the current values and marks of every row.
+// isMasterFlag reports whether e is a flag that switches its group on and
+// off (masterFlags), shown as the header of its group's card.
+func isMasterFlag(e vebus.Entry) bool {
+	_, ok := masterFlags[e.Num]
+	return e.Kind == vebus.Flag && ok
+}
+
+// entryName returns the label of e on the settings pages.
+func entryName(e vebus.Entry, labels map[vebus.ID]string) string {
+	if l := labels[e.ID()]; l != "" {
+		return l
+	}
+	return e.Name
+}
+
+// update shows the current values and marks of every row, and disables the
+// rows of functions that are switched off (masterFlags, masterValues).
 func (p *settingsPage) update() {
+	d := p.u.settings.dev
+	if d == nil {
+		return
+	}
 	p.updating = true
 	defer func() { p.updating = false }()
+	enabled := map[vebus.ID]bool{}
+	for n, ids := range masterFlags {
+		if on, err := d.Flag(n); err == nil {
+			for _, id := range ids {
+				enabled[id] = on != invertedFlags[n]
+			}
+		}
+	}
+	for n, ids := range masterValues {
+		if raw, err := d.Raw(vebus.SettingID(n)); err == nil {
+			for _, id := range ids {
+				enabled[id] = raw != 0
+			}
+		}
+	}
 	for _, r := range p.rows {
 		r.update()
 		p.mark(r)
+		on, ok := enabled[r.e.ID()]
+		r.setEnabled(!ok || on)
 	}
 }
 
@@ -238,71 +300,52 @@ func (p *settingsPage) update() {
 func (p *settingsPage) mark(r *settingRow) {
 	d := p.u.settings.dev
 	id := r.e.ID()
-	dirty := d.Dirty(id)
-	var tags []string
-	if dirty {
-		tags = append(tags, tr("changed"))
-	}
-	if d.ResetRequired(id) {
-		tags = append(tags, tr("needs reset"))
-	}
-	if a, ok := d.Access(id); ok && a.PasswordRequired() {
-		tags = append(tags, tr("needs password"))
-	}
-	r.marker.SetText(strings.Join(tags, ", "))
-	r.marker.Importance = widget.MediumImportance
-	if dirty {
-		r.marker.Importance = widget.WarningImportance
-	}
-	r.marker.Refresh()
-	if r.name.TextStyle.Bold != dirty {
-		r.name.TextStyle.Bold = dirty
-		r.name.Refresh()
-	}
+	r.setChanged(d.Dirty(id))
+	a, ok := d.Access(id)
+	r.setMarkers(d.ResetRequired(id), ok && a.PasswordRequired())
 }
 
-// settingRow is the control of one entry.
+// settingRow is the row of one entry.
 type settingRow struct {
-	e       vebus.Entry
-	name    *widget.Label
-	control fyne.CanvasObject
-	marker  *widget.Label
-	update  func() // shows the model's value
-	edit    func() // opens the value dialog; nil when the control is edited in place
+	*formRow
+	e      vebus.Entry
+	update func()         // shows the model's value
+	focus  fyne.Focusable // what Find focuses; nil for none
+	entry  *numberEntry   // the entry of a number; nil for other entries
 }
 
-// newRow returns the row of entry e: a check box for a flag, a choice for a
-// flag shown as a choice of two or an enumerated setting, else a button
-// that shows the value and opens the value dialog.
-func (p *settingsPage) newRow(e vebus.Entry, labels map[vebus.ID]string) *settingRow {
-	u := p.u
-	label := labels[e.ID()]
-	if label == "" {
-		label = e.Name
-	}
-	r := &settingRow{e: e, name: widget.NewLabel(label), marker: widget.NewLabel("")}
-	id := e.ID()
+// newRow returns the row of entry e, labelled label, of the loaded model:
+// a check box for a flag, radio buttons for a flag shown as a choice of two
+// or an enumerated setting with up to three values, a choice list for one
+// with more, else an entry for a number. With a title, the row is the
+// header of a card of that title.
+func (p *settingsPage) newRow(e vebus.Entry, label, title string) *settingRow {
+	u, d, id := p.u, p.u.settings.dev, e.ID()
+	r := &settingRow{e: e}
 	// set applies an edit made with a control and shows its result.
 	set := func(err error) {
+		if u.settings.dev != d {
+			return
+		}
 		if err != nil {
 			showError(u, err)
 		}
 		u.settings.changed()
 	}
+	var control fyne.CanvasObject
+	var width float32
 	switch {
 	case e.Kind == vebus.Flag:
 		if c, ok := flagChoices()[e.Num]; ok {
-			radio := widget.NewRadioGroup(c[:], nil)
-			radio.Horizontal = true
-			radio.Required = true
+			radio := newRadio(c[:])
 			radio.OnChanged = func(s string) {
 				if !p.updating {
-					set(u.settings.dev.SetFlag(e.Num, s == c[1]))
+					set(d.SetFlag(e.Num, s == c[1]))
 				}
 			}
-			r.control = radio
+			control = radio
 			r.update = func() {
-				on, _ := u.settings.dev.Flag(e.Num)
+				on, _ := d.Flag(e.Num)
 				radio.SetSelected(c[boolIndex(on)])
 			}
 			break
@@ -310,39 +353,137 @@ func (p *settingsPage) newRow(e vebus.Entry, labels map[vebus.ID]string) *settin
 		check := widget.NewCheck("", nil)
 		check.OnChanged = func(v bool) {
 			if !p.updating {
-				set(u.settings.dev.SetFlag(e.Num, v != invertedFlags[e.Num]))
+				set(d.SetFlag(e.Num, v != invertedFlags[e.Num]))
 			}
 		}
-		r.control = check
+		control, r.focus = check, check
 		r.update = func() {
-			on, _ := u.settings.dev.Flag(e.Num)
+			on, _ := d.Flag(e.Num)
 			check.SetChecked(on != invertedFlags[e.Num])
 		}
 	case len(e.Choices) > 0:
-		sel := widget.NewSelect(nil, nil)
-		var values []uint16
+		values, opts := choiceOptions(d, e)
+		if len(values) <= 3 {
+			radio := newRadio(opts)
+			radio.OnChanged = func(s string) {
+				if i := slices.Index(radio.Options, s); !p.updating && i >= 0 {
+					set(d.SetRaw(id, values[i]))
+				}
+			}
+			control = radio
+			r.update = func() {
+				values, radio.Options = choiceOptions(d, e)
+				raw, _ := d.Raw(id)
+				radio.SetSelected(radio.Options[slices.Index(values, raw)])
+				radio.Refresh()
+			}
+			break
+		}
+		sel := widget.NewSelect(opts, nil)
 		sel.OnChanged = func(string) {
 			if i := sel.SelectedIndex(); !p.updating && i >= 0 {
-				set(u.settings.dev.SetRaw(id, values[i]))
+				set(d.SetRaw(id, values[i]))
 			}
 		}
-		r.control = sel
+		control, width, r.focus = sel, selectWidth(opts), sel
 		r.update = func() {
 			var opts []string
-			values, opts = choiceOptions(u.settings.dev, e)
+			values, opts = choiceOptions(d, e)
 			sel.SetOptions(opts)
-			raw, _ := u.settings.dev.Raw(id)
+			raw, _ := d.Raw(id)
 			sel.SetSelectedIndex(slices.Index(values, raw))
 		}
 	default:
-		b := widget.NewButton("", nil)
-		r.edit = func() { editNumber(u, e, label) }
-		b.OnTapped = r.edit
-		b.Alignment = widget.ButtonAlignLeading
-		r.control = b
-		r.update = func() { b.SetText(valueText(u.settings.dev, e)) }
+		r.entry = newNumberEntry()
+		control, width, r.focus = r.entry, numberWidth, r.entry
+	}
+	if title != "" {
+		r.formRow = newFormHeader(p.cols, title, control)
+	} else {
+		r.formRow = newFormRow(p.cols, label, settingHelp()[id], control, width, "")
+	}
+	r.revert.OnTapped = func() { set(revertEntry(d, id)) }
+	if r.entry != nil {
+		show := r.bindNumber(r.entry, func() string { return numberEntryText(d, e) }, func(text string) error {
+			if u.settings.dev != d {
+				return nil
+			}
+			err := setNumber(d, e, text)
+			if err == nil {
+				u.settings.changed()
+			}
+			return err
+		})
+		r.update = func() {
+			n := newNumberView(d, e)
+			r.setUnit(n.unit)
+			r.setCaption(n.rangeText())
+			placeholder := ""
+			if d.NotApplicable(id) {
+				placeholder = tr("not applicable")
+			}
+			if r.entry.PlaceHolder != placeholder {
+				r.entry.SetPlaceHolder(placeholder)
+			}
+			show()
+		}
 	}
 	return r
+}
+
+// newRadio returns a required choice of opts, side by side when they fit
+// the control column.
+func newRadio(opts []string) *widget.RadioGroup {
+	radio := widget.NewRadioGroup(opts, nil)
+	radio.Required = true
+	radio.Horizontal = true
+	if radio.MinSize().Width > selectMaxWidth {
+		radio.Horizontal = false
+	}
+	return radio
+}
+
+// selectWidth returns the width of a choice list of opts: the widest
+// option, within controlWidth and selectMaxWidth.
+func selectWidth(opts []string) float32 {
+	th := theme.Current()
+	w := float32(0)
+	for _, o := range opts {
+		w = max(w, fyne.MeasureText(o, th.Size(theme.SizeNameText), fyne.TextStyle{}).Width)
+	}
+	w += 3*th.Size(theme.SizeNameInnerPadding) + th.Size(theme.SizeNameInlineIcon)
+	return min(max(w, controlWidth), selectMaxWidth)
+}
+
+// revertEntry sets id back to the value last read from the device or
+// loaded from the file. vebus.Device keeps that value but has no accessor
+// for it, so a changed flag is simply flipped back, and a setting is
+// reverted with Device.Revert, after which the other changes are put back.
+func revertEntry(d *vebus.Device, id vebus.ID) error {
+	if !d.Dirty(id) {
+		return nil
+	}
+	if id.Kind == vebus.Flag {
+		on, err := d.Flag(id.Num)
+		if err != nil {
+			return err
+		}
+		return d.SetFlag(id.Num, !on)
+	}
+	keep := map[vebus.ID]uint16{}
+	for _, c := range d.ChangedIDs() {
+		if c != id {
+			keep[c], _ = d.Raw(c)
+		}
+	}
+	d.Revert()
+	var errs []error
+	for c, raw := range keep {
+		if err := d.SetRaw(c, raw); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func boolIndex(b bool) int {
@@ -396,7 +537,14 @@ type numberView struct {
 
 func newNumberView(d *vebus.Device, e vebus.Entry) numberView {
 	n := numberView{d: d, id: e.Num, conv: settingConversions[e.Num], factor: 1, unit: e.Unit}
+	if n.unit == "" {
+		n.unit = settingUnits[e.Num]
+	}
 	switch n.conv {
+	case convPercent:
+		n.factor, n.unit = 100, "%"
+	case convMilli:
+		n.factor, n.unit = 1000, "mV/°C"
 	case convHours:
 		n.factor, n.unit = 1.0/60, "h"
 	case convDays:
@@ -558,44 +706,29 @@ func numberRaw(d *vebus.Device, e vebus.Entry, text string) (uint16, error) {
 	return raw, nil
 }
 
-// editNumber opens the value dialog of numeric entry e, labelled label: it
-// shows the allowed range, the step and the device default, and accepts
-// only a valid value.
-func editNumber(u *ui, e vebus.Entry, label string) {
-	d := u.settings.dev
-	if d == nil {
-		return
+// numberEntryText is the text of numeric entry e's value in its entry: ""
+// when it has none.
+func numberEntryText(d *vebus.Device, e vebus.Entry) string {
+	if d.NotApplicable(e.ID()) {
+		return ""
+	}
+	v, err := d.Display(e.ID())
+	if err != nil {
+		return ""
 	}
 	n := newNumberView(d, e)
-	lo, hi, step, def := n.limits()
-	entry := widget.NewEntry()
-	if v, err := d.Display(e.ID()); err == nil {
-		entry.SetText(entryText(n.shown(v), n.decimals()))
+	return entryText(n.shown(v), n.decimals())
+}
+
+// rangeText is the caption under a numeric entry: its range, and the step
+// when it is not one unit of the last decimal shown.
+func (n numberView) rangeText() string {
+	lo, hi, step, _ := n.limits()
+	dec := n.decimals()
+	a := args{"Min": formatNumber(lo, dec), "Max": n.text(hi)}
+	if math.Abs(step*math.Pow10(dec)-1) > 1e-6 {
+		a["Step"] = n.text(step)
+		return tr("{{.Min}} – {{.Max}}, step {{.Step}}", a)
 	}
-	entry.Validator = func(s string) error {
-		_, err := numberRaw(d, e, s)
-		return err
-	}
-	// Report an invalid value while it is typed, which disables OK.
-	entry.AlwaysShowValidationError = true
-	info := func(v float64) fyne.CanvasObject { return widget.NewLabel(n.text(v)) }
-	items := []*widget.FormItem{
-		widget.NewFormItem(tr("Value"), entry),
-		widget.NewFormItem(tr("Minimum"), info(lo)),
-		widget.NewFormItem(tr("Maximum"), info(hi)),
-		widget.NewFormItem(tr("Step"), info(step)),
-		widget.NewFormItem(tr("Default"), info(def)),
-	}
-	dlg := dialog.NewForm(label, tr("OK"), tr("Cancel"), items, func(ok bool) {
-		if !ok || u.settings.dev != d {
-			return
-		}
-		if err := setNumber(d, e, entry.Text); err != nil {
-			showError(u, err)
-		}
-		u.settings.changed()
-	}, u.win)
-	dlg.Resize(fyne.NewSize(420, dlg.MinSize().Height))
-	dlg.Show()
-	u.win.Canvas().Focus(entry)
+	return tr("{{.Min}} – {{.Max}}", a)
 }

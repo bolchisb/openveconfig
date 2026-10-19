@@ -182,9 +182,29 @@ func mustEntry(t *testing.T, d *vebus.Device, id vebus.ID) vebus.Entry {
 	return e
 }
 
-// TestEditSendGetRoundTrip edits a number through its value dialog and a
-// flag through its check box, sends the changes to the simulator and reads
-// them back.
+// enter types text into a number's entry and presses Enter.
+func enter(r *formRow, text string) {
+	e := r.control.(*numberEntry)
+	e.SetText(text)
+	e.TypedKey(&fyne.KeyEvent{Name: fyne.KeyReturn})
+}
+
+// errorText returns the error shown under r's control, or "".
+func errorText(r *formRow) string {
+	if !r.errText.Visible() {
+		return ""
+	}
+	return r.errText.String()
+}
+
+// marked reports whether r shows that its value was changed: the dot, the
+// bold label and the revert button.
+func marked(r *formRow) bool {
+	return r.dot.Visible() && r.revert.Visible() && (r.header || r.label.TextStyle.Bold)
+}
+
+// TestEditSendGetRoundTrip edits a number in its entry and a flag through
+// its check box, sends the changes to the simulator and reads them back.
 func TestEditSendGetRoundTrip(t *testing.T) {
 	u := newTestUI(t)
 	s := settingsSession(t)
@@ -195,40 +215,41 @@ func TestEditSendGetRoundTrip(t *testing.T) {
 	u.settings.load(d, nil)
 
 	absorption := rowOf(t, charger, vebus.SettingID(2))
-	if got := absorption.control.(*widget.Button).Text; got != "14.40 V" {
-		t.Errorf("absorption voltage shows %q, want 14.40 V", got)
+	if got := absorption.entry.Text; got != "14.40" || absorption.unit.Text != "V" {
+		t.Errorf("absorption voltage shows %q %q, want 14.40 V", got, absorption.unit.Text)
 	}
-	absorption.edit()
-	dlg := u.win.Canvas().Overlays().Top()
-	entry := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.Entry); return ok })[0].(*widget.Entry)
-	ok := findButton(t, dlg, "OK")
-	for _, tc := range []struct{ text, why string }{{"18", "above the maximum"}, {"14.405", "not a whole step"}, {"abc", "not a number"}} {
-		entry.SetText(tc.text)
-		if !ok.Disabled() {
-			t.Errorf("value %q (%s) is accepted", tc.text, tc.why)
+	if got := absorption.caption.String(); got != "8.00 – 17.50 V" {
+		t.Errorf("absorption voltage range %q, want 8.00 – 17.50 V", got)
+	}
+	for _, tc := range []struct{ text, why, msg string }{
+		{"18", "above the maximum", "Enter a value from 8.00 V to 17.50 V, in steps of 0.01 V."},
+		{"14.405", "not a whole step", "Enter a value from 8.00 V to 17.50 V, in steps of 0.01 V."},
+		{"abc", "not a number", "Enter a number."},
+	} {
+		enter(absorption.formRow, tc.text)
+		if d.Dirty(vebus.SettingID(2)) || errorText(absorption.formRow) != tc.msg || absorption.entry.Text != tc.text {
+			t.Errorf("value %q (%s): dirty %v, error %q, text %q; want refused with %q, the text kept",
+				tc.text, tc.why, d.Dirty(vebus.SettingID(2)), errorText(absorption.formRow), absorption.entry.Text, tc.msg)
 		}
 	}
-	for _, want := range []string{"8.00 V", "17.50 V", "0.01 V", "14.40 V"} { // min, max, step, default
-		if !strings.Contains(labelTexts(dlg), want) {
-			t.Errorf("value dialog does not show %q", want)
-		}
+	enter(absorption.formRow, "14.6")
+	if errorText(absorption.formRow) != "" || absorption.entry.Text != "14.60" {
+		t.Fatalf("valid value 14.6: error %q, text %q", errorText(absorption.formRow), absorption.entry.Text)
 	}
-	entry.SetText("14.6")
-	if ok.Disabled() {
-		t.Fatal("valid value 14.6 is refused")
-	}
-	test.Tap(ok)
 
 	assist := rowOf(t, inverter, vebus.FlagID(5))
+	if !assist.header {
+		t.Error("PowerAssist is not the header of its card")
+	}
 	test.Tap(assist.control.(*widget.Check))
 
 	for _, r := range []*settingRow{absorption, assist} {
-		if !strings.Contains(r.marker.Text, "changed") || !r.name.TextStyle.Bold {
-			t.Errorf("%v: marker %q, bold %v; want it marked as changed", r.e.ID(), r.marker.Text, r.name.TextStyle.Bold)
+		if !marked(r.formRow) {
+			t.Errorf("%v is not marked as changed", r.e.ID())
 		}
 	}
-	if m := rowOf(t, charger, vebus.SettingID(3)).marker.Text; strings.Contains(m, "changed") {
-		t.Errorf("unchanged float voltage is marked %q", m)
+	if marked(rowOf(t, charger, vebus.SettingID(3)).formRow) {
+		t.Error("unchanged float voltage is marked as changed")
 	}
 	if got := d.ChangedIDs(); !slices.Equal(got, []vebus.ID{vebus.SettingID(0), vebus.SettingID(2)}) {
 		t.Fatalf("changed = %v, want flag word 0 and setting 2", got)
@@ -250,8 +271,8 @@ func TestEditSendGetRoundTrip(t *testing.T) {
 	}
 	u.settings.changed()
 	for _, r := range []*settingRow{absorption, assist} {
-		if strings.Contains(r.marker.Text, "changed") || r.name.TextStyle.Bold {
-			t.Errorf("%v still marked as changed after sending: %q", r.e.ID(), r.marker.Text)
+		if r.dot.Visible() || r.revert.Visible() || r.label.TextStyle.Bold && !r.header {
+			t.Errorf("%v still marked as changed after sending", r.e.ID())
 		}
 	}
 
@@ -316,8 +337,8 @@ func TestSettingsFileLoadEditSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	u.settings.changed()
-	if m := rowOf(t, charger, vebus.SettingID(2)).marker.Text; !strings.Contains(m, "changed") {
-		t.Errorf("edited value marked %q", m)
+	if !marked(rowOf(t, charger, vebus.SettingID(2)).formRow) {
+		t.Error("edited value is not marked as changed")
 	}
 
 	data, err := sf.save(d)
@@ -332,8 +353,8 @@ func TestSettingsFileLoadEditSave(t *testing.T) {
 	if d := u.settings.dev; len(d.ChangedIDs()) != 0 {
 		t.Errorf("after saving, changed = %v", d.ChangedIDs())
 	}
-	if m := rowOf(t, charger, vebus.SettingID(2)).marker.Text; strings.Contains(m, "changed") {
-		t.Errorf("saved value still marked %q", m)
+	if rowOf(t, charger, vebus.SettingID(2)).changed {
+		t.Error("saved value still marked as changed")
 	}
 
 	// The saved bytes load with the edit.
@@ -555,5 +576,191 @@ func TestDemoSecondUnit(t *testing.T) {
 	}
 	if st := modelStatus(u.settings); !strings.Contains(st, "address 1") {
 		t.Errorf("status %q does not name address 1", st)
+	}
+}
+
+// TestNumberEntryCommit checks that a number's entry commits on Enter and
+// when it loses focus, and that Escape restores the value.
+func TestNumberEntryCommit(t *testing.T) {
+	u := newTestUI(t)
+	charger := newSettingsPage(u, vebus.TabCharger)
+	d := vebus.NewDevice(nil)
+	d.AddSetting(2, mk2.SettingInfo{Sc: -100, Default: 1440, Min: 800, Max: 1750}, 1440)
+	d.AddSetting(3, mk2.SettingInfo{Sc: -100, Default: 1380, Min: 800, Max: 1750}, 1380)
+	u.settings.load(d, nil)
+	w := test.NewTempWindow(t, charger.content)
+	absorption, float := rowOf(t, charger, vebus.SettingID(2)), rowOf(t, charger, vebus.SettingID(3))
+
+	// Enter.
+	enter(absorption.formRow, "14.5")
+	if v, _ := d.Display(vebus.SettingID(2)); v != 14.5 || !marked(absorption.formRow) {
+		t.Errorf("after Enter: absorption %v, marked %v; want 14.5, marked", v, marked(absorption.formRow))
+	}
+
+	// Focus loss.
+	w.Canvas().Focus(float.entry)
+	float.entry.SetText("13.5")
+	w.Canvas().Unfocus()
+	if v, _ := d.Display(vebus.SettingID(3)); v != 13.5 || float.entry.Text != "13.50" {
+		t.Errorf("after focus loss: float %v, text %q; want 13.5, 13.50", v, float.entry.Text)
+	}
+
+	// Escape restores the value, also after a refused text.
+	w.Canvas().Focus(float.entry)
+	float.entry.SetText("13.9")
+	float.entry.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
+	if v, _ := d.Display(vebus.SettingID(3)); v != 13.5 || float.entry.Text != "13.50" {
+		t.Errorf("after Escape: float %v, text %q; want 13.5, 13.50", v, float.entry.Text)
+	}
+	enter(float.formRow, "99")
+	if errorText(float.formRow) == "" || !float.revert.Visible() {
+		t.Error("a refused value shows no error or no revert button")
+	}
+	float.entry.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
+	if errorText(float.formRow) != "" || float.entry.Text != "13.50" {
+		t.Errorf("after Escape: error %q, text %q", errorText(float.formRow), float.entry.Text)
+	}
+	w.Canvas().Unfocus()
+	if v, _ := d.Display(vebus.SettingID(3)); v != 13.5 {
+		t.Errorf("float %v after Escape and focus loss, want 13.5", v)
+	}
+}
+
+// TestRevertOneSetting reverts one changed setting and one changed flag,
+// and leaves the other changes.
+func TestRevertOneSetting(t *testing.T) {
+	u := newTestUI(t)
+	charger := newSettingsPage(u, vebus.TabCharger)
+	inverter := newSettingsPage(u, vebus.TabInverter)
+	d := vebus.NewDevice(nil)
+	d.AddSetting(0, mk2.SettingInfo{Sc: 1, Max: 0x0060}, 0) // flags 5 and 6
+	d.AddSetting(2, mk2.SettingInfo{Sc: -100, Default: 1440, Min: 800, Max: 1750}, 1440)
+	d.AddSetting(3, mk2.SettingInfo{Sc: -100, Default: 1380, Min: 800, Max: 1750}, 1380)
+	u.settings.load(d, nil)
+	absorption, float := rowOf(t, charger, vebus.SettingID(2)), rowOf(t, charger, vebus.SettingID(3))
+	assist, charge := rowOf(t, inverter, vebus.FlagID(5)), rowOf(t, charger, vebus.FlagID(6))
+	enter(absorption.formRow, "14.6")
+	enter(float.formRow, "13.6")
+	test.Tap(assist.control.(*widget.Check))
+	test.Tap(charge.control.(*widget.Check))
+
+	test.Tap(absorption.revert)
+	test.Tap(assist.revert)
+	if v, _ := d.Display(vebus.SettingID(2)); v != 14.4 || absorption.entry.Text != "14.40" || marked(absorption.formRow) {
+		t.Errorf("reverted absorption = %v (%q), marked %v; want 14.40, unmarked", v, absorption.entry.Text, marked(absorption.formRow))
+	}
+	if on, _ := d.Flag(5); on || marked(assist.formRow) {
+		t.Errorf("reverted PowerAssist flag = %v, marked %v; want off, unmarked", on, marked(assist.formRow))
+	}
+	if v, _ := d.Display(vebus.SettingID(3)); v != 13.6 || !marked(float.formRow) {
+		t.Errorf("float = %v, marked %v; want 13.6 kept, marked", v, marked(float.formRow))
+	}
+	if on, _ := d.Flag(6); !on || !marked(charge.formRow) {
+		t.Errorf("flag 6 = %v, marked %v; want the change kept", on, marked(charge.formRow))
+	}
+}
+
+// TestMasterToggles checks that the rows of a function that is switched
+// off are disabled, not hidden.
+func TestMasterToggles(t *testing.T) {
+	u := newTestUI(t)
+	inverter := newSettingsPage(u, vebus.TabInverter)
+	general := newSettingsPage(u, vebus.TabGeneral)
+	d := vebus.NewDevice(nil)
+	d.AddSetting(0, mk2.SettingInfo{Sc: 1, Max: 0x0120}, 0x0100) // flag 5 off, flag 8 on (power saving off)
+	d.AddSetting(1, mk2.SettingInfo{Sc: 1, Max: 0x8000}, 0)      // flag 31
+	d.AddSetting(48, mk2.SettingInfo{Sc: -10, Default: 20, Max: 50}, 20)
+	d.AddSetting(73, mk2.SettingInfo{Sc: -100, Max: 20000}, 10000)
+	d.AddSetting(50, mk2.SettingInfo{Sc: -10, Max: 100}, 8)
+	d.AddSetting(51, mk2.SettingInfo{Sc: -10, Max: 100}, 1)
+	d.AddSetting(64, mk2.SettingInfo{Sc: 1, Max: 3000}, 0)
+	d.AddSetting(65, mk2.SettingInfo{Sc: -2, Max: 200}, 190)
+	d.AddSetting(72, mk2.SettingInfo{Sc: -256, Offset: 1, Max: 255}, 242)
+	d.AddSetting(83, mk2.SettingInfo{Sc: 1, Max: 100}, 0)
+	d.AddSetting(84, mk2.SettingInfo{Sc: 1, Max: 100}, 0)
+	u.settings.load(d, nil)
+
+	disabled := func(p *settingsPage, id vebus.ID) bool {
+		return rowOf(t, p, id).control.(fyne.Disableable).Disabled()
+	}
+	check := func(what string, want bool, rows map[*settingsPage][]vebus.ID) {
+		t.Helper()
+		for p, ids := range rows {
+			for _, id := range ids {
+				if got := disabled(p, id); got != want {
+					t.Errorf("%s: %v disabled = %v, want %v", what, id, got, want)
+				}
+			}
+		}
+	}
+	check("all off", true, map[*settingsPage][]vebus.ID{
+		inverter: {vebus.SettingID(48), vebus.SettingID(73), vebus.FlagID(31), vebus.SettingID(50), vebus.SettingID(51), vebus.SettingID(83)},
+		general:  {vebus.SettingID(65), vebus.SettingID(72)},
+	})
+	check("masters", false, map[*settingsPage][]vebus.ID{
+		inverter: {vebus.FlagID(5), vebus.FlagID(8), vebus.SettingID(84)},
+		general:  {vebus.SettingID(64)},
+	})
+	for _, id := range []vebus.ID{vebus.FlagID(5), vebus.FlagID(8)} {
+		if r := rowOf(t, inverter, id); !r.header {
+			t.Errorf("%v is not the header of its card", id)
+		}
+	}
+
+	test.Tap(rowOf(t, inverter, vebus.FlagID(5)).control.(*widget.Check))
+	test.Tap(rowOf(t, inverter, vebus.FlagID(8)).control.(*widget.Check))
+	enter(rowOf(t, general, vebus.SettingID(64)).formRow, "200")
+	enter(rowOf(t, inverter, vebus.SettingID(84)).formRow, "50")
+	check("all on", false, map[*settingsPage][]vebus.ID{
+		inverter: {vebus.SettingID(48), vebus.SettingID(73), vebus.FlagID(31), vebus.SettingID(50), vebus.SettingID(51), vebus.SettingID(83)},
+		general:  {vebus.SettingID(65), vebus.SettingID(72)},
+	})
+	if on, _ := d.Flag(8); on {
+		t.Error("ticking power saving left its inverted flag 8 set")
+	}
+}
+
+// TestEfficiencyInPercent checks that the charge efficiency, a ratio, is
+// shown and entered as a percentage, and that state-of-charge values have
+// their unit.
+func TestEfficiencyInPercent(t *testing.T) {
+	u := newTestUI(t)
+	general := newSettingsPage(u, vebus.TabGeneral)
+	d := vebus.NewDevice(nil)
+	d.AddSetting(64, mk2.SettingInfo{Sc: 1, Max: 3000}, 200)
+	d.AddSetting(72, mk2.SettingInfo{Sc: -256, Offset: 1, Max: 255}, 242)
+	d.AddSetting(74, mk2.SettingInfo{Sc: -2, Max: 200}, 200)
+	u.settings.load(d, nil)
+	eff := rowOf(t, general, vebus.SettingID(72))
+	if eff.entry.Text != "94.9" || eff.unit.Text != "%" || valueText(d, eff.e) != "94.9 %" {
+		t.Errorf("efficiency shows %q %q (%q), want 94.9 %%", eff.entry.Text, eff.unit.Text, valueText(d, eff.e))
+	}
+	enter(eff.formRow, "97.3")
+	if raw, _ := d.Raw(vebus.SettingID(72)); raw != 248 || eff.entry.Text != "97.3" {
+		t.Errorf("efficiency 97.3 %%: raw %d, text %q; want 248, 97.3", raw, eff.entry.Text)
+	}
+	if soc := rowOf(t, general, vebus.SettingID(74)); soc.unit.Text != "%" || soc.entry.Text != "100.0" {
+		t.Errorf("state of charge after absorption shows %q %q, want 100.0 %%", soc.entry.Text, soc.unit.Text)
+	}
+}
+
+// TestFindFocusesEntry checks that Find shows a number's page and focuses
+// its entry.
+func TestFindFocusesEntry(t *testing.T) {
+	u := newTestUI(t)
+	sf, err := parseSettingsFile("test.rvsc", testFile().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadSettingsFile(u, sf)
+	e := mustEntry(t, u.settings.dev, vebus.SettingID(3))
+	for _, nav := range u.settings.navigators {
+		if nav(e) {
+			break
+		}
+	}
+	f, ok := u.win.Canvas().Focused().(*numberEntry)
+	if u.current.title != "Charger" || !ok || f.Text != "13.80" {
+		t.Errorf("after Find: page %q, focused %T; want the float voltage entry on Charger", u.current.title, u.win.Canvas().Focused())
 	}
 }

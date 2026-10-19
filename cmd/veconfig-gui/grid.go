@@ -21,8 +21,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -117,7 +115,7 @@ type gridTabView struct {
 	// Grid code.
 	code       *widget.Select
 	codeValues []uint16
-	codeMarker *widget.Label
+	codeRow    *formRow
 	codeNote   *widget.Label
 	// ordinary shows the catalogue's grid settings.
 	ordinary *settingsPage
@@ -125,6 +123,7 @@ type gridTabView struct {
 	subTabs    *container.AppTabs
 	paramsItem *container.TabItem
 	params     *fyne.Container
+	paramCols  *formColumns
 	rows       []*paramRow
 	page       *gridcode.Page // the page the rows show
 	pageCode   int            // the grid code the parameters were built for; -1 none
@@ -136,20 +135,18 @@ type gridTabView struct {
 	updating bool
 }
 
-// paramRow is the control of one grid parameter.
+// paramRow is the row of one grid parameter.
 type paramRow struct {
-	p       gridcode.Param
-	name    *widget.Label
-	control fyne.CanvasObject
-	marker  *widget.Label
-	update  func()
+	*formRow
+	p      gridcode.Param
+	update func()
 }
 
 // gridPage returns the grid page.
 func gridPage(u *ui) *page { return newGridTab(u).pg }
 
 func newGridTab(u *ui) *gridTabView {
-	g := &gridTabView{u: u, pageCode: -1}
+	g := &gridTabView{u: u, pageCode: -1, paramCols: &formColumns{}}
 	g.code = widget.NewSelect(nil, func(string) {
 		if i := g.code.SelectedIndex(); !g.updating && i >= 0 && u.settings.dev != nil {
 			if err := u.settings.dev.SetRaw(vebus.SettingID(gridCodeSetting), g.codeValues[i]); err != nil {
@@ -158,22 +155,27 @@ func newGridTab(u *ui) *gridTabView {
 			u.settings.changed()
 		}
 	})
-	g.codeMarker = widget.NewLabel("")
 	g.codeNote = widget.NewLabel("")
 	g.codeNote.Wrapping = fyne.TextWrapWord
-	form := container.New(layout.NewFormLayout(), widget.NewLabel(tr("Grid code")),
-		container.NewBorder(nil, nil, nil, g.codeMarker, g.code))
-	codeCard := widget.NewCard("", tr("Grid code"), container.NewVBox(form, g.codeNote))
-
+	// The grid code row shares the label column of the settings under it.
 	g.ordinary = newSettingsPage(u, vebus.TabGrid, "AC input voltage limits", "UPS function", "AC input frequency")
+	g.codeRow = newFormRow(g.ordinary.cols, tr("Grid code"), "", g.code, selectMaxWidth, "")
+	g.codeRow.revert.OnTapped = func() {
+		if d := u.settings.dev; d != nil {
+			g.apply(revertEntry(d, vebus.SettingID(gridCodeSetting)))
+		}
+	}
+	g.ordinary.lead = []fyne.CanvasObject{newFormCard(cardTitle(tr("Grid code")), g.codeRow.root, g.codeNote)}
+	g.ordinary.build()
+
 	g.undo = widget.NewButton(tr("Undo grid parameter changes"), g.undoChanges)
 	g.params = container.NewStack()
 	g.paramsItem = container.NewTabItem(tr("Grid parameters"), g.params)
 	g.subTabs = container.NewAppTabs(
-		container.NewTabItem(tr("Grid code and AC input"), container.NewBorder(codeCard, nil, nil, nil, g.ordinary.content)),
+		container.NewTabItem(tr("Grid code and AC input"), g.ordinary.content),
 		g.paramsItem)
 	g.pg = newPage(tr("Grid"), tr("The grid code, and the limits within which the AC input is accepted."),
-		theme.LoginIcon(), vebus.TabGrid, g.subTabs)
+		theme.LoginIcon(), vebus.TabGrid, withVisual(g.subTabs, pageVisual(u, vebus.TabGrid)))
 
 	u.settings.onChange(func(loaded bool) {
 		if loaded {
@@ -258,7 +260,8 @@ func (g *gridTabView) updateCode() {
 		g.code.SetOptions(nil)
 		g.code.Disable()
 		g.codeValues = nil
-		g.codeMarker.SetText("")
+		g.codeRow.setChanged(false)
+		g.codeRow.setMarkers(false, false)
 		if d == nil {
 			g.codeNote.SetText(tr("No settings loaded. Get the settings from a device, or open a settings file."))
 		} else {
@@ -286,22 +289,9 @@ func (g *gridTabView) updateCode() {
 	g.code.Enable()
 
 	id := vebus.SettingID(gridCodeSetting)
-	var tags []string
-	if d.Dirty(id) {
-		tags = append(tags, tr("changed"))
-	}
-	if d.ResetRequired(id) {
-		tags = append(tags, tr("needs reset"))
-	}
-	if a, ok := d.Access(id); ok && a.PasswordRequired() || !gridcode.SelectableWithoutPassword(gridcode.Code(cur), d.Firmware) {
-		tags = append(tags, tr("needs password"))
-	}
-	g.codeMarker.SetText(strings.Join(tags, ", "))
-	g.codeMarker.Importance = widget.MediumImportance
-	if d.Dirty(id) {
-		g.codeMarker.Importance = widget.WarningImportance
-	}
-	g.codeMarker.Refresh()
+	a, ok := d.Access(id)
+	g.codeRow.setChanged(d.Dirty(id))
+	g.codeRow.setMarkers(d.ResetRequired(id), ok && a.PasswordRequired() || !gridcode.SelectableWithoutPassword(gridcode.Code(cur), d.Firmware))
 	g.codeNote.SetText(tr("Codes marked \"needs password\" are accepted by the device only after the installer password for grid codes " +
 		"has been entered. This program cannot enter it: the device refuses such a code when the settings are sent, " +
 		"and the send report says so."))
@@ -362,16 +352,16 @@ func (g *gridTabView) buildParams(code int) {
 		}
 	}
 	objs = append(objs, container.NewHBox(g.undo))
-	g.params.Objects = []fyne.CanvasObject{container.NewVScroll(container.NewVBox(objs...))}
+	g.params.Objects = []fyne.CanvasObject{newForm(objs...)}
 	g.params.Refresh()
 }
 
 // paramCards returns one card per group of page p, with a row per
 // parameter whose word d holds.
 func (g *gridTabView) paramCards(d *vebus.Device, p *gridcode.Page) []fyne.CanvasObject {
-	var cards []fyne.CanvasObject
-	var missing []string
-	forms := map[string]*fyne.Container{}
+	var missing, groups, names []string
+	rows := map[string][]fyne.CanvasObject{}
+	var params []gridcode.Param
 	for _, prm := range p.Params {
 		if _, ok := g.loaded[prm.Word]; !ok {
 			if s := strconv.Itoa(int(prm.Word)); !slices.Contains(missing, s) {
@@ -379,20 +369,25 @@ func (g *gridTabView) paramCards(d *vebus.Device, p *gridcode.Page) []fyne.Canva
 			}
 			continue
 		}
-		form, ok := forms[prm.Group]
-		if !ok {
-			form = container.New(layout.NewFormLayout())
-			forms[prm.Group] = form
-			title := prm.Group
-			if title == "" {
-				title = p.Name
-			}
-			cards = append(cards, widget.NewCard("", title, form))
+		params = append(params, prm)
+		names = append(names, prm.Name)
+	}
+	g.paramCols.fit(names)
+	for _, prm := range params {
+		if !slices.Contains(groups, prm.Group) {
+			groups = append(groups, prm.Group)
 		}
 		r := g.newParamRow(prm)
 		g.rows = append(g.rows, r)
-		form.Add(r.name)
-		form.Add(container.NewBorder(nil, nil, nil, r.marker, r.control))
+		rows[prm.Group] = append(rows[prm.Group], r.root)
+	}
+	var cards []fyne.CanvasObject
+	for _, grp := range groups {
+		title := grp
+		if title == "" {
+			title = p.Name
+		}
+		cards = append(cards, newFormCard(cardTitle(title), rows[grp]...))
 	}
 	if len(missing) > 0 {
 		l := widget.NewLabel(tr("The device does not report settings {{.Settings}}, so the parameters stored in them are not shown.",
@@ -428,7 +423,10 @@ func (g *gridTabView) apply(err error) {
 }
 
 func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
-	r := &paramRow{p: p, name: widget.NewLabel(p.Name), marker: widget.NewLabel("")}
+	r := &paramRow{p: p}
+	var control fyne.CanvasObject
+	var width float32
+	var entry *numberEntry
 	switch p.Kind {
 	case gridcode.Checkbox:
 		check := widget.NewCheck("", func(on bool) {
@@ -436,18 +434,12 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 				g.apply(g.setParam(p, float64(boolIndex(on))))
 			}
 		})
-		r.control = check
+		control = check
 		r.update = func() { check.SetChecked(p.Unpack(g.word(p.Word)) == 1) }
 	case gridcode.Choice:
-		sel := widget.NewSelect(nil, nil)
 		var values []int
-		sel.OnChanged = func(string) {
-			if i := sel.SelectedIndex(); !g.updating && i >= 0 {
-				g.apply(g.setParam(p, float64(values[i])))
-			}
-		}
-		r.control = sel
-		r.update = func() {
+		// options returns the labels of the choices and of the current value.
+		options := func() []string {
 			cur := p.Field(g.word(p.Word))
 			values = values[:0]
 			for v := range p.Choices {
@@ -464,32 +456,73 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 					labels[i] = tr("Value {{.Value}}", args{"Value": strconv.Itoa(v)})
 				}
 			}
-			sel.SetOptions(labels)
-			sel.SetSelectedIndex(slices.Index(values, cur))
+			return labels
+		}
+		opts := options()
+		if len(opts) <= 3 {
+			radio := newRadio(opts)
+			radio.OnChanged = func(s string) {
+				if i := slices.Index(radio.Options, s); !g.updating && i >= 0 {
+					g.apply(g.setParam(p, float64(values[i])))
+				}
+			}
+			control = radio
+			r.update = func() {
+				radio.Options = options()
+				radio.SetSelected(radio.Options[slices.Index(values, p.Field(g.word(p.Word)))])
+				radio.Refresh()
+			}
+			break
+		}
+		sel := widget.NewSelect(opts, nil)
+		sel.OnChanged = func(string) {
+			if i := sel.SelectedIndex(); !g.updating && i >= 0 {
+				g.apply(g.setParam(p, float64(values[i])))
+			}
+		}
+		control, width = sel, selectWidth(opts)
+		r.update = func() {
+			sel.SetOptions(options())
+			sel.SetSelectedIndex(slices.Index(values, p.Field(g.word(p.Word))))
 		}
 	default:
-		b := widget.NewButton("", func() { g.editParam(p) })
-		b.Alignment = widget.ButtonAlignLeading
-		r.control = b
-		r.update = func() { b.SetText(paramText(p, p.Unpack(g.word(p.Word)))) }
+		entry = newNumberEntry()
+		control, width = entry, numberWidth
+	}
+	where := tr("setting {{.Number}}, bits {{.Mask}}",
+		args{"Number": strconv.Itoa(int(p.Word)), "Mask": "0x" + strings.ToUpper(strconv.FormatUint(uint64(p.Mask), 16))})
+	r.formRow = newFormRow(g.paramCols, p.Name, where, control, width, p.Unit)
+	r.revert.OnTapped = func() {
+		if d := g.u.settings.dev; d != nil {
+			g.apply(d.SetRaw(vebus.SettingID(p.Word), g.word(p.Word)&^p.Mask|g.loaded[p.Word]&p.Mask))
+		}
+	}
+	if entry != nil {
+		d := g.u.settings.dev
+		show := r.bindNumber(entry, func() string { return entryText(p.Unpack(g.word(p.Word)), paramDecimals(p)) }, func(text string) error {
+			if g.u.settings.dev != d {
+				return nil
+			}
+			v, err := parseNumber(text)
+			if err != nil {
+				return errors.New(tr("Enter a number."))
+			}
+			if _, err := p.Pack(g.word(p.Word), v); err != nil {
+				return paramRangeError(p)
+			}
+			g.apply(g.setParam(p, v))
+			return nil
+		})
+		a, b := p.Value(p.Min), p.Value(p.Max)
+		r.setCaption(tr("{{.Min}} – {{.Max}}", args{"Min": formatNumber(min(a, b), paramDecimals(p)), "Max": paramText(p, max(a, b))}))
+		r.update = show
 	}
 	return r
 }
 
 // mark shows whether r's parameter differs from the loaded value.
 func (g *gridTabView) mark(r *paramRow) {
-	changed := r.p.Field(g.word(r.p.Word)) != r.p.Field(g.loaded[r.p.Word])
-	text := ""
-	if changed {
-		text = tr("changed")
-	}
-	r.marker.SetText(text)
-	r.marker.Importance = widget.WarningImportance
-	r.marker.Refresh()
-	if r.name.TextStyle.Bold != changed {
-		r.name.TextStyle.Bold = changed
-		r.name.Refresh()
-	}
+	r.setChanged(r.p.Field(g.word(r.p.Word)) != r.p.Field(g.loaded[r.p.Word]))
 }
 
 // changedParams returns the grid words that differ from the loaded values.
@@ -540,52 +573,4 @@ func paramRangeError(p gridcode.Param) error {
 	a, b := p.Value(p.Min), p.Value(p.Max)
 	return errors.New(tr("Enter a value from {{.Min}} to {{.Max}}.",
 		args{"Min": paramText(p, min(a, b)), "Max": paramText(p, max(a, b))}))
-}
-
-// editParam opens the value dialog of numeric parameter p.
-func (g *gridTabView) editParam(p gridcode.Param) {
-	u := g.u
-	d := u.settings.dev
-	if d == nil {
-		return
-	}
-	check := func(s string) (float64, error) {
-		v, err := parseNumber(s)
-		if err != nil {
-			return 0, errors.New(tr("Enter a number."))
-		}
-		if _, err := p.Pack(g.word(p.Word), v); err != nil {
-			return 0, paramRangeError(p)
-		}
-		return v, nil
-	}
-	entry := widget.NewEntry()
-	entry.SetText(entryText(p.Unpack(g.word(p.Word)), paramDecimals(p)))
-	entry.Validator = func(s string) error { _, err := check(s); return err }
-	entry.AlwaysShowValidationError = true
-	info := func(text string) fyne.CanvasObject { return widget.NewLabel(text) }
-	a, b := p.Value(p.Min), p.Value(p.Max)
-	items := []*widget.FormItem{
-		widget.NewFormItem(tr("Value"), entry),
-		widget.NewFormItem(tr("Minimum"), info(paramText(p, min(a, b)))),
-		widget.NewFormItem(tr("Maximum"), info(paramText(p, max(a, b)))),
-	}
-	if p.HasDefault {
-		items = append(items, widget.NewFormItem(tr("Default"), info(paramText(p, p.Value(p.Default)))))
-	}
-	items = append(items, widget.NewFormItem(tr("Stored in"), info(tr("setting {{.Number}}, bits {{.Mask}}",
-		args{"Number": strconv.Itoa(int(p.Word)), "Mask": "0x" + strings.ToUpper(strconv.FormatUint(uint64(p.Mask), 16))}))))
-	dlg := dialog.NewForm(p.Name, tr("OK"), tr("Cancel"), items, func(ok bool) {
-		if !ok || u.settings.dev != d {
-			return
-		}
-		v, err := check(entry.Text)
-		if err == nil {
-			err = g.setParam(p, v)
-		}
-		g.apply(err)
-	}, u.win)
-	dlg.Resize(fyne.NewSize(420, dlg.MinSize().Height))
-	dlg.Show()
-	u.win.Canvas().Focus(entry)
 }

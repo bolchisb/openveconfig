@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
 
@@ -93,8 +92,8 @@ func TestGridCodeSelectAndSend(t *testing.T) {
 		t.Errorf("%d codes offered, want 33", len(g.codeValues))
 	}
 	selectCode(t, g, 17)
-	if !d.Dirty(vebus.SettingID(gridCodeSetting)) || !strings.Contains(g.codeMarker.Text, "changed") {
-		t.Errorf("grid code not marked changed: %q", g.codeMarker.Text)
+	if !d.Dirty(vebus.SettingID(gridCodeSetting)) || !marked(g.codeRow) {
+		t.Error("grid code not marked changed")
 	}
 	if p, _ := gridcode.PageFor(17); g.page != p || len(g.rows) == 0 {
 		t.Errorf("page %v with %d rows, want the Europe page", g.page, len(g.rows))
@@ -147,12 +146,12 @@ func TestGridPasswordFlags(t *testing.T) {
 				t.Errorf("firmware %d, code %d: label %q", tc.fw, v, g.code.Options[i])
 			}
 		}
-		if strings.Contains(g.codeMarker.Text, "needs password") {
-			t.Errorf("firmware %d: code 0 marked %q", tc.fw, g.codeMarker.Text)
+		if g.codeRow.passwd.Visible() {
+			t.Errorf("firmware %d: code 0 marked as needing a password", tc.fw)
 		}
 		selectCode(t, g, 2)
-		if !strings.Contains(g.codeMarker.Text, "needs password") {
-			t.Errorf("firmware %d: code 2 marked %q, want needs password", tc.fw, g.codeMarker.Text)
+		if !g.codeRow.passwd.Visible() {
+			t.Errorf("firmware %d: code 2 not marked as needing a password", tc.fw)
 		}
 	}
 }
@@ -161,26 +160,21 @@ func TestGridParamEditBlocksSend(t *testing.T) {
 	u, s, g, d := gridSetup(t, 2699481)
 	selectCode(t, g, 17)
 
-	// A number through its value dialog: 3.1 s in the top 5 bits of 143.
+	// A number in its entry: 3.1 s in the top 5 bits of 143.
 	r := paramRowOf(t, g, "Over-frequency response: start delay")
-	g.editParam(r.p)
-	dlg := u.win.Canvas().Overlays().Top()
-	entry := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.Entry); return ok })[0].(*widget.Entry)
-	ok := findButton(t, dlg, "OK")
-	entry.SetText("3.2")
-	if !ok.Disabled() {
-		t.Error("3.2 s (above the maximum) is accepted")
+	enter(r.formRow, "3.2")
+	if w, _ := d.Raw(vebus.SettingID(143)); w != 0 || !strings.HasPrefix(errorText(r.formRow), "Enter a value from") {
+		t.Errorf("3.2 s (above the maximum): word 143 = %#04x, error %q; want refused with the range", w, errorText(r.formRow))
 	}
-	entry.SetText("3.1")
-	test.Tap(ok)
-	if w, _ := d.Raw(vebus.SettingID(143)); w != 31<<11 {
-		t.Errorf("word 143 = %#04x, want %#04x", w, 31<<11)
+	enter(r.formRow, "3.1")
+	if w, _ := d.Raw(vebus.SettingID(143)); w != 31<<11 || errorText(r.formRow) != "" {
+		t.Errorf("word 143 = %#04x, error %q; want %#04x", w, errorText(r.formRow), 31<<11)
 	}
-	if !strings.Contains(r.marker.Text, "changed") || !d.Dirty(vebus.SettingID(143)) {
-		t.Errorf("start delay marker %q, dirty %v", r.marker.Text, d.Dirty(vebus.SettingID(143)))
+	if !marked(r.formRow) || !d.Dirty(vebus.SettingID(143)) {
+		t.Errorf("start delay marked %v, dirty %v", marked(r.formRow), d.Dirty(vebus.SettingID(143)))
 	}
-	if m := paramRowOf(t, g, "Over-frequency response: end delay").marker.Text; m != "" {
-		t.Errorf("end delay, other bits of word 143, marked %q", m)
+	if paramRowOf(t, g, "Over-frequency response: end delay").changed {
+		t.Error("end delay, other bits of word 143, marked as changed")
 	}
 
 	// A check box (inverted) and a choice in the same word 148.
@@ -189,8 +183,8 @@ func TestGridParamEditBlocksSend(t *testing.T) {
 		t.Error("inverted check box with its bit clear is not ticked")
 	}
 	test.Tap(inhibit)
-	method := paramRowOf(t, g, "P(U) reduction method").control.(*widget.Select)
-	method.SetSelectedIndex(2)
+	method := paramRowOf(t, g, "P(U) reduction method").control.(*widget.RadioGroup)
+	method.SetSelected(method.Options[2])
 	if w, _ := d.Raw(vebus.SettingID(148)); w != 0x4|2<<3 {
 		t.Errorf("word 148 = %#04x, want %#04x", w, 0x4|2<<3)
 	}
