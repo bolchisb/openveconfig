@@ -127,6 +127,10 @@ func modelStatus(m *settingsModel) string {
 	if n := len(validationErrors(d)); n > 0 {
 		text += " " + trn("{{.Count}} value is not valid; correct it before sending.", "{{.Count}} values are not valid; correct them before sending.", n)
 	}
+	if n := len(changedGridWords(d)); n > 0 {
+		text += " " + trn("{{.Count}} grid parameter word was changed; it cannot be sent or saved yet (see the Grid tab).",
+			"{{.Count}} grid parameter words were changed; they cannot be sent or saved yet (see the Grid tab).", n)
+	}
 	return text
 }
 
@@ -158,7 +162,7 @@ func (b *settingsBar) getSettings() {
 	addr := b.selectedUnit()
 	read := func() {
 		runWithProgress(u, tr("Reading the settings"), func(ctx context.Context, progress func(done, total int)) error {
-			d, rep, err := readSettings(ctx, s, addr, nil, progress)
+			d, rep, err := readSettings(ctx, s, addr, deviceSettingIDs(), progress)
 			if err != nil {
 				return err
 			}
@@ -210,14 +214,22 @@ func readSettings(ctx context.Context, s *session, addr byte, ids []uint16, prog
 	return d, rep, nil
 }
 
-// writeSettings writes the changed settings of d (all with all) to the
-// device at d.Address through s. d must not be touched by others until it
-// returns.
+// writeSettings writes the changed settings of d (all with all, except the
+// grid words and an unchanged grid code: writeAllButGrid) to the device at
+// d.Address through s. It writes nothing when grid parameters were changed
+// (gridWriteCheck). d must not be touched by others until it returns.
 func writeSettings(ctx context.Context, s *session, d *vebus.Device, all bool, progress func(done, total int)) (*vebus.WriteReport, error) {
+	if err := gridWriteCheck(d); err != nil {
+		return nil, err
+	}
 	var rep *vebus.WriteReport
 	var werr error
 	err := s.Do(ctx, func(ctx context.Context, c *mk2.Client) error {
-		rep, werr = vebus.Write(ctx, c, d, vebus.WriteOptions{All: all, Progress: progress})
+		if all {
+			rep, werr = writeAllButGrid(ctx, c, d, progress)
+		} else {
+			rep, werr = vebus.Write(ctx, c, d, vebus.WriteOptions{Progress: progress})
+		}
 		return nil
 	})
 	if err != nil {
@@ -238,6 +250,10 @@ func sendSettings(u *ui) {
 	}
 	if issues := validationErrors(d); len(issues) > 0 {
 		showIssues(u, issues)
+		return
+	}
+	if err := gridWriteCheck(d); err != nil {
+		showMessage(u, tr("Send settings"), err.Error())
 		return
 	}
 	changedOnly, all := tr("Changed settings only"), tr("All settings")

@@ -90,8 +90,14 @@ func (sf *settingsFile) device() (*vebus.Device, error) {
 // save stores the values of d, the model of the selected unit, in the file
 // and returns the file's bytes. The caller loads a fresh model afterwards,
 // so the saved values count as unchanged.
+//
+// A changed grid code is saved; changed grid parameters are refused, as
+// for sending (gridWriteCheck).
 func (sf *settingsFile) save(d *vebus.Device) ([]byte, error) {
-	if _, err := vebus.SaveRVSC(d, sf.unit, vebus.SaveOptions{}); err != nil {
+	if err := gridWriteCheck(d); err != nil {
+		return nil, err
+	}
+	if _, err := vebus.SaveRVSC(d, sf.unit, vebus.SaveOptions{AllowGridCode: true}); err != nil {
 		return nil, &uiError{err: err, msg: tr("The settings cannot be saved: {{.Err}}", args{"Err": err})}
 	}
 	return sf.f.MarshalBinary()
