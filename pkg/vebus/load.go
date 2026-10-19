@@ -15,56 +15,12 @@ import (
 // if nil). Variables the device reports as unsupported are left out. Any
 // other error stops the load; there are no retries.
 //
-// Load is a minimal reader for tests and tools. Reading and writing a whole
-// device, with retries and IDs outside the catalogue, is a separate task.
+// Load is ReadAll without retries, for tests and tools; use ReadAll for
+// retries, progress, IDs outside the catalogue and a report.
 func Load(ctx context.Context, c *mk2.Client, addr byte, cat *Catalogue) (*Device, error) {
-	if err := c.SetAddress(ctx, addr); err != nil {
-		return nil, fmt.Errorf("vebus: select address %d: %w", addr, err)
-	}
-	fw, err := c.SoftwareVersion(ctx)
+	d, _, err := ReadAll(ctx, c, addr, cat, ReadOptions{Retries: -1})
 	if err != nil {
-		return nil, fmt.Errorf("vebus: firmware version: %w", err)
-	}
-	d := NewDevice(cat)
-	d.Address, d.Firmware = addr, fw
-	for _, e := range d.cat.entries {
-		switch e.Kind {
-		case Setting:
-			info, err := c.SettingInfo(ctx, e.Num)
-			if errors.Is(err, mk2.ErrNotSupported) {
-				continue
-			}
-			if err != nil {
-				return nil, fmt.Errorf("vebus: setting %d: info: %w", e.Num, err)
-			}
-			raw, err := c.ReadSetting(ctx, e.Num)
-			if errors.Is(err, mk2.ErrNotSupported) {
-				continue
-			}
-			if err != nil {
-				return nil, fmt.Errorf("vebus: setting %d: read: %w", e.Num, err)
-			}
-			d.AddSetting(e.Num, info, raw)
-		case RAM:
-			if e.Num > 0xFF {
-				continue
-			}
-			info, err := c.RAMVarInfo(ctx, e.Num)
-			if errors.Is(err, mk2.ErrNotSupported) {
-				continue
-			}
-			if err != nil {
-				return nil, fmt.Errorf("vebus: RAM variable %d: info: %w", e.Num, err)
-			}
-			vals, err := c.ReadRAMVar(ctx, byte(e.Num))
-			if errors.Is(err, mk2.ErrNotSupported) {
-				continue
-			}
-			if err != nil {
-				return nil, fmt.Errorf("vebus: RAM variable %d: read: %w", e.Num, err)
-			}
-			d.AddRAM(e.Num, info, vals[0])
-		}
+		return nil, err
 	}
 	return d, nil
 }

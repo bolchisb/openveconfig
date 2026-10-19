@@ -185,6 +185,15 @@ func (c *Client) SetDestination(addr byte) {
 	c.mu.Unlock()
 }
 
+// WinmonMode returns the Winmon mode the Client currently uses: the
+// Options.WinmonMode it started with, or the mode last set with SetState.
+// The info commands parse their replies in this mode.
+func (c *Client) WinmonMode() WinmonMode {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.mode
+}
+
 func (c *Client) readLoop() {
 	var consumed int64 // stream offset of the scanner's first buffered byte
 	sc := bufio.NewScanner(readerFunc(func(p []byte) (int, error) {

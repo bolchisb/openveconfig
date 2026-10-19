@@ -51,9 +51,20 @@ veconfig-cli read-ram --port COM3 4              # raw and scaled value of a RAM
 veconfig-cli write-setting --port COM3 --yes 2 14.5        # value in display units
 veconfig-cli write-setting --port COM3 --yes --raw 2 1450  # value as stored on the device
 veconfig-cli --simulator dump > dump.json        # all settings and RAM variables as JSON
+veconfig-cli apply --port COM3 dump.json         # show what writing the file's settings would change
+veconfig-cli apply --port COM3 --address 0,1 --yes dump.json  # write the changed settings to two units
+veconfig-cli rvsc-show backup.rvms               # units, firmware and settings of a .rvsc/.rvms file
+veconfig-cli rvsc-diff old.rvms new.rvms         # settings that differ between two files
+veconfig-cli rvsc-diff --port COM3 --unit HQ1234ABCDE backup.rvms   # does the file match the device, and what differs
+veconfig-cli rvsc-set backup.rvsc 2 14.6 -o edited.rvsc             # change one setting offline
+veconfig-cli rvsc-apply --port COM3 --unit HQ1234ABCDE backup.rvms  # dry run; --yes writes the unit's settings
 ```
 
 `write-setting` changes a live device: it is refused without `--yes`, checks the value against the minimum and maximum the device reports, and reads the setting back afterwards.
+
+`apply` is a dry run without `--yes`. With it, it writes only the settings that differ from the device (`--all`: every setting), after checking the device limits and validation (`--force` skips validation only), reads each one back, and lists the settings that need a device reset.
+
+The `rvsc-*` commands work on the `.rvsc`/`.rvms` files of a GX device's backup and VRM Remote VEConfigure. The format is community-reported. `rvsc-set` changes only the setting's bytes and the checksum. `rvsc-apply` refuses a file that does not match the device (firmware, setting info, number of units) and writes only settings, not assistants. Both refuse grid-code settings unless `--allow-grid-code` is given.
 
 ## Building
 

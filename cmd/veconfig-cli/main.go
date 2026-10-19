@@ -13,6 +13,11 @@
 //	read-ram       read one RAM variable with its scale and offset
 //	write-setting  write one setting (needs --yes), then read it back
 //	dump           print all readable settings and RAM variables as JSON
+//	rvsc-show      print the units and settings of a .rvsc/.rvms file
+//	rvsc-diff      compare a .rvsc/.rvms file with a device or another file
+//	rvsc-set       change one setting in a .rvsc/.rvms file (offline)
+//	rvsc-apply     write one .rvsc/.rvms unit to a device (dry run without --yes)
+//	apply          write the settings of a dump file to devices (dry run without --yes)
 //
 // Run "veconfig-cli <command> --help" for the flags of a command. Every
 // command that talks to a device takes --simulator to use the built-in
@@ -83,12 +88,15 @@ type options struct {
 	yes, raw   bool // write-setting
 	maxSetting uint // dump
 	maxRAM     uint // dump
+	rvsc       rvscOptions
+	apply      applyOptions
 }
 
 // errUsage means a usage message has already been printed.
 var errUsage = errors.New("usage error")
 
-var commands = []*command{portsCmd, versionCmd, readSettingCmd, readRAMCmd, writeSettingCmd, dumpCmd}
+var commands = []*command{portsCmd, versionCmd, readSettingCmd, readRAMCmd, writeSettingCmd, dumpCmd,
+	rvscShowCmd, rvscDiffCmd, rvscSetCmd, rvscApplyCmd, applyCmd}
 
 // run is main without the process: it returns the exit code.
 func run(args []string, stdout, stderr io.Writer) int {
@@ -222,8 +230,13 @@ func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
 }
 
 func (o *options) register(fs *flag.FlagSet) {
-	fs.StringVar(&o.port, "port", "", "serial port of the interface, e.g. COM3, /dev/ttyUSB0 or /dev/cu.usbserial-XXXX")
 	fs.UintVar(&o.address, "address", 0, "VE.Bus device address, 0-31")
+	o.registerLink(fs)
+}
+
+// registerLink registers the connection flags other than --address.
+func (o *options) registerLink(fs *flag.FlagSet) {
+	fs.StringVar(&o.port, "port", "", "serial port of the interface, e.g. COM3, /dev/ttyUSB0 or /dev/cu.usbserial-XXXX")
 	fs.StringVar(&o.baud, "baud", "auto", "line speed: auto (try 115200, fall back to 2400), 2400, or 115200\n"+
 		"(115200 tries the switch and fails if the interface stays at 2400)")
 	o.registerSimulator(fs)

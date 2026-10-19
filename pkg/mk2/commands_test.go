@@ -201,8 +201,14 @@ func TestSetStateSwitchesWinmonMode(t *testing.T) {
 		}
 	})
 	ctx := context.Background()
+	if m := c.WinmonMode(); m != WinmonShort {
+		t.Errorf("WinmonMode before S = %d", m)
+	}
 	if err := c.SetState(ctx, State{Switch: SwitchOn, Flags: StateFlagNoSend | StateFlagLimitDeciAmps, Limit: 0x8000, Ext: &StateExt{}}); err != nil {
 		t.Fatal(err)
+	}
+	if m := c.WinmonMode(); m != WinmonLong {
+		t.Errorf("WinmonMode after S = %d", m)
 	}
 	v, err := c.SoftwareVersion(ctx)
 	if err != nil || v != 1130131 {
