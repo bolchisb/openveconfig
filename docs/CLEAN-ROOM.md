@@ -32,8 +32,8 @@ Test fixtures and simulator profiles are synthetic or taken from our own tool's 
 
 ## Third-party code
 
-- **MIT and other permissive licences** (for example yvesf/ve-ctrl-tool, xcellsior/ve-bus-programming, kylehart/mk2vsc, talas9/rvsc-tools, victronenergy/venus-platform; BSD-3-Clause libraries such as go.bug.st/serial): may be reused or adapted. Add an attribution comment at the reuse site and an entry with the licence text in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
-- **GPL-3.0 projects** (for example tomjnixon/mk2.py) and **projects with no stated licence**: reference only. Reading them to understand behaviour is fine; copying or transcribing their code is not.
+- **MIT and other permissive licences** (for example yvesf/ve-ctrl-tool, xcellsior/ve-bus-programming, kylehart/mk2vsc, talas9/rvsc-tools, the MIT-licensed victronenergy repositories such as victronenergy/velib_python; BSD-3-Clause libraries such as go.bug.st/serial): may be reused or adapted. Add an attribution comment at the reuse site and an entry with the licence text in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Code ported from a victronenergy repository is also listed in the README.
+- **GPL-3.0 projects** (for example tomjnixon/mk2.py), **projects under the "Victron Energy OS license"** (for example victronenergy/gui-v2, which restricts use to systems built around Victron products) and **projects with no stated licence** (for example victronenergy/venus-platform): reference only. Reading them to understand behaviour is fine; copying or transcribing their code is not.
 - Check the licence of the exact version you use, not only the project's README.
 
 ## Access control
