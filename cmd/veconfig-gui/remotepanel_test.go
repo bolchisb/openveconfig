@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
-	"image/color"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +12,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
@@ -292,26 +293,38 @@ func TestRemotePanelLEDs(t *testing.T) {
 		t.Fatalf("%d LEDs, want 8", len(led))
 	}
 	for bit, l := range led {
-		if l.circle.FillColor != ledNoStatus {
-			t.Errorf("LED %#x before the first poll: %v, want the no-status colour", bit, l.circle.FillColor)
+		if l.ind.state != indicatorUnknown {
+			t.Errorf("LED %#x before the first poll: state %v, want unknown", bit, l.ind.state)
+		}
+	}
+	// The colour each LED lights in.
+	colours := map[byte]fyne.ThemeColorName{
+		mk2.LEDMains: theme.ColorNameSuccess, mk2.LEDInverter: theme.ColorNameSuccess,
+		mk2.LEDBulk: theme.ColorNameWarning, mk2.LEDAbsorption: theme.ColorNameWarning, mk2.LEDFloat: theme.ColorNameWarning,
+		mk2.LEDOverload: theme.ColorNameError, mk2.LEDLowBattery: theme.ColorNameError, mk2.LEDTemperature: theme.ColorNameError,
+	}
+	for bit, l := range led {
+		if l.ind.colour != colours[bit] {
+			t.Errorf("LED %#x lights in %s, want %s", bit, l.ind.colour, colours[bit])
 		}
 	}
 
 	pollPanel(t, p)
-	want := map[bool]map[byte]color.Color{
-		true:  {mk2.LEDMains: ledGreen, mk2.LEDBulk: ledAmber, mk2.LEDFloat: ledOff, mk2.LEDOverload: ledRed},
-		false: {mk2.LEDMains: ledGreen, mk2.LEDBulk: ledOff, mk2.LEDFloat: ledAmber, mk2.LEDOverload: ledRed},
+	// The LEDs lit in each blink phase.
+	lit := map[bool][]byte{
+		true:  {mk2.LEDMains, mk2.LEDBulk, mk2.LEDOverload},
+		false: {mk2.LEDMains, mk2.LEDFloat, mk2.LEDOverload},
 	}
 	for _, phase := range []bool{true, false} {
 		p.phase = phase
 		p.renderLEDs()
 		for bit, l := range led {
-			w, ok := want[phase][bit]
-			if !ok {
-				w = ledOff
+			w := indicatorOff
+			if slices.Contains(lit[phase], bit) {
+				w = indicatorOn
 			}
-			if l.circle.FillColor != w {
-				t.Errorf("phase %v: LED %#x is %v, want %v", phase, bit, l.circle.FillColor, w)
+			if l.ind.state != w {
+				t.Errorf("phase %v: LED %#x state %v, want %v", phase, bit, l.ind.state, w)
 			}
 		}
 	}
@@ -320,8 +333,8 @@ func TestRemotePanelLEDs(t *testing.T) {
 	countLED(sim, mk2.LEDStatus{On: ledUnknown, Blink: ledUnknown})
 	pollPanel(t, p)
 	for bit, l := range led {
-		if l.circle.FillColor != ledNoStatus {
-			t.Errorf("status unknown: LED %#x is %v, want the no-status colour", bit, l.circle.FillColor)
+		if l.ind.state != indicatorUnknown {
+			t.Errorf("status unknown: LED %#x state %v, want unknown", bit, l.ind.state)
 		}
 	}
 	if !strings.Contains(p.status.Text, "cannot report its LED status") {

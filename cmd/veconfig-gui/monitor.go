@@ -14,6 +14,8 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
@@ -262,21 +264,66 @@ func (f *field) hide() {
 // visible reports whether the field is shown.
 func (f *field) visible() bool { return f.value.Visible() }
 
-// fieldGroup is a titled group of fields, shown while any of them is.
+// fieldGroup is a tile that shows fields, shown while any of them is.
 type fieldGroup struct {
-	box    *fyne.Container
+	box    fyne.CanvasObject
 	fields []*field
 }
 
-func newFieldGroup(title string, fields ...*field) *fieldGroup {
+// newFieldGroup returns a tile with content, which shows fields.
+func newFieldGroup(content fyne.CanvasObject, fields ...*field) *fieldGroup {
+	// The card is shown and hidden through a container, which unlike a
+	// widget is not refreshed by Show.
+	return &fieldGroup{box: container.NewStack(widget.NewCard("", "", content)), fields: fields}
+}
+
+// statTile returns the content of a tile: its title, the value of main in
+// large type and the other fields as name and value.
+func statTile(title string, main *field, rest ...*field) fyne.CanvasObject {
+	main.value.TextStyle.Bold = true
+	main.value.SizeName = theme.SizeNameHeadingText
 	grid := container.NewGridWithColumns(2)
-	for _, f := range fields {
+	for _, f := range rest {
+		f.value.TextStyle.Bold = true
 		grid.Add(f.name)
 		grid.Add(f.value)
 	}
-	heading := widget.NewLabel(title)
-	heading.TextStyle.Bold = true
-	return &fieldGroup{box: container.NewVBox(heading, grid), fields: fields}
+	return container.NewVBox(mutedText(title), main.value, grid)
+}
+
+// statusChip shows an on/off value as a lamp, its name and its value.
+type statusChip struct {
+	f   *field
+	id  byte // the RAM variable
+	dot *indicator
+	box *fyne.Container
+}
+
+func newStatusChip(f *field, id byte) *statusChip {
+	c := &statusChip{f: f, id: id, dot: newIndicator(theme.ColorNameSuccess, 8)}
+	f.value.TextStyle.Bold = true
+	c.box = container.NewHBox(container.NewStack(
+		newColourRect(theme.ColorNameInputBackground, fyne.Size{}, theme.SizeNameInputRadius),
+		container.New(layout.NewCustomPaddedLayout(0, 0, 6, 2), container.NewHBox(container.NewCenter(c.dot), f.name, f.value))))
+	return c
+}
+
+// update shows the chip's value in r, or hides the chip with its field.
+func (c *statusChip) update(r panelReading) {
+	if c.f.visible() {
+		c.box.Show()
+	} else {
+		c.box.Hide()
+	}
+	v, ok := r.values[c.id]
+	switch {
+	case ok && v != 0:
+		c.dot.set(indicatorOn)
+	case ok:
+		c.dot.set(indicatorOff)
+	default:
+		c.dot.set(indicatorUnknown)
+	}
 }
 
 // update shows the group if any of its fields is shown.
@@ -386,6 +433,7 @@ type panel struct {
 	root   *fyne.Container
 	status *widget.Label // why the last poll failed
 	groups []*fieldGroup
+	chips  []*statusChip
 
 	mainsV, mainsI, mainsF          *field
 	outV, outI, outF                *field
@@ -418,13 +466,24 @@ func newPanel(u *ui) *panel {
 		relay:     newField(tr("Relay")),
 	}
 	p.status.Wrapping = fyne.TextWrapWord
-	p.groups = []*fieldGroup{
-		newFieldGroup(tr("AC input"), p.mainsV, p.mainsI, p.mainsF),
-		newFieldGroup(tr("AC output"), p.outV, p.outI, p.outF),
-		newFieldGroup(tr("DC"), p.batV, p.batRipple, p.batI),
-		newFieldGroup(tr("Status"), p.state, p.vswitch, p.ignoreAC, p.relay),
+	p.chips = []*statusChip{
+		newStatusChip(p.vswitch, ramVirtualSwitch), newStatusChip(p.ignoreAC, ramIgnoreAC), newStatusChip(p.relay, ramRelay),
 	}
-	row := container.NewHBox()
+	chips := container.NewVBox()
+	for _, c := range p.chips {
+		chips.Add(c.box)
+	}
+	p.state.value.TextStyle.Bold = true
+	p.state.value.SizeName = theme.SizeNameSubHeadingText
+	p.state.value.Wrapping = fyne.TextWrapWord
+	p.groups = []*fieldGroup{
+		newFieldGroup(statTile(tr("AC input"), p.mainsV, p.mainsI, p.mainsF), p.mainsV, p.mainsI, p.mainsF),
+		newFieldGroup(statTile(tr("AC output"), p.outV, p.outI, p.outF), p.outV, p.outI, p.outF),
+		newFieldGroup(statTile(tr("DC"), p.batV, p.batI, p.batRipple), p.batV, p.batRipple, p.batI),
+		newFieldGroup(container.NewVBox(mutedText(tr("Status")), p.state.value, chips),
+			p.state, p.vswitch, p.ignoreAC, p.relay),
+	}
+	row := container.NewGridWithColumns(len(p.groups))
 	for _, g := range p.groups {
 		g.box.Hide()
 		row.Add(g.box)
@@ -492,6 +551,9 @@ func (p *panel) show(r panelReading, err error) {
 				}
 			}
 		}
+		for _, c := range p.chips {
+			c.update(panelReading{})
+		}
 		return
 	}
 	p.status.Hide()
@@ -533,6 +595,9 @@ func (p *panel) show(r panelReading, err error) {
 		p.state.set(readError())
 	default:
 		p.state.hide()
+	}
+	for _, c := range p.chips {
+		c.update(r)
 	}
 	for _, g := range p.groups {
 		g.update()

@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
@@ -99,24 +100,30 @@ type phaseView struct {
 	outV, outI, outF, outP *field
 }
 
+// newPhaseView returns the card of phase n: a table of the input and the
+// output values. A value that is not shown leaves its cell empty.
 func newPhaseView(n int) *phaseView {
+	names := []string{tr("Voltage"), tr("Current"), tr("Frequency"), tr("Power")}
 	v := &phaseView{
-		inV:  newField(tr("Input voltage")),
-		inI:  newField(tr("Input current")),
-		inF:  newField(tr("Input frequency")),
-		inP:  newField(tr("Input power")),
-		outV: newField(tr("Output voltage")),
-		outI: newField(tr("Output current")),
-		outF: newField(tr("Output frequency")),
-		outP: newField(tr("Output power")),
+		inV: newField(names[0]), inI: newField(names[1]), inF: newField(names[2]), inP: newField(names[3]),
+		outV: newField(names[0]), outI: newField(names[1]), outF: newField(names[2]), outP: newField(names[3]),
 	}
-	grid := container.NewGridWithColumns(2)
-	for _, f := range []*field{v.inV, v.inI, v.inF, v.inP, v.outV, v.outI, v.outF, v.outP} {
-		grid.Add(f.name)
-		grid.Add(f.value)
+	grid := container.NewGridWithColumns(3, widget.NewLabel(""), columnHead(tr("Input")), columnHead(tr("Output")))
+	in := []*field{v.inV, v.inI, v.inF, v.inP}
+	out := []*field{v.outV, v.outI, v.outF, v.outP}
+	for i, name := range names {
+		in[i].value.TextStyle.Bold, out[i].value.TextStyle.Bold = true, true
+		grid.Add(widget.NewLabel(name))
+		grid.Add(container.NewStack(in[i].value))
+		grid.Add(container.NewStack(out[i].value))
 	}
 	v.card = widget.NewCard(tr("Phase L{{.Phase}}", args{"Phase": n}), "", grid)
 	return v
+}
+
+// columnHead returns the heading of a table column.
+func columnHead(text string) fyne.CanvasObject {
+	return widget.NewLabelWithStyle(text, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 }
 
 // busView is the content of the VE.Bus monitor window.
@@ -146,6 +153,7 @@ func newBusView() *busView {
 	}
 	grid := container.NewGridWithColumns(2)
 	for _, f := range []*field{v.batV, v.batI, v.invI, v.chgI} {
+		f.value.TextStyle.Bold = true
 		grid.Add(f.name)
 		grid.Add(f.value)
 	}
@@ -231,7 +239,8 @@ func showVEBusMonitor(u *ui) {
 	}
 	w := u.app.NewWindow(tr("VE.Bus monitor"))
 	v := newBusView()
-	w.SetContent(container.NewPadded(v.root))
+	w.SetContent(container.NewStack(newColourRect(colorNamePage, fyne.Size{}, ""),
+		container.New(layout.NewCustomPaddedLayout(8, 8, 12, 12), v.root)))
 	r := &busReader{target: s.target, infos: newRAMInfos()}
 	prefs := u.app.Preferences()
 	p := startPoller(s, func() time.Duration { return pollInterval(prefs) }, r.read,

@@ -1,7 +1,8 @@
 package main
 
-// The main window around the pages: the header, the sidebar, the changes
-// bar and the Overview page, and the small widgets they are drawn with.
+// The main window around the pages: the header, the sidebar and the changes
+// bar, and the small widgets they are drawn with. The Overview page is in
+// overview.go.
 
 import (
 	"image/color"
@@ -265,67 +266,6 @@ func primaryAction(u *ui, c changeCounts) (label string, do func(), reason strin
 		reason = tr("Undo the grid parameter changes to send.")
 	}
 	return label, do, reason
-}
-
-// overviewContent returns the content of the Overview page: the
-// connection, the unit whose settings Get reads, and the live values.
-func overviewContent(u *ui) fyne.CanvasObject {
-	status := widget.NewLabel("")
-	status.Wrapping = fyne.TextWrapWord
-	var addrs []byte // parallel to units.Options
-	units := widget.NewSelect(nil, nil)
-	units.OnChanged = func(string) {
-		if i := units.SelectedIndex(); i >= 0 && i < len(addrs) {
-			u.unit = addrs[i]
-		}
-	}
-	unitBox := container.NewGridWrap(fyne.NewSize(200, units.MinSize().Height), units)
-	get := widget.NewButtonWithIcon(tr("Get settings"), theme.DownloadIcon(), func() { getSettings(u) })
-	connect := widget.NewButton(tr("Connect…"), func() { u.conn.show() })
-	connect.Importance = widget.HighImportance
-	live := mutedText(tr("Live values are shown here while a device is connected."))
-	update := func() {
-		s := u.sess
-		if s == nil {
-			status.SetText(tr("Not connected. The settings shown come from a file or from an earlier connection."))
-			unitBox.Hide()
-			get.Hide()
-			connect.Show()
-			live.Show()
-			return
-		}
-		status.SetText(describe(s))
-		addrs = s.devices
-		opts := make([]string, len(addrs))
-		for i, a := range addrs {
-			opts[i] = tr("Unit at address {{.Address}}", args{"Address": a})
-		}
-		if !slices.Equal(opts, units.Options) {
-			units.SetOptions(opts)
-		}
-		units.SetSelectedIndex(slices.Index(addrs, u.unit))
-		unitBox.Hidden = len(addrs) < 2
-		unitBox.Refresh()
-		get.Show()
-		get.Importance = widget.MediumImportance
-		if u.settings.dev == nil {
-			get.Importance = widget.HighImportance
-		}
-		get.Refresh()
-		connect.Hide()
-		live.Hide()
-	}
-	u.onSession(func(s *session) {
-		if s != nil {
-			u.unit = s.target
-		}
-		update()
-	})
-	u.settings.onChange(func(bool) { update() })
-	update()
-	conn := widget.NewCard("", tr("Connection"), container.NewVBox(status, container.NewHBox(unitBox, get, connect)))
-	values := widget.NewCard("", tr("Live values"), container.NewVBox(live, monitorPanel(u)))
-	return container.NewVScroll(container.NewVBox(conn, values))
 }
 
 // mutedText returns wrapped text in the muted colour of hints.

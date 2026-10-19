@@ -9,6 +9,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
@@ -52,17 +54,6 @@ const (
 // cannot determine the LED status (§4).
 const ledUnknown = 0x1F
 
-// Colours of our own panel drawing.
-var (
-	panelFace   = color.NRGBA{R: 0x24, G: 0x2c, B: 0x36, A: 0xff}
-	panelText   = color.NRGBA{R: 0xe8, G: 0xea, B: 0xed, A: 0xff}
-	ledOff      = color.NRGBA{R: 0x40, G: 0x44, B: 0x4a, A: 0xff}
-	ledNoStatus = color.NRGBA{R: 0x8a, G: 0x8e, B: 0x94, A: 0xff}
-	ledGreen    = color.NRGBA{R: 0x34, G: 0xc7, B: 0x59, A: 0xff}
-	ledAmber    = color.NRGBA{R: 0xff, G: 0xb3, B: 0x1a, A: 0xff}
-	ledRed      = color.NRGBA{R: 0xe8, G: 0x3b, B: 0x3b, A: 0xff}
-)
-
 // remotePanels holds the open remote panel of each ui. A nil entry means
 // that the panel is closed but its session listener is registered. Used on
 // the UI goroutine only.
@@ -95,9 +86,8 @@ func showRemotePanel(u *ui) {
 
 // panelLED is one LED of the panel.
 type panelLED struct {
-	bit    byte // mk2.LEDMains ... mk2.LEDTemperature
-	colour color.Color
-	circle *canvas.Circle
+	bit byte // mk2.LEDMains ... mk2.LEDTemperature
+	ind *indicator
 }
 
 // switchButton is the button for one switch position.
@@ -124,13 +114,14 @@ type remotePanel struct {
 	switches []switchButton
 	sw       mk2.Switch // reported or last chosen position; 0 if unknown
 
-	limit     *widget.Slider // in 0.1 A
-	limitText *widget.Label
-	limitNote *widget.Label
-	status    *widget.Label
-	override  bool   // the device lets the panel set the limit
-	ownLimit  uint16 // limit set from this panel in 0.1 A; 0 if none
-	dragging  bool   // the user is moving the slider
+	limit              *widget.Slider // in 0.1 A
+	limitText          *widget.Label
+	limitMin, limitMax *widget.Label // the slider's range
+	limitNote          *widget.Label
+	status             *widget.Label
+	override           bool   // the device lets the panel set the limit
+	ownLimit           uint16 // limit set from this panel in 0.1 A; 0 if none
+	dragging           bool   // the user is moving the slider
 	// pending counts commands not yet sent. While one is pending, a poll
 	// result may predate it, so it does not move the switch or slider.
 	pending int
@@ -143,34 +134,39 @@ func newRemotePanel(u *ui, s *session) *remotePanel {
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 
 	chargeLEDs := []fyne.CanvasObject{
-		p.newLED(mk2.LEDMains, tr("Mains"), ledGreen),
-		p.newLED(mk2.LEDBulk, tr("Bulk"), ledAmber),
-		p.newLED(mk2.LEDAbsorption, tr("Absorption"), ledAmber),
-		p.newLED(mk2.LEDFloat, tr("Float"), ledAmber),
+		mutedText(tr("Charger")),
+		p.newLED(mk2.LEDMains, tr("Mains"), theme.ColorNameSuccess),
+		p.newLED(mk2.LEDBulk, tr("Bulk"), theme.ColorNameWarning),
+		p.newLED(mk2.LEDAbsorption, tr("Absorption"), theme.ColorNameWarning),
+		p.newLED(mk2.LEDFloat, tr("Float"), theme.ColorNameWarning),
 	}
 	inverterLEDs := []fyne.CanvasObject{
-		p.newLED(mk2.LEDInverter, tr("Inverter"), ledGreen),
-		p.newLED(mk2.LEDOverload, tr("Overload"), ledRed),
-		p.newLED(mk2.LEDLowBattery, tr("Low battery"), ledRed),
-		p.newLED(mk2.LEDTemperature, tr("Temperature"), ledRed),
+		mutedText(tr("Inverter")),
+		p.newLED(mk2.LEDInverter, tr("Inverter"), theme.ColorNameSuccess),
+		p.newLED(mk2.LEDOverload, tr("Overload"), theme.ColorNameError),
+		p.newLED(mk2.LEDLowBattery, tr("Low battery"), theme.ColorNameError),
+		p.newLED(mk2.LEDTemperature, tr("Temperature"), theme.ColorNameError),
 	}
-	face := canvas.NewRectangle(panelFace)
-	face.CornerRadius = 12
-	ledArea := container.NewStack(face, container.NewPadded(container.NewGridWithColumns(2,
-		container.NewVBox(chargeLEDs...), container.NewVBox(inverterLEDs...))))
+	ledCard := widget.NewCard(tr("Status"), "", container.NewGridWithColumns(2,
+		container.NewVBox(chargeLEDs...), container.NewVBox(inverterLEDs...)))
 	p.renderLEDs()
 
+	// The switch is a segmented control: one button per position, the
+	// position in force highlighted.
 	// The product type is the AA of the AA BB CCC firmware version (§2).
 	positions := []switchButton{{sw: mk2.SwitchOn}, {sw: mk2.SwitchOff}}
 	if s.firmware[s.target]/100000 != chargerProductType {
 		positions = append(positions, switchButton{sw: mk2.SwitchChargerOnly}, switchButton{sw: mk2.SwitchInverterOnly})
 	}
-	buttons := container.NewHBox()
+	buttons := container.NewGridWithColumns(len(positions))
 	for _, pos := range positions {
 		pos.b = widget.NewButton(switchLabel(pos.sw), func() { p.setSwitch(pos.sw) })
+		pos.b.Importance = widget.LowImportance
 		p.switches = append(p.switches, pos)
 		buttons.Add(pos.b)
 	}
+	segmented := container.NewStack(newColourRect(theme.ColorNameInputBackground, fyne.Size{}, theme.SizeNameInputRadius),
+		container.New(layout.NewCustomPaddedLayout(2, 2, 2, 2), buttons))
 
 	p.limit = widget.NewSlider(0, 1)
 	p.limit.Step = 1
@@ -183,20 +179,21 @@ func newRemotePanel(u *ui, s *session) *remotePanel {
 		p.dragging = false
 		p.setLimit(uint16(v))
 	}
-	p.limitText = widget.NewLabel("")
+	p.limitText = widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	p.limitText.SizeName = theme.SizeNameHeadingText
+	p.limitMin, p.limitMax = widget.NewLabel(""), widget.NewLabel("")
+	p.limitMin.SizeName, p.limitMax.SizeName = theme.SizeNameCaptionText, theme.SizeNameCaptionText
 	p.limitNote = widget.NewLabel("")
 	p.limitNote.Wrapping = fyne.TextWrapWord
 	p.status = widget.NewLabel("")
 	p.status.Wrapping = fyne.TextWrapWord
 
-	p.win.SetContent(container.NewVBox(
-		ledArea,
-		widget.NewLabel(tr("Switch")), buttons,
-		widget.NewLabel(tr("AC input current limit")),
-		container.NewBorder(nil, nil, nil, p.limitText, p.limit),
-		p.limitNote, p.status,
-	))
-	p.win.Resize(fyne.NewSize(460, 420))
+	limitCard := widget.NewCard(tr("AC input current limit"), "", container.NewVBox(
+		p.limitText, p.limit, container.NewBorder(nil, nil, p.limitMin, p.limitMax), p.limitNote))
+	p.win.SetContent(container.NewStack(newColourRect(colorNamePage, fyne.Size{}, ""),
+		container.New(layout.NewCustomPaddedLayout(8, 8, 12, 12), container.NewVBox(
+			ledCard, widget.NewCard(tr("Switch"), "", segmented), limitCard, p.status))))
+	p.win.Resize(fyne.NewSize(460, 600))
 	p.win.SetOnClosed(func() {
 		p.cancel()
 		remotePanels[u] = nil
@@ -204,12 +201,12 @@ func newRemotePanel(u *ui, s *session) *remotePanel {
 	return p
 }
 
-// newLED adds an LED for bit, lit in colour, and returns it with its name.
-func (p *remotePanel) newLED(bit byte, name string, colour color.Color) fyne.CanvasObject {
-	l := &panelLED{bit: bit, colour: colour, circle: canvas.NewCircle(ledNoStatus)}
+// newLED adds an LED for bit, lit in theme colour colour, and returns it
+// with its name.
+func (p *remotePanel) newLED(bit byte, name string, colour fyne.ThemeColorName) fyne.CanvasObject {
+	l := &panelLED{bit: bit, ind: newIndicator(colour, 14)}
 	p.leds = append(p.leds, l)
-	text := canvas.NewText(name, panelText)
-	return container.NewHBox(container.NewCenter(container.NewGridWrap(fyne.NewSquareSize(16), l.circle)), text)
+	return container.NewHBox(container.NewCenter(l.ind), widget.NewLabel(name))
 }
 
 // switchLabel names a switch position.
@@ -305,6 +302,8 @@ func (p *remotePanel) show(led mk2.LEDStatus, m mk2.MasterMultiLED) {
 	if !valid {
 		p.limit.Disable()
 		p.limitText.SetText("")
+		p.limitMin.SetText("")
+		p.limitMax.SetText("")
 		p.limitNote.SetText(tr("The device does not report its AC input current limit."))
 		return
 	}
@@ -312,6 +311,8 @@ func (p *remotePanel) show(led mk2.LEDStatus, m mk2.MasterMultiLED) {
 	// goes down to it.
 	lo, hi := max(m.MinInputLimit, 1), m.MaxInputLimit
 	p.limit.Min, p.limit.Max = float64(lo), float64(hi)
+	p.limitMin.SetText(deciAmps(lo))
+	p.limitMax.SetText(deciAmps(hi))
 	if p.override && hi > lo {
 		p.limit.Enable()
 		p.limitNote.SetText(tr("The device accepts a limit from {{.Min}} to {{.Max}}.", args{"Min": deciAmps(lo), "Max": deciAmps(hi)}))
@@ -340,19 +341,104 @@ func ledLit(st mk2.LEDStatus, bit byte, phase bool) bool {
 func (p *remotePanel) renderLEDs() {
 	unknown := !p.hasLED || p.led.On == ledUnknown && p.led.Blink == ledUnknown
 	for _, l := range p.leds {
-		c := color.Color(ledOff)
+		st := indicatorOff
 		switch {
 		case unknown:
-			c = ledNoStatus
+			st = indicatorUnknown
 		case ledLit(p.led, l.bit, p.phase):
-			c = l.colour
+			st = indicatorOn
 		}
-		if l.circle.FillColor != c {
-			l.circle.FillColor = c
-			l.circle.Refresh()
-		}
+		l.ind.set(st)
 	}
 }
+
+// indicatorState is what an indicator shows.
+type indicatorState int
+
+const (
+	indicatorUnknown indicatorState = iota // not known: a hollow ring
+	indicatorOff                           // a dim dot
+	indicatorOn                            // a dot in its colour, with a glow
+)
+
+// indicator is a round lamp in a theme colour: an LED of the remote panel
+// or the dot of a status chip.
+type indicator struct {
+	widget.BaseWidget
+	colour fyne.ThemeColorName // when on
+	state  indicatorState
+	size   float32 // diameter of the dot
+}
+
+func newIndicator(colour fyne.ThemeColorName, size float32) *indicator {
+	i := &indicator{colour: colour, size: size}
+	i.ExtendBaseWidget(i)
+	return i
+}
+
+// set shows st.
+func (i *indicator) set(st indicatorState) {
+	if i.state != st {
+		i.state = st
+		i.Refresh()
+	}
+}
+
+func (i *indicator) CreateRenderer() fyne.WidgetRenderer {
+	r := &indicatorRenderer{i: i, glow: canvas.NewCircle(color.Transparent), dot: canvas.NewCircle(color.Transparent)}
+	r.Refresh()
+	return r
+}
+
+type indicatorRenderer struct {
+	i         *indicator
+	glow, dot *canvas.Circle
+}
+
+// indicatorGlow is how far the glow of a lit indicator reaches.
+const indicatorGlow = 3
+
+func (r *indicatorRenderer) Layout(size fyne.Size) {
+	c := fyne.NewPos(size.Width/2, size.Height/2)
+	d := r.i.size
+	r.dot.Move(fyne.NewPos(c.X-d/2, c.Y-d/2))
+	r.dot.Resize(fyne.NewSquareSize(d))
+	g := d + 2*indicatorGlow
+	r.glow.Move(fyne.NewPos(c.X-g/2, c.Y-g/2))
+	r.glow.Resize(fyne.NewSquareSize(g))
+}
+
+func (r *indicatorRenderer) MinSize() fyne.Size {
+	return fyne.NewSquareSize(r.i.size + 2*indicatorGlow)
+}
+
+func (r *indicatorRenderer) Refresh() {
+	th := r.i.Theme()
+	v := fyne.CurrentApp().Settings().ThemeVariant()
+	nrgba := func(n fyne.ThemeColorName) color.NRGBA { return color.NRGBAModel.Convert(th.Color(n, v)).(color.NRGBA) }
+	r.glow.Hidden = r.i.state != indicatorOn
+	r.dot.StrokeWidth = 0
+	switch r.i.state {
+	case indicatorOn:
+		c := nrgba(r.i.colour)
+		r.dot.FillColor = c
+		r.glow.FillColor = withAlpha(c, 0x4d)
+	case indicatorOff:
+		fg := nrgba(theme.ColorNameForeground)
+		r.dot.FillColor = withAlpha(fg, 0x1f)
+		r.dot.StrokeColor, r.dot.StrokeWidth = withAlpha(fg, 0x40), 1
+	default:
+		r.dot.FillColor = color.Transparent
+		r.dot.StrokeColor, r.dot.StrokeWidth = nrgba(theme.ColorNameDisabled), 1.5
+	}
+	r.Layout(r.i.Size())
+	r.glow.Refresh()
+	r.dot.Refresh()
+}
+
+func (r *indicatorRenderer) Objects() []fyne.CanvasObject { return []fyne.CanvasObject{r.glow, r.dot} }
+
+func (r *indicatorRenderer) Destroy() {}
 
 // switchFromRegister returns the switch position of a MasterMultiLED
 // <Switch register>.
@@ -373,7 +459,7 @@ func switchFromRegister(r byte) mk2.Switch {
 func (p *remotePanel) showSwitch(sw mk2.Switch) {
 	p.sw = sw
 	for _, s := range p.switches {
-		imp := widget.MediumImportance
+		imp := widget.LowImportance
 		if s.sw == sw {
 			imp = widget.HighImportance
 		}
