@@ -39,11 +39,11 @@ func settingsPages(u *ui) []*page {
 		} else {
 			p = newSettingsPage(u, t.tab)
 		}
-		content := fyne.CanvasObject(p.content)
 		if t.tab == vebus.TabCharger {
-			content = container.NewBorder(presetsBar(u), nil, nil, nil, content)
+			p.lead = []fyne.CanvasObject{batteryTypeCard(u)}
+			p.build()
 		}
-		pg := newPage(t.title, t.desc, t.icon, t.tab, withVisual(content, pageVisual(u, t.tab)))
+		pg := newPage(t.title, t.desc, t.icon, t.tab, withVisual(p.content, pageVisual(u, t.tab)))
 		pg.empty = p.empty
 		u.settings.onFind(func(e vebus.Entry) bool {
 			if e.Tab != t.tab {

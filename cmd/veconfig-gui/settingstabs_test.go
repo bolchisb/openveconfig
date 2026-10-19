@@ -498,31 +498,6 @@ func TestParseNumberLocale(t *testing.T) {
 	}
 }
 
-func TestBatteryPresets(t *testing.T) {
-	u := newTestUI(t)
-	prefs := u.app.Preferences()
-	d := vebus.NewDevice(nil)
-	d.AddSetting(2, mk2.SettingInfo{Sc: -100, Min: 800, Max: 1750}, 1440)
-	d.AddSetting(3, mk2.SettingInfo{Sc: -100, Min: 800, Max: 1750}, 1380)
-	d.AddSetting(1, mk2.SettingInfo{Sc: 1, Max: 0x7000}, 1<<13) // flag 29 (traction curve) on
-	storePresets(prefs, []batteryPreset{presetFrom(d, "Mine")})
-
-	_ = setNumber(d, mustEntry(t, d, vebus.SettingID(2)), "14.1")
-	ps := loadPresets(prefs)
-	if len(ps) != 1 || ps[0].Name != "Mine" {
-		t.Fatalf("stored presets = %+v", ps)
-	}
-	if errs := ps[0].apply(d); len(errs) > 0 {
-		t.Fatal(errs)
-	}
-	if v, _ := d.Display(vebus.SettingID(2)); v != 14.4 {
-		t.Errorf("absorption after the preset = %v, want 14.4", v)
-	}
-	if on, _ := d.Flag(29); on {
-		t.Error("the preset left the traction curve on")
-	}
-}
-
 func TestFindEntries(t *testing.T) {
 	d := vebus.NewDevice(nil)
 	d.AddSetting(0, mk2.SettingInfo{Sc: 1, Max: 0x0024}, 0) // flags 2 and 5
