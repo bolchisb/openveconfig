@@ -39,7 +39,11 @@ type Profile struct {
 	// limits in 0.1 A of the MasterMultiLED frame (§6.2), used when this
 	// device is the master. InputLimit is the starting actual limit.
 	MinInputLimit, MaxInputLimit, InputLimit uint16
-	Settings                                 []Setting
+	// ACInputConfig is the AC input configuration byte of the
+	// MasterMultiLED frame (§6.2), reported verbatim; bit 2 means a remote
+	// panel may override the input current limit.
+	ACInputConfig byte
+	Settings      []Setting
 	// RAMVars also feed the info frames (§6.1): IDs 0-3 the AC frame, 4,
 	// 5 and 7 the DC frame, 8 the AC mains period.
 	RAMVars []RAMVar
@@ -87,6 +91,7 @@ func Synthetic12V230() Profile {
 		State:         mk2.DeviceState{State: 9, SubState: 2},
 		LED:           mk2.LEDStatus{On: mk2.LEDMains | mk2.LEDAbsorption},
 		MinInputLimit: 20, MaxInputLimit: 500, InputLimit: 160,
+		ACInputConfig: 1 << 2, // invented: a remote panel may override the limit
 		Settings: []Setting{
 			{ID: 0, Name: "Flags0", Sc: 1, Default: 0x0080, Max: 0x69FF},
 			{ID: 1, Name: "Flags1", Sc: 1, Default: 0x0000, Max: 0x7000},

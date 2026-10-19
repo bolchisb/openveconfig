@@ -152,13 +152,24 @@ func TestRemotePanelSwitch(t *testing.T) {
 		t.Errorf("after an outside change: switch shown %v, want [Inverter only]", got)
 	}
 
-	// The simulator does not let a panel override the limit: the slider is
-	// off and the panel says why.
-	if !p.limit.Disabled() || !strings.Contains(p.limitNote.Text, "does not let a remote panel override") {
-		t.Errorf("no override: slider disabled %v, note %q", p.limit.Disabled(), p.limitNote.Text)
+	// The default simulator lets a panel override the limit.
+	if p.limit.Disabled() {
+		t.Error("override allowed: slider disabled")
 	}
 	if p.limitText.Text != "16.0 A" {
 		t.Errorf("limit shown %q, want 16.0 A", p.limitText.Text)
+	}
+}
+
+func TestRemotePanelNoOverride(t *testing.T) {
+	prof := simulator.Synthetic12V230()
+	prof.ACInputConfig = 0
+	sim := simulator.New(simulator.Config{VersionInterval: -1, Devices: []simulator.Device{{Profile: prof}}})
+	p := newRemotePanel(newTestUI(t), panelSession(t, sim, prof.Version))
+	pollPanel(t, p)
+	// The slider is off and the panel says why.
+	if !p.limit.Disabled() || !strings.Contains(p.limitNote.Text, "does not let a remote panel override") {
+		t.Errorf("no override: slider disabled %v, note %q", p.limit.Disabled(), p.limitNote.Text)
 	}
 }
 

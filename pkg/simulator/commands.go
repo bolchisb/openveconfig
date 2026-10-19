@@ -220,7 +220,7 @@ func (s *Simulator) cmdFrame(_ *Line, req mk2.Frame) {
 		case mk2.SwitchOn:
 			swreg = 1<<4 | 1<<5
 		}
-		d := []byte{0, 0, 0, 0, 0}
+		d := []byte{0, 0, 0, 0, m.p.ACInputConfig}
 		for _, v := range []uint16{m.p.MinInputLimit, m.p.MaxInputLimit, s.limit} {
 			d = binary.LittleEndian.AppendUint16(d, v)
 		}

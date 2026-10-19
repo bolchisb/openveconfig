@@ -134,7 +134,7 @@ func runClient(t *testing.T, mode mk2.WinmonMode) {
 		m, err := c.MasterMultiLED(ctx)
 		check(t, "MasterMultiLED", err)
 		if m.ActualInputLimit != tc.want || m.MinInputLimit != 20 || m.MaxInputLimit != 500 ||
-			!m.HasSwitchRegister || m.SwitchRegister != tc.sw {
+			m.ACInputConfig != Synthetic12V230().ACInputConfig || !m.HasSwitchRegister || m.SwitchRegister != tc.sw {
 			t.Fatalf("after %+v: MasterMultiLED = %+v", tc.st, m)
 		}
 	}
