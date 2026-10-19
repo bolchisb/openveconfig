@@ -6,7 +6,11 @@ package main
 // in) are from this project's behavioural spec of the settings tabs
 // (reverse-engineered, #6), restated here in our own words.
 
-import "github.com/bolchisb/victron-veconfigure-ported/pkg/vebus"
+import (
+	"errors"
+
+	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus"
+)
 
 // settingLabels returns the label of each entry the settings tabs know.
 // Entries without one show their catalogue name.
@@ -184,8 +188,39 @@ var masterFlags = map[uint16][]vebus.ID{
 // Reverse-engineered (#6): a battery capacity of 0 turns the battery
 // monitor off, a restart level of 0 the state-of-charge shutdown.
 var masterValues = map[uint16][]vebus.ID{
-	64: {vebus.SettingID(65), vebus.SettingID(72)},
+	64: {vebus.SettingID(65), vebus.SettingID(72), vebus.SettingID(74)},
 	84: {vebus.SettingID(83)},
+}
+
+// valueSwitches are the groups switched on by a master value (masterValues)
+// rather than a flag. Their card header gets a switch that mirrors "value is
+// not 0", like the original tool's check box that is no device value
+// (reverse-engineered, #6). While the function is off, the master value
+// itself is disabled too.
+var valueSwitches = map[string]uint16{"Battery monitor": 64, "State of charge shutdown": 84}
+
+// valueSwitchHint is shown under a value switch that was turned on before
+// its master value n was entered.
+func valueSwitchHint(n uint16) string {
+	if n == 64 {
+		return tr("Enter the battery bank capacity to turn the battery monitor on.")
+	}
+	return tr("Enter the restart level to turn the shutdown on.")
+}
+
+// batteryMonitorOff makes the changes that turning the battery monitor off
+// implies (reverse-engineered, #6): the state-of-charge shutdown is turned
+// off, and bulk charging is no longer stopped after its safety time, as both
+// need the monitor.
+func batteryMonitorOff(d *vebus.Device) error {
+	var errs []error
+	if d.Supported(vebus.SettingID(84)) {
+		errs = append(errs, d.SetRaw(vebus.SettingID(84), 0))
+	}
+	if d.Supported(vebus.FlagID(4)) {
+		errs = append(errs, d.SetFlag(4, invertedFlags[4])) // its check box off
+	}
+	return errors.Join(errs...)
 }
 
 // groupLabel translates a catalogue group name. Groups without a

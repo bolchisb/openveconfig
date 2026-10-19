@@ -103,13 +103,15 @@ func newFormRow(cols *formColumns, label, help string, control fyne.CanvasObject
 }
 
 // newFormHeader returns the header row of a card titled title, whose
-// control is check.
+// control, at the right, is check. Its caption shows under the title.
 func newFormHeader(cols *formColumns, title string, check fyne.CanvasObject) *formRow {
 	r := newRowParts(cols, title, check, "")
 	r.header = true
 	r.label.TextStyle.Bold = true
 	r.label.SizeName = theme.SizeNameSubHeadingText
-	r.root = container.NewHBox(container.NewCenter(r.dot), container.NewCenter(check), r.label, layout.NewSpacer(), container.NewCenter(r.trail))
+	r.root = container.NewVBox(
+		container.NewHBox(container.NewCenter(r.dot), r.label, layout.NewSpacer(), container.NewCenter(r.trail), container.NewCenter(check)),
+		r.caption)
 	return r
 }
 

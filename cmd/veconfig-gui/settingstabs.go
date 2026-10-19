@@ -77,6 +77,21 @@ type settingsPage struct {
 	// updating is set while the controls are set from the model, so their
 	// change callbacks do not write back.
 	updating bool
+	// switches are the card switches of the valueSwitches groups on the
+	// page, by master setting.
+	switches map[uint16]*valueSwitch
+}
+
+// valueSwitch is the card switch of a group switched on by a master value.
+type valueSwitch struct {
+	toggle *toggleSwitch
+	head   *formRow
+	// pending is set while the switch is on but no master value has been
+	// entered yet.
+	pending bool
+	// last is the last master value that was not 0, restored when the
+	// switch is turned on again.
+	last uint16
 }
 
 // settingsPageContent returns the content that shows the supported entries of tab
@@ -196,7 +211,7 @@ func (p *settingsPage) note() fyne.CanvasObject {
 
 // build rebuilds the page for the loaded model.
 func (p *settingsPage) build() {
-	p.rows, p.scroll = nil, nil
+	p.rows, p.scroll, p.switches = nil, nil, map[uint16]*valueSwitch{}
 	d := p.u.settings.dev
 	var cards []fyne.CanvasObject
 	if d != nil {
@@ -218,6 +233,9 @@ func (p *settingsPage) build() {
 		p.cols.fit(texts)
 		for _, g := range order {
 			head := cardTitle(groupLabel(g))
+			if n, ok := valueSwitches[g]; ok && slices.ContainsFunc(byGroup[g], func(e vebus.Entry) bool { return e.ID() == vebus.SettingID(n) }) {
+				head = p.newValueSwitch(g, n).head.root
+			}
 			var rows []fyne.CanvasObject
 			for _, e := range byGroup[g] {
 				title := ""
@@ -281,10 +299,27 @@ func (p *settingsPage) update() {
 		}
 	}
 	for n, ids := range masterValues {
-		if raw, err := d.Raw(vebus.SettingID(n)); err == nil {
-			for _, id := range ids {
-				enabled[id] = raw != 0
+		raw, err := d.Raw(vebus.SettingID(n))
+		if err != nil {
+			continue
+		}
+		on := raw != 0
+		if s := p.switches[n]; s != nil {
+			if on {
+				s.pending, s.last = false, raw
 			}
+			on = on || s.pending
+			s.toggle.SetOn(on)
+			hint := ""
+			if s.pending {
+				hint = valueSwitchHint(n)
+			}
+			s.head.setCaption(hint)
+			s.head.root.Refresh()
+			enabled[vebus.SettingID(n)] = on
+		}
+		for _, id := range ids {
+			enabled[id] = on
 		}
 	}
 	for _, r := range p.rows {
@@ -292,6 +327,51 @@ func (p *settingsPage) update() {
 		p.mark(r)
 		on, ok := enabled[r.e.ID()]
 		r.setEnabled(!ok || on)
+	}
+}
+
+// newValueSwitch returns the card switch of group, which master setting n
+// switches on.
+func (p *settingsPage) newValueSwitch(group string, n uint16) *valueSwitch {
+	s := &valueSwitch{}
+	s.toggle = newToggleSwitch(func(on bool) {
+		if !p.updating {
+			p.switchValue(s, n, on)
+		}
+	})
+	s.head = newFormHeader(p.cols, groupLabel(group), s.toggle)
+	p.switches[n] = s
+	return s
+}
+
+// switchValue turns the function of master setting n on or off. Off sets
+// the value to 0; on restores the last value that was not 0, or, without
+// one, enables the rows and focuses the value so that it can be entered.
+func (p *settingsPage) switchValue(s *valueSwitch, n uint16, on bool) {
+	u, d, id := p.u, p.u.settings.dev, vebus.SettingID(n)
+	s.pending = false
+	var err error
+	switch {
+	case !on:
+		err = d.SetRaw(id, 0)
+		if n == 64 {
+			err = errors.Join(err, batteryMonitorOff(d))
+		}
+	case s.last != 0:
+		err = d.SetRaw(id, s.last)
+	default:
+		s.pending = true
+	}
+	if err != nil {
+		showError(u, err)
+	}
+	u.settings.changed()
+	if s.pending {
+		for _, r := range p.rows {
+			if r.e.ID() == id && r.focus != nil {
+				u.win.Canvas().Focus(r.focus)
+			}
+		}
 	}
 }
 
@@ -350,12 +430,21 @@ func (p *settingsPage) newRow(e vebus.Entry, label, title string) *settingRow {
 			}
 			break
 		}
-		check := widget.NewCheck("", nil)
-		check.OnChanged = func(v bool) {
+		changed := func(v bool) {
 			if !p.updating {
 				set(d.SetFlag(e.Num, v != invertedFlags[e.Num]))
 			}
 		}
+		if title != "" { // a card's master flag: a switch
+			toggle := newToggleSwitch(changed)
+			control, r.focus = toggle, toggle
+			r.update = func() {
+				on, _ := d.Flag(e.Num)
+				toggle.SetOn(on != invertedFlags[e.Num])
+			}
+			break
+		}
+		check := widget.NewCheck("", changed)
 		control, r.focus = check, check
 		r.update = func() {
 			on, _ := d.Flag(e.Num)

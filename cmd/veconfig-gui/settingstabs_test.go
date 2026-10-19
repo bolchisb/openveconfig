@@ -241,7 +241,7 @@ func TestEditSendGetRoundTrip(t *testing.T) {
 	if !assist.header {
 		t.Error("PowerAssist is not the header of its card")
 	}
-	test.Tap(assist.control.(*widget.Check))
+	test.Tap(assist.control.(*toggleSwitch))
 
 	for _, r := range []*settingRow{absorption, assist} {
 		if !marked(r.formRow) {
@@ -641,7 +641,7 @@ func TestRevertOneSetting(t *testing.T) {
 	assist, charge := rowOf(t, inverter, vebus.FlagID(5)), rowOf(t, charger, vebus.FlagID(6))
 	enter(absorption.formRow, "14.6")
 	enter(float.formRow, "13.6")
-	test.Tap(assist.control.(*widget.Check))
+	test.Tap(assist.control.(*toggleSwitch))
 	test.Tap(charge.control.(*widget.Check))
 
 	test.Tap(absorption.revert)
@@ -694,29 +694,107 @@ func TestMasterToggles(t *testing.T) {
 		}
 	}
 	check("all off", true, map[*settingsPage][]vebus.ID{
-		inverter: {vebus.SettingID(48), vebus.SettingID(73), vebus.FlagID(31), vebus.SettingID(50), vebus.SettingID(51), vebus.SettingID(83)},
-		general:  {vebus.SettingID(65), vebus.SettingID(72)},
+		inverter: {vebus.SettingID(48), vebus.SettingID(73), vebus.FlagID(31), vebus.SettingID(50), vebus.SettingID(51), vebus.SettingID(83), vebus.SettingID(84)},
+		general:  {vebus.SettingID(64), vebus.SettingID(65), vebus.SettingID(72)},
 	})
 	check("masters", false, map[*settingsPage][]vebus.ID{
-		inverter: {vebus.FlagID(5), vebus.FlagID(8), vebus.SettingID(84)},
-		general:  {vebus.SettingID(64)},
+		inverter: {vebus.FlagID(5), vebus.FlagID(8)},
 	})
 	for _, id := range []vebus.ID{vebus.FlagID(5), vebus.FlagID(8)} {
 		if r := rowOf(t, inverter, id); !r.header {
 			t.Errorf("%v is not the header of its card", id)
 		}
 	}
+	for p, n := range map[*settingsPage]uint16{general: 64, inverter: 84} {
+		if s := p.switches[n]; s == nil || s.toggle.On {
+			t.Errorf("setting %d: card switch missing or on while the value is 0", n)
+		}
+	}
 
-	test.Tap(rowOf(t, inverter, vebus.FlagID(5)).control.(*widget.Check))
-	test.Tap(rowOf(t, inverter, vebus.FlagID(8)).control.(*widget.Check))
+	test.Tap(rowOf(t, inverter, vebus.FlagID(5)).control.(*toggleSwitch))
+	test.Tap(rowOf(t, inverter, vebus.FlagID(8)).control.(*toggleSwitch))
+	test.Tap(general.switches[64].toggle)
+	test.Tap(inverter.switches[84].toggle)
 	enter(rowOf(t, general, vebus.SettingID(64)).formRow, "200")
 	enter(rowOf(t, inverter, vebus.SettingID(84)).formRow, "50")
 	check("all on", false, map[*settingsPage][]vebus.ID{
-		inverter: {vebus.SettingID(48), vebus.SettingID(73), vebus.FlagID(31), vebus.SettingID(50), vebus.SettingID(51), vebus.SettingID(83)},
-		general:  {vebus.SettingID(65), vebus.SettingID(72)},
+		inverter: {vebus.SettingID(48), vebus.SettingID(73), vebus.FlagID(31), vebus.SettingID(50), vebus.SettingID(51), vebus.SettingID(83), vebus.SettingID(84)},
+		general:  {vebus.SettingID(64), vebus.SettingID(65), vebus.SettingID(72)},
 	})
 	if on, _ := d.Flag(8); on {
 		t.Error("ticking power saving left its inverted flag 8 set")
+	}
+}
+
+// TestBatteryMonitorSwitch checks the battery monitor's card switch: on
+// without a capacity waits for one, off sets the capacity to 0 and turns off
+// what needs the monitor, and on again restores the capacity.
+func TestBatteryMonitorSwitch(t *testing.T) {
+	u := newTestUI(t)
+	general := newSettingsPage(u, vebus.TabGeneral)
+	d := vebus.NewDevice(nil)
+	d.AddSetting(0, mk2.SettingInfo{Sc: 1, Max: 0x0010}, 0) // flag 4 off: bulk stops after its safety time
+	d.AddSetting(64, mk2.SettingInfo{Sc: 1, Max: 3000}, 0)
+	d.AddSetting(65, mk2.SettingInfo{Sc: -2, Max: 200}, 190)
+	d.AddSetting(83, mk2.SettingInfo{Sc: 1, Max: 100}, 0)
+	d.AddSetting(84, mk2.SettingInfo{Sc: 1, Max: 100}, 0)
+	u.settings.load(d, nil)
+	s := general.switches[64]
+	capacity := rowOf(t, general, vebus.SettingID(64))
+
+	test.Tap(s.toggle)
+	if !s.toggle.On || !s.pending || capacity.control.(fyne.Disableable).Disabled() {
+		t.Fatalf("on without a capacity: switch %v, pending %v, capacity disabled %v",
+			s.toggle.On, s.pending, capacity.control.(fyne.Disableable).Disabled())
+	}
+	if !strings.Contains(s.head.caption.String(), "capacity") {
+		t.Errorf("no hint to enter the capacity: %q", s.head.caption.String())
+	}
+	if raw, _ := d.Raw(vebus.SettingID(64)); raw != 0 {
+		t.Errorf("turning on wrote capacity %d before one was entered", raw)
+	}
+
+	enter(capacity.formRow, "200")
+	if s.pending || !s.toggle.On || s.head.caption.Visible() {
+		t.Errorf("after entering a capacity: pending %v, switch %v, hint shown %v", s.pending, s.toggle.On, s.head.caption.Visible())
+	}
+	if err := d.SetRaw(vebus.SettingID(84), 50); err != nil {
+		t.Fatal(err)
+	}
+	u.settings.changed()
+
+	test.Tap(s.toggle)
+	for id, want := range map[uint16]uint16{64: 0, 84: 0} {
+		if raw, _ := d.Raw(vebus.SettingID(id)); raw != want {
+			t.Errorf("monitor off: setting %d = %d, want %d", id, raw, want)
+		}
+	}
+	if on, _ := d.Flag(4); !on {
+		t.Error("monitor off left bulk stopping after its safety time on")
+	}
+	if !capacity.control.(fyne.Disableable).Disabled() || s.toggle.On {
+		t.Errorf("monitor off: switch %v, capacity disabled %v", s.toggle.On, capacity.control.(fyne.Disableable).Disabled())
+	}
+
+	test.Tap(s.toggle)
+	if raw, _ := d.Raw(vebus.SettingID(64)); raw != 200 || s.pending {
+		t.Errorf("on again: capacity %d (want 200), pending %v", raw, s.pending)
+	}
+}
+
+// TestToggleSwitch checks that the switch flips on tap and on Space, and
+// not while disabled.
+func TestToggleSwitch(t *testing.T) {
+	test.NewTempApp(t)
+	var got []bool
+	s := newToggleSwitch(func(on bool) { got = append(got, on) })
+	test.Tap(s)
+	s.TypedRune(' ')
+	s.Disable()
+	test.Tap(s)
+	s.TypedRune(' ')
+	if !slices.Equal(got, []bool{true, false}) || s.On {
+		t.Errorf("changes %v, on %v; want [true false], off", got, s.On)
 	}
 }
 
