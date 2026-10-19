@@ -16,7 +16,7 @@ It applies to everything in the repository and on the project's GitHub pages: co
 None of the following may appear in the repository, in issues or in pull requests, in whole or in part:
 
 - Decompiled or disassembled code from Victron software, or code transcribed from it.
-- Data tables, payloads, images, icons, help text, strings or translations extracted from Victron binaries. That includes built-in demo device descriptors and setting/variable tables.
+- Data tables, payloads, images, icons, help text, strings or translations extracted from Victron binaries. That includes built-in demo device descriptors and setting/variable tables. Exception: interoperability facts learnt through reverse engineering (setting, flag and RAM variable IDs, bit positions, scales, limits, enum values, which settings belong together) may be committed when they are restated in our own tables, with our own names and wording, and marked as reverse-engineered (decision of 2026-10-19).
 - Victron firmware files (`.vff`, `.vfd`) and Victron assistant packages, or excerpts of them.
 - Private reverse-engineering notes, tool output, Ghidra projects, or screenshots of decompiled code.
 - Local filesystem paths of contributors' machines.
