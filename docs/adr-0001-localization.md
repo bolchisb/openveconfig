@@ -1,6 +1,6 @@
 # ADR 0001: Localization of the GUI
 
-- Status: accepted
+- Status: accepted; English and Romanian shipped
 - Issue: #30
 - Date: 2026-10-19
 
@@ -36,6 +36,8 @@ Catalogs are embedded from `cmd/veconfig-gui/translations/<tag>.json`, in the sa
 - The few strings that Fyne draws itself (for example the context menu of text fields, or the file dialog) follow the OS locale, not the language chosen in the app. Our own dialogs set their button texts through `tr`.
 - A language change needs a restart. The UI builds its text once.
 - go-i18n and `golang.org/x/text` were already linked into the binary by Fyne; they are now direct dependencies in `go.mod`.
+- Romanian (`ro.json`) is the second language and the end-to-end proof: `TestRomanian` checks plain text, template fields, the three Romanian plural forms and the Romanian number format.
+- The checks below are ordinary tests, so the `go test ./...` step of the `test` job in `.github/workflows/ci.yml` runs them on Linux, macOS and Windows. A hard-coded UI string, a message missing from `en.json` or an incomplete translation fails CI; no separate job is needed.
 
 ## Rules for contributors
 
@@ -45,4 +47,5 @@ Catalogs are embedded from `cmd/veconfig-gui/translations/<tag>.json`, in the sa
 4. Every message must be in `translations/en.json`, with the English text as both key and value (`{"one": ..., "other": ...}` for `trn`). `TestCatalog` fails when a message is missing or unused, and prints the missing entries in JSON. Other catalogs may only contain keys that `en.json` has.
 5. Do not use a lone go-i18n reserved word as a message key: `id`, `description`, `hash`, `leftdelim`, `rightdelim`, `zero`, `one`, `two`, `few`, `many`, `other`, `translation` (any case). Make the text more specific instead.
 6. `TestNoHardCodedUIStrings` fails when a non-empty string literal is passed directly to a function or type from `widget`, `dialog`, `container`, `canvas` or `fyne`, or to a text field or setter (`Text`, `Label`, `Title`, `PlaceHolder`, `SetText`, `SetTitle`, `SetPlaceHolder`, `SetDismissText`). It cannot catch every case, such as a literal stored in a variable first, so reviewers still check new UI code.
-7. To add a language, copy `en.json` to `<tag>.json` (a BCP 47 tag such as `de` or `pt-BR`), translate the values and keep the keys. Write the translation yourself; never copy it from Victron software.
+7. To add a language, copy `en.json` to `<tag>.json` (a BCP 47 tag such as `de` or `pt-BR`), translate the values and keep the keys and the `{{.Name}}` fields. A plural message needs every plural form the language has in CLDR (for example `one`, `few` and `other` in Romanian). The language then appears in Options > Language under its own name. Write the translation yourself; never copy it from Victron software.
+8. `TestTranslationsComplete` fails when a catalog lacks a message of `en.json`, a translation has other `{{.Name}}` fields than the English text, or a plural form of the language is missing. A new message therefore goes into every catalog; if you cannot translate it, say so in the pull request so that a speaker of the language can.

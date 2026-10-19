@@ -89,6 +89,26 @@ func TestConnectDemoFromUI(t *testing.T) {
 	}
 }
 
+// TestLanguageMenu checks that Options > Language lists Romanian and that
+// choosing it is saved in the preferences.
+func TestLanguageMenu(t *testing.T) {
+	u := newTestUI(t)
+	m := languageMenu(u)
+	var ro *fyne.MenuItem
+	for _, it := range m.Items {
+		if it.Label == "română" {
+			ro = it
+		}
+	}
+	if ro == nil {
+		t.Fatal("the Language menu does not list română")
+	}
+	ro.Action()
+	if got := u.app.Preferences().String(prefLanguage); got != "ro" || !ro.Checked {
+		t.Errorf("after choosing română: preference %q, checked %v; want \"ro\", true", got, ro.Checked)
+	}
+}
+
 func TestRunWithProgressCancel(t *testing.T) {
 	u := newTestUI(t)
 	done := make(chan error, 1)

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -237,6 +238,90 @@ func TestLanguageOverride(t *testing.T) {
 	setLanguage("en")
 	if got := tr("Connect"); got != "Connect" {
 		t.Errorf("en: tr(Connect) = %q", got)
+	}
+}
+
+// templateFields returns the sorted, distinct {{.Name}} fields of a catalog
+// value: a string, or a map of plural forms.
+func templateFields(v any) []string {
+	var texts []string
+	switch v := v.(type) {
+	case string:
+		texts = []string{v}
+	case map[string]any:
+		for _, s := range v {
+			text, _ := s.(string)
+			texts = append(texts, text)
+		}
+	}
+	var fields []string
+	for _, s := range texts {
+		for _, m := range regexp.MustCompile(`\{\{\s*\.(\w+)\s*\}\}`).FindAllStringSubmatch(s, -1) {
+			fields = append(fields, m[1])
+		}
+	}
+	slices.Sort(fields)
+	return slices.Compact(fields)
+}
+
+// TestTranslationsComplete checks that every catalog other than en.json
+// translates every message of en.json, with the same template fields and
+// every plural form its language needs.
+func TestTranslationsComplete(t *testing.T) {
+	en := readCatalog(t, "en.json")
+	others, _ := filepath.Glob(filepath.Join("translations", "*.json"))
+	for _, p := range others {
+		name := filepath.Base(p)
+		if name == "en.json" {
+			continue
+		}
+		cat := readCatalog(t, name)
+		loc := i18n.NewLocalizer(bundle, strings.TrimSuffix(name, ".json"))
+		for k, ev := range en {
+			v, ok := cat[k]
+			if !ok {
+				t.Errorf("translations/%s lacks %q", name, k)
+				continue
+			}
+			if _, plural := ev.(map[string]any); plural {
+				if _, ok := v.(map[string]any); !ok {
+					t.Errorf("translations/%s: %q needs plural forms", name, k)
+					continue
+				}
+				for n := range 200 {
+					if _, err := loc.Localize(&i18n.LocalizeConfig{MessageID: k, PluralCount: n, TemplateData: args{"Count": n}}); err != nil {
+						t.Errorf("translations/%s: %q with count %d: %v", name, k, n, err)
+						break
+					}
+				}
+			} else if _, ok := v.(string); !ok {
+				t.Errorf("translations/%s: %q must be a plain string", name, k)
+				continue
+			}
+			if want, got := templateFields(ev), templateFields(v); !slices.Equal(got, want) {
+				t.Errorf("translations/%s: %q has the fields %v, want %v", name, k, got, want)
+			}
+		}
+	}
+}
+
+// TestRomanian checks the Romanian catalog end to end: plain text, a
+// template field, the three Romanian plural forms and the number format.
+func TestRomanian(t *testing.T) {
+	t.Cleanup(func() { setLanguage("en") })
+	setLanguage("ro")
+	for _, tt := range []struct{ got, want string }{
+		{tr("Charger"), "\u00cenc\u0103rc\u0103tor"},
+		{tr("Cannot open {{.Port}}: {{.Err}}", args{"Port": "COM3", "Err": "x"}), "Nu se poate deschide COM3: x"},
+		{trn("{{.Count}} setting sent.", "{{.Count}} settings sent.", 1), "1 setare trimis\u0103."},
+		{trn("{{.Count}} setting sent.", "{{.Count}} settings sent.", 2), "2 set\u0103ri trimise."},
+		{trn("{{.Count}} setting sent.", "{{.Count}} settings sent.", 20), "20 de set\u0103ri trimise."},
+		{formatNumber(1234.5, 1), "1.234,5"},
+		{tr("{{.Value}} V", args{"Value": formatNumber(14.4, 2)}), "14,40 V"},
+	} {
+		if tt.got != tt.want {
+			t.Errorf("ro: got %q, want %q", tt.got, tt.want)
+		}
 	}
 }
 
