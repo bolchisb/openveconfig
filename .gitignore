@@ -31,3 +31,37 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# AI assistants / Claude
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json
+.claudeignore
+AGENTS.md
+AGENTS.override.md
+.codex/
+GEMINI.md
+.gemini/
+.cursor/
+.cursorrules
+.cursorignore
+.cursorindexingignore
+.windsurf/
+.windsurfrules
+.codeium/
+.aider*
+.continue/
+.cline/
+.clinerules
+.roo/
+.roomodes
+.kilocode/
+.github/copilot-instructions.md
+.github/instructions/
+.github/prompts/
+.github/chatmodes/
+.junie/
+.amazonq/
+.tabnine/
+.specstory/
