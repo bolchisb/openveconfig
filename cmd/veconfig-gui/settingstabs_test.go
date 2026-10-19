@@ -138,10 +138,10 @@ func TestTabsShowSupportedEntriesOnly(t *testing.T) {
 	if slices.Contains(rowIDs(pages[vebus.TabGeneral]), vebus.SettingID(49)) {
 		t.Error("unsupported setting 49 is shown")
 	}
-	for _, it := range u.tabs.Items {
-		wantDisabled := it.Text == "Virtual switch" || it.Text == "Advanced"
-		if it.Text != "Grid" && it.Disabled() != wantDisabled {
-			t.Errorf("tab %q disabled = %v, want %v", it.Text, it.Disabled(), wantDisabled)
+	for _, p := range u.pages {
+		wantOff := p.title == "Virtual switch" || p.title == "Advanced"
+		if p.title != "Grid" && p.unavailable(u) != wantOff {
+			t.Errorf("page %q greyed = %v, want %v", p.title, p.unavailable(u), wantOff)
 		}
 	}
 	if !pages[vebus.TabVirtualSwitch].empty() || !strings.Contains(labelTexts(pages[vebus.TabVirtualSwitch].content), "none of these settings") {

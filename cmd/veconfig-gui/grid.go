@@ -23,6 +23,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/gridcode"
@@ -78,7 +79,7 @@ func gridWriteCheck(d *vebus.Device) error {
 	}
 	return &uiError{err: err, msg: tr("Grid parameters were changed (settings {{.Settings}}). They cannot be sent or saved yet: "+
 		"the device keeps two check words with them (settings 128 and 191) whose computation is not known. "+
-		"Nothing was sent or saved. Undo the grid parameter changes on the Grid tab, then try again.",
+		"Nothing was sent or saved. Undo the grid parameter changes on the Grid page, then try again.",
 		args{"Settings": strings.Join(list, ", ")})}
 }
 
@@ -109,10 +110,10 @@ func writeAllButGrid(ctx context.Context, c *mk2.Client, d *vebus.Device, progre
 	return rep, err
 }
 
-// gridTabView is the grid tab.
+// gridTabView is the grid page.
 type gridTabView struct {
-	u    *ui
-	item *container.TabItem
+	u  *ui
+	pg *page // the page in the sidebar
 	// Grid code.
 	code       *widget.Select
 	codeValues []uint16
@@ -144,8 +145,8 @@ type paramRow struct {
 	update  func()
 }
 
-// gridTab returns the grid tab.
-func gridTab(u *ui) *container.TabItem { return newGridTab(u).item }
+// gridPage returns the grid page.
+func gridPage(u *ui) *page { return newGridTab(u).pg }
 
 func newGridTab(u *ui) *gridTabView {
 	g := &gridTabView{u: u, pageCode: -1}
@@ -171,7 +172,8 @@ func newGridTab(u *ui) *gridTabView {
 	g.subTabs = container.NewAppTabs(
 		container.NewTabItem(tr("Grid code and AC input"), container.NewBorder(codeCard, nil, nil, nil, g.ordinary.content)),
 		g.paramsItem)
-	g.item = container.NewTabItem(tr("Grid"), g.subTabs)
+	g.pg = newPage(tr("Grid"), tr("The grid code, and the limits within which the AC input is accepted."),
+		theme.LoginIcon(), vebus.TabGrid, g.subTabs)
 
 	u.settings.onChange(func(loaded bool) {
 		if loaded {
@@ -180,10 +182,10 @@ func newGridTab(u *ui) *gridTabView {
 		g.update(loaded)
 	})
 	u.settings.onFind(func(e vebus.Entry) bool {
-		if e.Tab != vebus.TabGrid || u.tabs == nil {
+		if e.Tab != vebus.TabGrid {
 			return false
 		}
-		u.tabs.Select(g.item)
+		u.showPage(g.pg)
 		g.subTabs.Select(g.subTabs.Items[0])
 		g.ordinary.show(e)
 		return true

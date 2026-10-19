@@ -9,6 +9,8 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
@@ -33,7 +35,8 @@ type portChoice struct {
 	demo  bool
 }
 
-// connBar is the connection bar at the top of the main window.
+// connBar is the content of the connection dialog: the port list, the
+// connect, auto-detect and refresh actions, and the connection status.
 type connBar struct {
 	u       *ui
 	choices []portChoice // parallel to ports.Options
@@ -42,25 +45,38 @@ type connBar struct {
 	detect  *widget.Button
 	connect *widget.Button
 	status  *widget.Label
+	dlg     *dialog.CustomDialog // nil until first shown
 }
 
-// connectionBar returns the port list, the connect, auto-detect and refresh
-// actions, and the connection status.
-func connectionBar(u *ui) fyne.CanvasObject {
+// newConnBar returns the connection dialog of u, not yet shown.
+func newConnBar(u *ui) *connBar {
 	b := &connBar{u: u}
 	b.ports = widget.NewSelect(nil, nil)
 	b.ports.PlaceHolder = tr("Choose a port")
-	b.refresh = widget.NewButton(tr("Refresh"), b.refreshPorts)
-	b.detect = widget.NewButton(tr("Auto-detect"), b.autoDetect)
+	b.refresh = widget.NewButtonWithIcon(tr("Refresh"), theme.ViewRefreshIcon(), b.refreshPorts)
+	b.detect = widget.NewButtonWithIcon(tr("Auto-detect"), theme.SearchIcon(), b.autoDetect)
 	b.connect = widget.NewButton(tr("Connect"), b.toggle)
 	b.status = widget.NewLabel("")
 	b.status.Wrapping = fyne.TextWrapWord
 	u.onSession(b.update)
 	b.update(nil)
 	b.refreshPorts()
-	row := container.NewBorder(nil, nil, widget.NewLabel(tr("Port:")),
-		container.NewHBox(b.refresh, b.detect, b.connect), b.ports)
-	return container.NewVBox(row, b.status)
+	return b
+}
+
+// show opens the connection dialog.
+func (b *connBar) show() {
+	if b.dlg == nil {
+		hint := widget.NewLabel(tr("Choose the serial port of the MK2 or MK3 interface, let the program look for it, " +
+			"or choose the demo, which simulates two devices."))
+		hint.Wrapping = fyne.TextWrapWord
+		row := container.NewBorder(nil, nil, widget.NewLabel(tr("Port:")), nil, b.ports)
+		content := container.NewVBox(hint, row, container.NewHBox(b.refresh, b.detect), b.status)
+		b.dlg = dialog.NewCustomWithoutButtons(tr("Connect to a device"), content, b.u.win)
+		b.dlg.SetButtons([]fyne.CanvasObject{widget.NewButton(tr("Close"), b.dlg.Hide), b.connect})
+		b.dlg.Resize(fyne.NewSize(560, b.dlg.MinSize().Height))
+	}
+	b.dlg.Show()
 }
 
 // refreshPorts rebuilds the port list and selects the last choice, or else
@@ -220,12 +236,15 @@ func probe(ctx context.Context, name string) error {
 	return err
 }
 
-// update shows the state of session s, or nil when disconnected.
+// update shows the state of session s, or nil when disconnected. The
+// dialog closes when a session opens: the Overview page shows it.
 func (b *connBar) update(s *session) {
 	controls := []fyne.Disableable{b.ports, b.refresh, b.detect}
 	if s == nil {
 		b.status.SetText(tr("Not connected."))
 		b.connect.SetText(tr("Connect"))
+		b.connect.Importance = widget.HighImportance
+		b.connect.Refresh()
 		for _, w := range controls {
 			w.Enable()
 		}
@@ -233,8 +252,13 @@ func (b *connBar) update(s *session) {
 	}
 	b.status.SetText(describe(s))
 	b.connect.SetText(tr("Disconnect"))
+	b.connect.Importance = widget.MediumImportance
+	b.connect.Refresh()
 	for _, w := range controls {
 		w.Disable()
+	}
+	if b.dlg != nil {
+		b.dlg.Hide()
 	}
 }
 

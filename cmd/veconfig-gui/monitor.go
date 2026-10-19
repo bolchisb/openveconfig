@@ -1,6 +1,6 @@
 package main
 
-// Live monitoring: the compact panel in the main window and the polling
+// Live monitoring: the compact panel on the Overview page and the polling
 // shared with the VE.Bus monitor window (vebusmonitor.go). Values are read
 // with the RAM variables and info frames of "Interfacing with VE.Bus
 // products - MK2 Protocol 3.14" (Â§6.1, Â§7.3.2, Â§7.3.3, Â§7.3.9, Â§7.3.13.1)
@@ -395,7 +395,7 @@ type panel struct {
 	sess                            *session
 }
 
-// monitorPanel returns the compact live readings shown under the tabs. It
+// monitorPanel returns the compact live readings of the Overview page. It
 // is hidden while disconnected.
 func monitorPanel(u *ui) fyne.CanvasObject { return newPanel(u).root }
 
@@ -430,7 +430,7 @@ func newPanel(u *ui) *panel {
 		row.Add(g.box)
 	}
 	interval := intervalSelect(u.app.Preferences())
-	p.root = container.NewVBox(widget.NewSeparator(), row, p.status,
+	p.root = container.NewVBox(row, p.status,
 		container.NewHBox(widget.NewLabel(tr("Refresh every:")), interval))
 	p.status.Hide()
 	p.root.Hide()

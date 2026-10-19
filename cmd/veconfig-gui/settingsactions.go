@@ -18,74 +18,10 @@ import (
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus"
 )
 
-// settingsTabSet are the tabs whose settings "Set all to default" changes:
-// the tabs of settingstabs.go. System configuration and the grid tab are
-// left alone.
+// settingsTabSet are the tabs whose settings "Reset all to defaults"
+// changes: the pages of settingstabs.go. System configuration and the grid
+// tab are left alone.
 var settingsTabSet = []vebus.Tab{vebus.TabGeneral, vebus.TabInverter, vebus.TabCharger, vebus.TabVirtualSwitch, vebus.TabAdvanced}
-
-// settingsBar is the row of settings actions above the tabs.
-type settingsBar struct {
-	u        *ui
-	get      *widget.Button
-	send     *widget.Button
-	defaults *widget.Button
-	find     *widget.Button
-	// units chooses the device that Get reads when several answered.
-	units  *widget.Select
-	addrs  []byte // parallel to units.Options
-	status *widget.Label
-}
-
-// newSettingsBar returns the settings actions and the state of the model.
-func newSettingsBar(u *ui) fyne.CanvasObject {
-	b := &settingsBar{u: u}
-	b.get = widget.NewButton(tr("Get settings"), b.getSettings)
-	b.send = widget.NewButton(tr("Send settings"), func() { sendSettings(u) })
-	b.defaults = widget.NewButton(tr("Set all to default"), func() { setAllToDefault(u) })
-	b.find = widget.NewButton(tr("Find setting"), func() { findSetting(u) })
-	b.units = widget.NewSelect(nil, nil)
-	b.status = widget.NewLabel("")
-	b.status.Wrapping = fyne.TextWrapWord
-	u.onSession(func(*session) { b.update() })
-	u.settings.onChange(func(bool) { b.update() })
-	b.update()
-	row := container.NewHBox(b.get, b.units, b.send, b.defaults, b.find)
-	return container.NewVBox(row, b.status)
-}
-
-// update shows the session's units and the state of the model.
-func (b *settingsBar) update() {
-	s, m := b.u.sess, b.u.settings
-	b.addrs = nil
-	if s != nil {
-		b.addrs = s.devices
-	}
-	if len(b.addrs) > 1 {
-		opts := make([]string, len(b.addrs))
-		for i, a := range b.addrs {
-			opts[i] = tr("Unit at address {{.Address}}", args{"Address": a})
-		}
-		if !slices.Equal(opts, b.units.Options) {
-			b.units.SetOptions(opts)
-			b.units.SetSelectedIndex(slices.Index(b.addrs, s.target))
-		}
-		b.units.Show()
-	} else {
-		b.units.Hide()
-	}
-	enable := func(w fyne.Disableable, on bool) {
-		if on {
-			w.Enable()
-		} else {
-			w.Disable()
-		}
-	}
-	enable(b.get, s != nil)
-	enable(b.send, s != nil && m.dev != nil)
-	enable(b.defaults, m.dev != nil)
-	enable(b.find, m.dev != nil)
-	b.status.SetText(modelStatus(m))
-}
 
 // modelStatus describes the loaded model and its unsent changes.
 func modelStatus(m *settingsModel) string {
@@ -102,36 +38,115 @@ func modelStatus(m *settingsModel) string {
 		text = tr("Settings of the device at address {{.Address}}, firmware {{.Firmware}}.",
 			args{"Address": d.Address, "Firmware": fw})
 	}
-	var changed, reset, password int
+	c := countChanges(d)
+	if n := c.changed; n > 0 {
+		text += " " + trn("{{.Count}} setting changed and not sent or saved yet.", "{{.Count}} settings changed and not sent or saved yet.", n)
+	}
+	if n := c.reset; n > 0 {
+		text += " " + trn("{{.Count}} of the changes needs a device reset to take effect.", "{{.Count}} of the changes need a device reset to take effect.", n)
+	}
+	if n := c.password; n > 0 {
+		text += " " + trn("{{.Count}} of the changes needs a password.", "{{.Count}} of the changes need a password.", n)
+	}
+	if n := c.invalid; n > 0 {
+		text += " " + trn("{{.Count}} value is not valid; correct it before sending.", "{{.Count}} values are not valid; correct them before sending.", n)
+	}
+	if n := c.gridWords; n > 0 {
+		text += " " + trn("{{.Count}} grid parameter word was changed; it cannot be sent or saved yet (see the Grid page).",
+			"{{.Count}} grid parameter words were changed; they cannot be sent or saved yet (see the Grid page).", n)
+	}
+	return text
+}
+
+// changeCounts counts the unsent changes of a model.
+type changeCounts struct {
+	changed   int // changed entries on the settings pages and the grid page
+	reset     int // of which need a device reset
+	password  int // of which need a password
+	invalid   int // values that block sending (validationErrors)
+	gridWords int // changed grid parameter words (changedGridWords)
+}
+
+// total is the number of unsent changes, grid words included.
+func (c changeCounts) total() int { return c.changed + c.gridWords }
+
+// countChanges counts the unsent changes of d.
+func countChanges(d *vebus.Device) changeCounts {
+	var c changeCounts
 	for _, e := range d.Entries() {
 		if e.FlagWord || !slices.Contains(settingsTabSet, e.Tab) && e.Tab != vebus.TabGrid || !d.Dirty(e.ID()) {
 			continue
 		}
-		changed++
+		c.changed++
 		if d.ResetRequired(e.ID()) {
-			reset++
+			c.reset++
 		}
 		if a, ok := d.Access(e.ID()); ok && a.PasswordRequired() {
-			password++
+			c.password++
 		}
 	}
-	if changed > 0 {
-		text += " " + trn("{{.Count}} setting changed and not sent or saved yet.", "{{.Count}} settings changed and not sent or saved yet.", changed)
+	c.invalid = len(validationErrors(d))
+	c.gridWords = len(changedGridWords(d))
+	return c
+}
+
+// tabChanges returns the number of unsent changes of d on tab, the grid
+// parameter words included for the grid tab.
+func tabChanges(d *vebus.Device, tab vebus.Tab) int {
+	n := 0
+	for _, e := range d.Entries() {
+		if e.Tab == tab && !e.FlagWord && d.Dirty(e.ID()) {
+			n++
+		}
 	}
-	if reset > 0 {
-		text += " " + trn("{{.Count}} of the changes needs a device reset to take effect.", "{{.Count}} of the changes need a device reset to take effect.", reset)
+	if tab == vebus.TabGrid {
+		n += len(changedGridWords(d))
 	}
-	if password > 0 {
-		text += " " + trn("{{.Count}} of the changes needs a password.", "{{.Count}} of the changes need a password.", password)
+	return n
+}
+
+// reviewChanges lists the unsent changes of the loaded model with their
+// new values.
+func reviewChanges(u *ui) {
+	d := u.settings.dev
+	if d == nil {
+		return
 	}
-	if n := len(validationErrors(d)); n > 0 {
-		text += " " + trn("{{.Count}} value is not valid; correct it before sending.", "{{.Count}} values are not valid; correct them before sending.", n)
+	var lines []string
+	for _, e := range d.Entries() {
+		if e.FlagWord || !slices.Contains(settingsTabSet, e.Tab) && e.Tab != vebus.TabGrid || !d.Dirty(e.ID()) {
+			continue
+		}
+		lines = append(lines, tr("{{.Name}}: {{.Value}}", args{"Name": entryLabel(d, e.ID()), "Value": entryValueText(d, e.ID())}))
 	}
-	if n := len(changedGridWords(d)); n > 0 {
-		text += " " + trn("{{.Count}} grid parameter word was changed; it cannot be sent or saved yet (see the Grid tab).",
-			"{{.Count}} grid parameter words were changed; they cannot be sent or saved yet (see the Grid tab).", n)
+	for _, id := range changedGridWords(d) {
+		sid := vebus.SettingID(id)
+		lines = append(lines, tr("{{.Name}}: {{.Value}}", args{"Name": entryLabel(d, sid), "Value": entryValueText(d, sid)}))
 	}
-	return text
+	msg := widget.NewLabel(modelStatus(u.settings))
+	msg.Wrapping = fyne.TextWrapWord
+	dlg := dialog.NewCustom(tr("Unsaved changes"), tr("Close"),
+		container.NewBorder(msg, nil, nil, nil, scrollText(strings.Join(lines, "\n"))), u.win)
+	dlg.Resize(fyne.NewSize(640, 420))
+	dlg.Show()
+}
+
+// discardChanges sets the loaded model back to the values last read or
+// loaded, after asking.
+func discardChanges(u *ui) {
+	d := u.settings.dev
+	if d == nil {
+		return
+	}
+	c := newConfirm(u, tr("Discard changes"), tr("Discard every change that was not sent or saved, and go back to the values "+
+		"last read from the device or loaded from the file?"), tr("Discard changes"), func() {
+		if u.settings.dev == d {
+			d.Revert()
+			u.settings.changed()
+		}
+	})
+	c.SetConfirmImportance(widget.DangerImportance)
+	c.Show()
 }
 
 // validationErrors returns the issues that block sending d.
@@ -143,23 +158,15 @@ func validationErrors(d *vebus.Device) []vebus.Issue {
 	return nil
 }
 
-// selectedUnit returns the device address chosen for Get.
-func (b *settingsBar) selectedUnit() byte {
-	if i := b.units.SelectedIndex(); len(b.addrs) > 1 && i >= 0 {
-		return b.addrs[i]
-	}
-	return b.u.sess.target
-}
-
-// getSettings reads the settings of the chosen unit, after asking whether
-// unsent changes may be discarded.
-func (b *settingsBar) getSettings() {
-	u := b.u
+// getSettings reads the settings of the unit chosen on the Overview page
+// (ui.unit), after asking whether unsent changes may be discarded.
+func getSettings(u *ui) {
 	s := u.sess
 	if s == nil {
+		showMessage(u, tr("Get settings"), tr("Connect to a device first."))
 		return
 	}
-	addr := b.selectedUnit()
+	addr := u.unit
 	read := func() {
 		runWithProgress(u, tr("Reading the settings"), func(ctx context.Context, progress func(done, total int)) error {
 			d, rep, err := readSettings(ctx, s, addr, deviceSettingIDs(), progress)
@@ -185,6 +192,11 @@ func (b *settingsBar) getSettings() {
 
 // confirm asks a yes/no question and calls yes on yes.
 func confirm(u *ui, title, msg, yesText string, yes func()) {
+	newConfirm(u, title, msg, yesText, yes).Show()
+}
+
+// newConfirm returns the dialog of confirm, not yet shown.
+func newConfirm(u *ui, title, msg, yesText string, yes func()) *dialog.ConfirmDialog {
 	d := dialog.NewConfirm(title, msg, func(ok bool) {
 		if ok {
 			yes()
@@ -192,7 +204,7 @@ func confirm(u *ui, title, msg, yesText string, yes func()) {
 	}, u.win)
 	d.SetConfirmText(yesText)
 	d.SetDismissText(tr("Cancel"))
-	d.Show()
+	return d
 }
 
 // readSettings reads, through s, the settings ids of the device at addr
@@ -526,23 +538,26 @@ func showWriteReport(u *ui, d *vebus.Device, rep *vebus.WriteReport, err error) 
 	dlg.Show()
 }
 
-// setAllToDefault sets the settings of the settings tabs to the device
-// defaults, in the model only.
+// setAllToDefault sets the settings of the settings pages to the device
+// defaults, in the model only, after asking.
 func setAllToDefault(u *ui) {
 	d := u.settings.dev
 	if d == nil {
 		return
 	}
-	confirm(u, tr("Set all to default"), tr("Set every setting on the General, Inverter, Charger, Virtual switch and Advanced tabs "+
-		"to the device's default? Nothing is sent until you send the settings."), tr("Set all to default"), func() {
-		if u.settings.dev != d {
-			return
-		}
-		if errs := applyDefaults(d); len(errs) > 0 {
-			showError(u, errors.Join(errs...))
-		}
-		u.settings.changed()
-	})
+	c := newConfirm(u, tr("Reset all to defaults"), tr("Set every setting on the General, Inverter, Charger, Virtual switch and Advanced pages "+
+		"to the device's default? Your values on these pages are replaced. Nothing is sent until you send the settings."),
+		tr("Reset all to defaults"), func() {
+			if u.settings.dev != d {
+				return
+			}
+			if errs := applyDefaults(d); len(errs) > 0 {
+				showError(u, errors.Join(errs...))
+			}
+			u.settings.changed()
+		})
+	c.SetConfirmImportance(widget.DangerImportance)
+	c.Show()
 }
 
 // applyDefaults sets the entries of the settings tabs to their device
@@ -587,7 +602,7 @@ func findEntries(d *vebus.Device, query string) []vebus.Entry {
 }
 
 // findSetting asks for a setting number or name and shows the chosen
-// setting on its tab.
+// setting on its page.
 func findSetting(u *ui) {
 	d := u.settings.dev
 	if d == nil {
@@ -644,41 +659,66 @@ func chooseSettingsFile(u *ui) {
 			showError(u, err)
 			return
 		}
-		if r == nil {
-			return
+		if r != nil {
+			readSettingsFile(u, r)
 		}
-		data, err := io.ReadAll(r)
-		r.Close()
-		if err != nil {
-			showError(u, &uiError{err: err, msg: tr("Cannot read {{.File}}: {{.Err}}", args{"File": r.URI().Name(), "Err": err})})
-			return
-		}
-		sf, err := parseSettingsFile(r.URI().Name(), data)
-		if err != nil {
-			showError(u, err)
-			return
-		}
-		if len(sf.units) == 1 {
-			loadSettingsFile(u, sf)
-			return
-		}
-		opts := make([]string, len(sf.units))
-		for i, x := range sf.units {
-			opts[i] = vebus.UnitLabel(x)
-		}
-		sel := widget.NewSelect(opts, nil)
-		sel.SetSelectedIndex(0)
-		pick := dialog.NewCustomConfirm(tr("Choose a unit"), tr("Open"), tr("Cancel"),
-			container.NewVBox(widget.NewLabel(tr("The file holds several units. Which one do you want to edit?")), sel), func(ok bool) {
-				if ok {
-					sf.unit = sf.units[sel.SelectedIndex()]
-					loadSettingsFile(u, sf)
-				}
-			}, u.win)
-		pick.Show()
 	}, u.win)
 	dlg.SetFilter(rvscFilter)
 	dlg.Show()
+}
+
+// openRecentFile opens the settings file at uri, as openSettingsFile does
+// once a file is chosen.
+func openRecentFile(u *ui, uri fyne.URI) {
+	open := func() {
+		r, err := storage.Reader(uri)
+		if err != nil {
+			showError(u, &uiError{err: err, msg: tr("Cannot read {{.File}}: {{.Err}}", args{"File": uri.Name(), "Err": err})})
+			return
+		}
+		readSettingsFile(u, r)
+	}
+	if d := u.settings.dev; d != nil && len(d.ChangedIDs()) > 0 {
+		confirm(u, tr("Open settings file"), tr("Opening a file discards the changes you have not sent or saved. Continue?"),
+			tr("Open settings file"), open)
+		return
+	}
+	open()
+}
+
+// readSettingsFile reads and closes r, a .rvsc/.rvms file, and loads it;
+// for a file with several units, it asks which one.
+func readSettingsFile(u *ui, r fyne.URIReadCloser) {
+	data, err := io.ReadAll(r)
+	r.Close()
+	if err != nil {
+		showError(u, &uiError{err: err, msg: tr("Cannot read {{.File}}: {{.Err}}", args{"File": r.URI().Name(), "Err": err})})
+		return
+	}
+	sf, err := parseSettingsFile(r.URI().Name(), data)
+	if err != nil {
+		showError(u, err)
+		return
+	}
+	addRecent(u, r.URI())
+	if len(sf.units) == 1 {
+		loadSettingsFile(u, sf)
+		return
+	}
+	opts := make([]string, len(sf.units))
+	for i, x := range sf.units {
+		opts[i] = vebus.UnitLabel(x)
+	}
+	sel := widget.NewSelect(opts, nil)
+	sel.SetSelectedIndex(0)
+	pick := dialog.NewCustomConfirm(tr("Choose a unit"), tr("Open"), tr("Cancel"),
+		container.NewVBox(widget.NewLabel(tr("The file holds several units. Which one do you want to edit?")), sel), func(ok bool) {
+			if ok {
+				sf.unit = sf.units[sel.SelectedIndex()]
+				loadSettingsFile(u, sf)
+			}
+		}, u.win)
+	pick.Show()
 }
 
 // loadSettingsFile makes the selected unit of sf the model.
@@ -726,6 +766,7 @@ func saveSettingsFile(u *ui) {
 			return
 		}
 		sf.name = w.URI().Name()
+		addRecent(u, w.URI())
 		loadSettingsFile(u, sf)
 	}, u.win)
 	dlg.SetFilter(rvscFilter)

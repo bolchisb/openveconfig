@@ -11,60 +11,53 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus"
 )
 
-// settingsTabs returns the tabs of the device settings: General (with the
-// battery monitor), Inverter, Charger, Virtual switch and Advanced. A tab
-// with nothing the loaded device supports is disabled and says so.
-func settingsTabs(u *ui) []*container.TabItem {
+// settingsPages returns the pages of the device settings: General (with
+// the battery monitor), Inverter, Charger, Virtual switch and Advanced. A
+// page with nothing the loaded device supports is greyed in the sidebar and
+// says so when chosen.
+func settingsPages(u *ui) []*page {
 	type tab struct {
-		title string
-		tab   vebus.Tab
+		title, desc string
+		icon        fyne.Resource
+		tab         vebus.Tab
 	}
-	var items []*container.TabItem
+	var pages []*page
 	for _, t := range []tab{
-		{tr("General"), vebus.TabGeneral},
-		{tr("Inverter"), vebus.TabInverter},
-		{tr("Charger"), vebus.TabCharger},
-		{tr("Virtual switch"), vebus.TabVirtualSwitch},
-		{tr("Advanced"), vebus.TabAdvanced},
+		{tr("General"), tr("Basic settings of the unit: AC output, AC input current limit and battery."), theme.SettingsIcon(), vebus.TabGeneral},
+		{tr("Inverter"), tr("When the inverter starts and stops, and how it helps the AC input with the battery."), theme.LogoutIcon(), vebus.TabInverter},
+		{tr("Charger"), tr("How the battery is charged: algorithm, voltages, current and times."), theme.DownloadIcon(), vebus.TabCharger},
+		{tr("Virtual switch"), tr("Conditions that turn the virtual switch on and off, for example to drive the relay."), theme.RadioButtonCheckedIcon(), vebus.TabVirtualSwitch},
+		{tr("Advanced"), tr("Settings that are rarely changed. Change them only if you know what they do."), theme.MoreHorizontalIcon(), vebus.TabAdvanced},
 	} {
-		var content fyne.CanvasObject
 		var p *settingsPage
 		if t.tab == vebus.TabVirtualSwitch {
 			p = newSubPages(u, t.tab)
 		} else {
 			p = newSettingsPage(u, t.tab)
 		}
-		content = p.content
+		content := fyne.CanvasObject(p.content)
 		if t.tab == vebus.TabCharger {
 			content = container.NewBorder(presetsBar(u), nil, nil, nil, content)
 		}
-		item := container.NewTabItem(t.title, content)
-		u.settings.onChange(func(loaded bool) {
-			if !loaded || u.tabs == nil {
-				return
-			}
-			if p.empty() && u.settings.dev != nil {
-				u.tabs.DisableItem(item)
-			} else {
-				u.tabs.EnableItem(item)
-			}
-		})
+		pg := newPage(t.title, t.desc, t.icon, t.tab, content)
+		pg.empty = p.empty
 		u.settings.onFind(func(e vebus.Entry) bool {
-			if e.Tab != t.tab || u.tabs == nil {
+			if e.Tab != t.tab {
 				return false
 			}
-			u.tabs.Select(item)
+			u.showPage(pg)
 			p.show(e)
 			return true
 		})
-		items = append(items, item)
+		pages = append(pages, pg)
 	}
-	return items
+	return pages
 }
 
 // settingsPage shows the entries of one tab that the loaded device

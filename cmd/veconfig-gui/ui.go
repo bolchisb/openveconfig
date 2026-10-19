@@ -2,10 +2,13 @@ package main
 
 import (
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
 	"golang.org/x/text/language/display"
+
+	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus"
 )
 
 // ui is the application and its main window. Its fields and methods are
@@ -17,20 +20,57 @@ type ui struct {
 	// sess is the open connection; nil when disconnected.
 	sess      *session
 	listeners []func(s *session)
-	// settings is the settings model the tabs edit (settingsmodel.go).
+	// settings is the settings model the pages edit (settingsmodel.go).
 	settings *settingsModel
-	tabs     *container.AppTabs
+	// unit is the address of the device whose settings Get reads.
+	unit byte
+	conn *connBar // the connection dialog
+
+	// The shell (shell.go): the pages in sidebar order, the page shown and
+	// the area that shows it.
+	pages             []*page
+	overview, general *page
+	current           *page
+	pageArea          *fyne.Container
+	sidebar           *widget.List
+	header            *header
+	changes           *changesBar
+	start, shell      fyne.CanvasObject
+	recents           *fyne.Container // the recent files on the start screen
+	menu              *appMenu
 }
 
-// newUI builds the main window of a.
+// newUI builds the main window of a. It shows the start screen while no
+// device is connected and no settings are loaded, else the header, the
+// sidebar with the pages and, while there are unsent changes, the changes
+// bar.
 func newUI(a fyne.App) *ui {
+	applyTheme(a)
 	u := &ui{app: a, win: a.NewWindow(appName), settings: &settingsModel{}}
-	tabs := container.NewAppTabs(append(settingsTabs(u), gridTab(u))...)
-	u.tabs = tabs
-	top := container.NewVBox(demoBanner(u), connectionBar(u), newSettingsBar(u))
-	u.win.SetContent(container.NewBorder(top, monitorPanel(u), nil, nil, tabs))
-	u.win.SetMainMenu(mainMenu(u))
-	u.win.Resize(fyne.NewSize(900, 600))
+	u.conn = newConnBar(u)
+	u.overview = newPage(tr("Overview"), tr("The connection, the device whose settings are read, and its live values."),
+		theme.HomeIcon(), vebus.TabNone, overviewContent(u))
+	sp := settingsPages(u)
+	u.general = sp[0]
+	u.pages = append([]*page{u.overview, sp[0], gridPage(u)}, sp[1:]...)
+	u.header = newHeader(u)
+	u.changes = newChangesBar(u)
+	u.pageArea = container.NewStack()
+	u.shell = container.NewBorder(nil, nil, container.NewHBox(newSidebar(u), widget.NewSeparator()), nil,
+		container.NewBorder(nil, u.changes.root, nil, nil, container.NewStack(newColourRect(colorNamePage, fyne.Size{}, ""), u.pageArea)))
+	u.menu = newAppMenu(u)
+	u.start = startScreen(u)
+	u.win.SetContent(container.NewBorder(u.header.root, nil, nil, nil, container.NewStack(u.start, u.shell)))
+	u.win.SetPadded(false)
+	u.win.SetMainMenu(u.menu.main)
+	for key, f := range map[fyne.KeyName]func(){
+		fyne.KeyO: func() { openSettingsFile(u) },
+		fyne.KeyS: func() { saveSettingsFile(u) },
+		fyne.KeyF: func() { findSetting(u) },
+	} {
+		u.win.Canvas().AddShortcut(shortcut(key), func(fyne.Shortcut) { f() })
+	}
+	u.win.Resize(fyne.NewSize(1100, 720))
 	u.win.SetOnClosed(func() { u.setSession(nil) })
 	u.onSession(func(s *session) {
 		title := appName
@@ -38,8 +78,34 @@ func newUI(a fyne.App) *ui {
 			title = tr("{{.App}} - DEMO, no hardware", args{"App": appName})
 		}
 		u.win.SetTitle(title)
+		u.update()
 	})
+	u.settings.onChange(func(loaded bool) {
+		// A newly read or opened model lands on its first settings page.
+		if loaded && u.settings.dev != nil && u.current == u.overview {
+			u.showPage(u.general)
+		}
+		u.update()
+	})
+	u.showPage(u.overview)
+	u.recentsChanged()
+	u.update()
 	return u
+}
+
+// update shows the state of the session and of the model in the shell.
+func (u *ui) update() {
+	if u.sess == nil && u.settings.dev == nil {
+		u.shell.Hide()
+		u.start.Show()
+	} else {
+		u.start.Hide()
+		u.shell.Show()
+	}
+	u.sidebar.Refresh()
+	u.header.update(u)
+	u.changes.update(u)
+	u.menu.update(u)
 }
 
 // onSession registers f to be called on the UI goroutine whenever a session
@@ -63,41 +129,87 @@ func (u *ui) setSession(s *session) {
 	}
 }
 
-// demoBanner returns a coloured strip that is visible while a demo session
-// is open.
-func demoBanner(u *ui) fyne.CanvasObject {
-	bg := canvas.NewRectangle(theme.Color(theme.ColorNameWarning))
-	text := canvas.NewText(tr("DEMO MODE: simulated devices, no hardware is connected. Nothing is written to a real device."),
-		theme.Color(theme.ColorNameForegroundOnWarning))
-	text.TextStyle.Bold = true
-	text.Alignment = fyne.TextAlignCenter
-	banner := container.NewStack(bg, container.NewPadded(text))
-	banner.Hide()
-	u.onSession(func(s *session) {
-		if s != nil && s.demo {
-			banner.Show()
-		} else {
-			banner.Hide()
-		}
-	})
-	return banner
+// shortcut returns the keyboard shortcut of key with the platform's
+// shortcut modifier (Ctrl, or Cmd on macOS).
+func shortcut(key fyne.KeyName) fyne.Shortcut {
+	return &desktop.CustomShortcut{KeyName: key, Modifier: fyne.KeyModifierShortcutDefault}
 }
 
-// mainMenu returns the window menu.
-func mainMenu(u *ui) *fyne.MainMenu {
-	file := fyne.NewMenu(tr("File"),
-		fyne.NewMenuItem(tr("Open settings file"), func() { openSettingsFile(u) }),
-		fyne.NewMenuItem(tr("Save settings file"), func() { saveSettingsFile(u) }),
-		fyne.NewMenuItemSeparator(),
+// appMenu is the window menu, with the items whose state changes.
+type appMenu struct {
+	main                               *fyne.MainMenu
+	recent                             *fyne.MenuItem
+	connect, get, send, find, defaults *fyne.MenuItem
+	remote, monitor                    *fyne.MenuItem
+}
+
+func newAppMenu(u *ui) *appMenu {
+	m := &appMenu{}
+	item := func(label string, f func()) *fyne.MenuItem { return fyne.NewMenuItem(label, f) }
+	open := item(tr("Open settings file…"), func() { openSettingsFile(u) })
+	open.Shortcut = shortcut(fyne.KeyO)
+	save := item(tr("Save settings file"), func() { saveSettingsFile(u) })
+	save.Shortcut = shortcut(fyne.KeyS)
+	m.recent = item(tr("Recent files"), nil)
+	m.recent.ChildMenu = fyne.NewMenu("")
+	file := fyne.NewMenu(tr("File"), open, save, m.recent, fyne.NewMenuItemSeparator(),
 		&fyne.MenuItem{Label: tr("Quit"), IsQuit: true})
-	tools := fyne.NewMenu(tr("Tools"),
-		fyne.NewMenuItem(tr("Remote panel"), func() { showRemotePanel(u) }),
-		fyne.NewMenuItem(tr("VE.Bus monitor"), func() { showVEBusMonitor(u) }),
-	)
-	language := fyne.NewMenuItem(tr("Language"), nil)
+
+	m.connect = item(tr("Connect…"), func() {
+		if u.sess != nil {
+			u.setSession(nil)
+		} else {
+			u.conn.show()
+		}
+	})
+	m.get = item(tr("Get settings"), func() { getSettings(u) })
+	m.send = item(tr("Send settings"), func() { sendSettings(u) })
+	m.find = item(tr("Find setting…"), func() { findSetting(u) })
+	m.find.Shortcut = shortcut(fyne.KeyF)
+	m.defaults = item(tr("Reset all to defaults…"), func() { setAllToDefault(u) })
+	device := fyne.NewMenu(tr("Device"), m.connect, fyne.NewMenuItemSeparator(), m.get, m.send,
+		fyne.NewMenuItemSeparator(), m.find, fyne.NewMenuItemSeparator(), m.defaults)
+
+	m.remote = item(tr("Remote panel"), func() { showRemotePanel(u) })
+	m.monitor = item(tr("VE.Bus monitor"), func() { showVEBusMonitor(u) })
+	tools := fyne.NewMenu(tr("Tools"), m.remote, m.monitor)
+
+	language := item(tr("Language"), nil)
 	language.ChildMenu = languageMenu(u)
-	options := fyne.NewMenu(tr("Options"), language)
-	return fyne.NewMainMenu(file, tools, options)
+	look := item(tr("Theme"), nil)
+	look.ChildMenu = themeMenu(u)
+	options := fyne.NewMenu(tr("Options"), language, look)
+	m.main = fyne.NewMainMenu(file, device, tools, options)
+	return m
+}
+
+// update enables the items that can act on the session and the model.
+func (m *appMenu) update(u *ui) {
+	connected, loaded := u.sess != nil, u.settings.dev != nil
+	changed := false
+	set := func(it *fyne.MenuItem, enabled bool) {
+		if it.Disabled == enabled {
+			it.Disabled = !enabled
+			changed = true
+		}
+	}
+	set(m.get, connected)
+	set(m.send, connected && loaded)
+	set(m.find, loaded)
+	set(m.defaults, loaded)
+	set(m.remote, connected)
+	set(m.monitor, connected)
+	label := tr("Connect…")
+	if connected {
+		label = tr("Disconnect")
+	}
+	if m.connect.Label != label {
+		m.connect.Label = label
+		changed = true
+	}
+	if changed {
+		m.main.Refresh()
+	}
 }
 
 // languageMenu lists the OS default and every language with a catalog. A
