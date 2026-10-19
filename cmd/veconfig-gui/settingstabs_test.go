@@ -102,7 +102,7 @@ func labelTexts(o fyne.CanvasObject) string {
 func TestTabsShowSupportedEntriesOnly(t *testing.T) {
 	u := newTestUI(t)
 	s := settingsSession(t)
-	u.setSession(s)
+	u.sess = s // no listeners: the monitor poller would race with the test driver
 	pages := map[vebus.Tab]*settingsPage{}
 	for _, tab := range settingsTabSet {
 		pages[tab] = newSettingsPage(u, tab)
@@ -188,7 +188,7 @@ func mustEntry(t *testing.T, d *vebus.Device, id vebus.ID) vebus.Entry {
 func TestEditSendGetRoundTrip(t *testing.T) {
 	u := newTestUI(t)
 	s := settingsSession(t)
-	u.setSession(s)
+	u.sess = s // no listeners: the monitor poller would race with the test driver
 	charger := newSettingsPage(u, vebus.TabCharger)
 	inverter := newSettingsPage(u, vebus.TabInverter)
 	d := readModel(t, s, 0)
@@ -270,7 +270,7 @@ func TestEditSendGetRoundTrip(t *testing.T) {
 func TestValidationBlocksSend(t *testing.T) {
 	u := newTestUI(t)
 	s := settingsSession(t)
-	u.setSession(s)
+	u.sess = s // no listeners: the monitor poller would race with the test driver
 	d := readModel(t, s, 0)
 	u.settings.load(d, nil)
 	if err := setNumber(d, mustEntry(t, d, vebus.SettingID(3)), "15"); err != nil { // float above absorption

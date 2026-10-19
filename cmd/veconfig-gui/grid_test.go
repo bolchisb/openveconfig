@@ -41,7 +41,7 @@ func gridSetup(t *testing.T, fw uint32) (*ui, *session, *gridTabView, *vebus.Dev
 	t.Helper()
 	u := newTestUI(t)
 	s, _ := simSession(t, simulator.Device{Address: 0, Profile: gridProfile(fw)})
-	u.setSession(s)
+	u.sess = s // no listeners: the monitor poller would race with the test driver
 	g := newGridTab(u)
 	d, rep, err := readSettings(ctxT(t), s, 0, deviceSettingIDs(), nil)
 	if err != nil || len(rep.Failed) > 0 {
@@ -287,7 +287,7 @@ func TestGridSaveFile(t *testing.T) {
 func TestGridDemoProfile(t *testing.T) {
 	u := newTestUI(t)
 	s := settingsSession(t)
-	u.setSession(s)
+	u.sess = s // no listeners: the monitor poller would race with the test driver
 	g := newGridTab(u)
 	d, rep, err := readSettings(ctxT(t), s, 0, deviceSettingIDs(), nil)
 	if err != nil || len(rep.Failed) > 0 {

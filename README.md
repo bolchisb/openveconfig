@@ -66,6 +66,16 @@ veconfig-cli rvsc-apply --port COM3 --unit HQ1234ABCDE backup.rvms  # dry run; -
 
 The `rvsc-*` commands work on the `.rvsc`/`.rvms` files of a GX device's backup and VRM Remote VEConfigure. The format is community-reported. `rvsc-set` changes only the setting's bytes and the checksum. `rvsc-apply` refuses a file that does not match the device (firmware, setting info, number of units) and writes only settings, not assistants. Both refuse grid-code settings unless `--allow-grid-code` is given.
 
+## Graphical tool
+
+`veconfig-gui` is the desktop application. Choose a serial port (or **Auto-detect**, or **Demo** for the built-in simulator, which is marked in the window while active) and connect. It offers:
+
+- **Settings tabs** (General, Inverter, Charger, Virtual switch, Advanced): get the settings from a device, edit them offline (unsent changes, and settings that need a reset or a password, are marked), send the changed or all settings with a per-setting report, set all to default, find a setting by number or name, and open/save `.rvsc` files. Only the settings the device reports as supported are shown.
+- **Grid tab**: the grid code and the AC input limits. The device enforces the installer password for grid codes; the program never enters or bypasses one. Grid code parameters can be viewed and edited, but changed parameters cannot be sent or saved yet, because the check words the device stores with them cannot be computed.
+- **Monitor** below the tabs, and **Tools > VE.Bus monitor** with per-phase values.
+- **Tools > Remote panel**: on/off/charger only/inverter only, the AC input current limit (where the device lets a panel override it) and the LEDs.
+- English and Romanian (**Options > Language**, applied at the next start).
+
 ## Building
 
 Requires [Go](https://go.dev/dl/) (version from `go.mod`). The GUI uses [Fyne](https://fyne.io), which needs cgo and a C toolchain:
