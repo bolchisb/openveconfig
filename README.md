@@ -77,6 +77,8 @@ CI builds both binaries on native runners for windows/amd64, darwin/arm64, darwi
 
 Suggestions, bug reports and ideas are welcome. Open an [issue](https://github.com/bolchisb/victron-veconfigure-ported/issues) or send a pull request.
 
+This is a clean-room, interoperability-only project. Before contributing, read the [clean-room and licensing policy](docs/CLEAN-ROOM.md): never paste decompiled code, data extracted from Victron software, firmware or help text into code, issues or pull requests.
+
 ## License
 
 Released under the [MIT License](LICENSE).

@@ -100,7 +100,9 @@ type Options struct {
 	WriteMethod WriteMethod
 	// SettingInfoCommand is the Winmon command used for GetSettingInfo.
 	// 0 means the spec's CommandGetSettingInfo (0x35). Community traces of
-	// VEConfigure show 0x3C instead; its reply is parsed the same way.
+	// VEConfigure show 0x3C instead (xcellsior/ve-bus-programming
+	// FINDINGS.md §4.3, which also says VictronConnect sends 0x35); its
+	// reply is parsed the same way.
 	SettingInfoCommand byte
 	// IgnoreMissingWriteAck makes WriteSetting, WriteRAMVar and WriteViaID
 	// return nil instead of ErrTimeout when no acknowledgement arrives.
