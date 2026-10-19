@@ -31,6 +31,14 @@ The original tools are Windows-only. Porting them to Go lets us ship a native bu
 
 Early development. Nothing is usable yet.
 
+## Serial ports
+
+The MK2/MK3 interface shows up as a serial port. Likely interfaces are flagged by USB ID: FTDI FT-X `0403:6015` (MK3-USB) and Prolific PL2303 `067B:2303` (USB-RS232 converter for the RS232 MK2.2). The USB ID of the MK2-USB is unknown, so other ports are probed by protocol.
+
+- **Linux:** add your user to the `dialout` group (`sudo usermod -aG dialout $USER`), then log out and back in.
+- **macOS:** use the `/dev/cu.*` node, not `/dev/tty.*`. The `tty.*` dial-in node expects a carrier-detect signal; Apple recommends the `cu.*` callout node for almost all uses.
+- **Windows:** use the plain name, such as `COM3` or `COM12`.
+
 ## Building
 
 Requires [Go](https://go.dev/dl/) (version from `go.mod`). The GUI uses [Fyne](https://fyne.io), which needs cgo and a C toolchain:
