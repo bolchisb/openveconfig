@@ -5,7 +5,9 @@
 // The behaviour follows only the public document "Interfacing with VE.Bus
 // products - MK2 Protocol 3.14"; section numbers (§) in comments refer to
 // it. Where the document says nothing, the simulator does the simplest
-// thing and its doc comment says so.
+// thing and its doc comment says so. The one exception is the MK3
+// high-speed command 'N' (Config.HighSpeed), which follows community
+// reports.
 //
 // All device data is synthetic. The profiles (Synthetic12V230,
 // Synthetic48V120) use setting and RAM IDs and names from §7.3.13 and, for

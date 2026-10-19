@@ -42,6 +42,16 @@ type Config struct {
 	// setting whose Setting.AccessLevel is higher with "access level
 	// required" (0x9B, §7.3.11).
 	AccessLevel byte
+	// HighSpeed makes the simulator an MK3 that accepts the baud-rate change
+	// 'N' (mk2.CmdBaudRate). This command is not in the MK2 document; its
+	// behaviour here follows the community reports cited at
+	// mk2.Client.NegotiateBaud: on 'N' the simulator moves its line to
+	// mk2.HighSpeedBaudRate. It sends no reply, as the reply format is
+	// unknown and neither the host code nor ve-ctrl-tool needs one (a
+	// simulator choice). Without HighSpeed, 'N' is an unknown command and
+	// gets no reply, which is how an MK2 is expected (not documented) to
+	// behave.
+	HighSpeed bool
 }
 
 // Device is one VE.Bus device on the simulated bus.
@@ -148,6 +158,9 @@ func New(cfg Config) *Simulator {
 	}
 	for _, tag := range []byte("WXYZxyz") {
 		s.handlers[tag] = s.cmdWinmon
+	}
+	if cfg.HighSpeed {
+		s.handlers[mk2.CmdBaudRate] = s.cmdBaudRate
 	}
 
 	s.mu.Lock()

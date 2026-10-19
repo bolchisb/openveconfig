@@ -71,19 +71,27 @@ func TestFaultCorruptRecovers(t *testing.T) {
 	if _, err := c.DCInfo(ctx); !errors.Is(err, mk2.ErrTimeout) {
 		t.Fatalf("DCInfo with a corrupted reply: %v", err)
 	}
-	// mk2.ScanFrames skips the bad frame one byte at a time, and a byte
-	// inside it can read as a long <Length>; the scanner then waits for
-	// that many bytes, so a few more requests may time out before it
-	// resynchronises.
-	for i := 1; ; i++ {
-		_, err := c.DCInfo(ctx)
-		if err == nil {
-			t.Logf("recovered on request %d after the corrupted reply", i)
-			break
+	// mk2.ScanFrames skips ahead to the next complete MK2 frame, or to two
+	// back-to-back valid VE.Bus frames, instead of waiting for the long
+	// <Length> a byte of the bad frame can fake. DC replies are VE.Bus
+	// frames, so the first one after the corrupted reply has no partner
+	// yet and that request may time out; the next one must succeed.
+	_, err := c.DCInfo(ctx)
+	if err != nil && !errors.Is(err, mk2.ErrTimeout) {
+		t.Fatalf("DCInfo 1 after the corrupted reply: %v", err)
+	}
+	if err != nil {
+		if _, err := c.DCInfo(ctx); err != nil {
+			t.Fatalf("DCInfo 2 after the corrupted reply: %v", err)
 		}
-		if !errors.Is(err, mk2.ErrTimeout) || i == 15 {
-			t.Fatalf("DCInfo %d after the corrupted reply: %v", i, err)
-		}
+	}
+	// An MK2 frame resynchronises at once.
+	sim.InjectFault(FaultRule{Cmd: mk2.CmdLED, Fault: Corrupt, Count: 1})
+	if _, err := c.LED(ctx); !errors.Is(err, mk2.ErrTimeout) {
+		t.Fatalf("LED with a corrupted reply: %v", err)
+	}
+	if _, err := c.LED(ctx); err != nil {
+		t.Fatalf("LED after the corrupted reply: %v", err)
 	}
 }
 

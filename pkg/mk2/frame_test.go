@@ -191,6 +191,63 @@ func TestScanMK2FramesSkipsSync(t *testing.T) {
 	}
 }
 
+// firstToken feeds chunks to split one at a time, as a serial port delivers
+// them, and returns the index of the chunk after which split first yields a
+// token, and the token. It returns -1 if no token is yielded.
+func firstToken(split func([]byte, bool) (int, []byte, error), chunks [][]byte) (int, []byte) {
+	var buf []byte
+	for i, c := range chunks {
+		buf = append(buf, c...)
+		for {
+			adv, tok, _ := split(buf, false)
+			buf = buf[adv:]
+			if tok != nil {
+				return i, tok
+			}
+			if adv == 0 {
+				break
+			}
+		}
+	}
+	return -1, nil
+}
+
+func TestScanResyncAfterCorruptFrame(t *testing.T) {
+	l := withCS(t, "04 FF 'L 09 00")
+	badL := bytes.Clone(l)
+	badL[len(badL)-1] ^= 0xFF
+	v := withCS(t, "07 FF 'V 93 3E 11 00 'B")
+	dc := withCS(t, "0F 20 7F 9A 81 79 0C 51 0A 00 00 00 00 00 00 88")
+	badDC := bytes.Clone(dc)
+	badDC[len(badDC)-1] ^= 0xFF
+	for _, tc := range []struct {
+		name  string
+		split func([]byte, bool) (int, []byte, error)
+		bad   []byte
+		good  []byte
+		after int // chunk after which the first good frame must be yielded
+	}{
+		// After the bad frame's <Length> is skipped, its 0xFF marker reads
+		// as a <Length> of 127. The scanner must not wait for 129 bytes.
+		{"ScanFrames/L", ScanFrames, badL, l, 1},
+		{"ScanMK2Frames/L", ScanMK2Frames, badL, l, 1},
+		{"ScanFrames/DC then V", ScanFrames, badDC, v, 1},
+		// A lone VE.Bus frame is no anchor; two in a row are.
+		{"ScanFrames/DC then DC", ScanFrames, badDC, dc, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			chunks := [][]byte{tc.bad}
+			for range 30 {
+				chunks = append(chunks, tc.good)
+			}
+			i, tok := firstToken(tc.split, chunks)
+			if i != tc.after || !bytes.Equal(tok, tc.good) {
+				t.Fatalf("first token % X after chunk %d, want % X after chunk %d", tok, i, tc.good, tc.after)
+			}
+		})
+	}
+}
+
 func FuzzDecode(f *testing.F) {
 	for _, tc := range appendix1 {
 		f.Add(unhex(f, tc.wire))

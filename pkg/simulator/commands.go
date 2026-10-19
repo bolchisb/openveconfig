@@ -149,12 +149,22 @@ func (s *Simulator) cmdAddress(_ *Line, req mk2.Frame) {
 }
 
 // cmdReset handles 'R' (§3.6): the MK2 restarts with its power-up state and
-// sends a 'V' frame. The line speed is left as is.
-func (s *Simulator) cmdReset(_ *Line, _ mk2.Frame) {
+// sends a 'V' frame. The line speed goes back to 2400 (§3.1). That is an
+// assumption: the spec says nothing about speed after 'R', but ve-ctrl-tool
+// sends 'R' at 115200 and then talks at 2400, which only works if the MK3
+// drops back.
+func (s *Simulator) cmdReset(l *Line, _ mk2.Frame) {
+	l.SetBaudRate(DefaultBaudRate)
 	s.addr = mk2.AddressNone
 	s.mode = mk2.WinmonShort
 	s.appendLED = false
 	s.sendVersion()
+}
+
+// cmdBaudRate handles the MK3 'N' when Config.HighSpeed is set: the line
+// moves to 115200 and nothing is sent back (see Config.HighSpeed).
+func (s *Simulator) cmdBaudRate(l *Line, _ mk2.Frame) {
+	l.SetBaudRate(mk2.HighSpeedBaudRate)
 }
 
 // cmdFrame handles 'F' (§6). The master answers the DC and MasterMultiLED

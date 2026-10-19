@@ -156,6 +156,16 @@ func Decode(b []byte) (Frame, error) {
 // or VE.Bus. Use it on the device-to-host direction. Bytes that do not start
 // a frame with a valid checksum are skipped one at a time, so the scanner
 // resynchronises after line noise. Tokens are complete frames for Decode.
+//
+// A noise byte can look like the <Length> of a frame that has not fully
+// arrived yet (after a corrupt MK2 frame, its 0xFF marker reads as a
+// <Length> of 127). The scanner does not wait for the rest if an anchor
+// already follows in the buffer; it skips ahead to it. An anchor is a
+// complete MK2 frame (0xFF marker) with a valid checksum, or a complete
+// VE.Bus frame with a valid checksum that is directly followed by another
+// complete, valid frame. A single VE.Bus-shaped run with a valid checksum
+// turns up too easily (about 1 in 256 per candidate) inside the data of a
+// genuine frame that is still arriving, so it does not count on its own.
 func ScanFrames(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	return scan(data, atEOF, false)
 }
@@ -168,6 +178,7 @@ func ScanMK2Frames(data []byte, atEOF bool) (advance int, token []byte, err erro
 }
 
 func scan(data []byte, atEOF, mk2Only bool) (int, []byte, error) {
+	anchor := -1 // offset of an anchor after an incomplete candidate
 	for start := 0; ; start++ {
 		rest := data[start:]
 		if len(rest) < 3 {
@@ -181,17 +192,51 @@ func scan(data []byte, atEOF, mk2Only bool) (int, []byte, error) {
 			continue
 		}
 		if len(rest) < n+2 {
-			if atEOF {
+			if atEOF || start < anchor {
 				continue
 			}
-			return start, nil, nil
+			if anchor = nextAnchor(data, start+1); anchor < 0 {
+				return start, nil, nil
+			}
+			continue
 		}
-		var sum byte
-		for _, c := range rest[:n+2] {
-			sum += c
-		}
-		if sum == 0 {
+		if checksumOK(rest[:n+2]) {
 			return start + n + 2, rest[:n+2], nil
 		}
 	}
+}
+
+// nextAnchor returns the offset of the first anchor (see ScanFrames) in
+// data at or after from, or -1. scan only calls it while a candidate frame
+// of at most MaxBody+2 bytes is incomplete, so data[from:] is shorter than
+// that and the search is bounded.
+func nextAnchor(data []byte, from int) int {
+	for j := from; j < len(data); j++ {
+		n := frameAt(data, j)
+		if n >= 4 && data[j+1] == Marker || n > 0 && frameAt(data, j+n) > 0 {
+			return j
+		}
+	}
+	return -1
+}
+
+// frameAt returns the size of the complete frame with a valid checksum at
+// data[j:], or 0.
+func frameAt(data []byte, j int) int {
+	if j+3 > len(data) {
+		return 0
+	}
+	n := int(data[j]&^LengthLEDFlag) + 2
+	if n == 2 || j+n > len(data) || !checksumOK(data[j:j+n]) {
+		return 0
+	}
+	return n
+}
+
+func checksumOK(b []byte) bool {
+	var sum byte
+	for _, c := range b {
+		sum += c
+	}
+	return sum == 0
 }
