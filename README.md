@@ -39,6 +39,22 @@ The MK2/MK3 interface shows up as a serial port. Likely interfaces are flagged b
 - **macOS:** use the `/dev/cu.*` node, not `/dev/tty.*`. The `tty.*` dial-in node expects a carrier-detect signal; Apple recommends the `cu.*` callout node for almost all uses.
 - **Windows:** use the plain name, such as `COM3` or `COM12`.
 
+## Command-line tool
+
+`veconfig-cli` is for diagnostics, scripting and hardware tests. Every command that talks to a device takes `--port NAME` or `--simulator` (a built-in simulator with two synthetic devices, so no hardware is needed), plus `--address N`, `--baud auto|2400|115200` and `--verbose` (a timestamped hex log of every frame on stderr, for bug reports). Run `veconfig-cli <command> --help` for details.
+
+```sh
+veconfig-cli ports --probe                       # list ports; --probe sends one 'V' request to each
+veconfig-cli --simulator version                 # interface and device firmware, devices found
+veconfig-cli read-setting --port COM3 2          # raw and scaled value, scale, offset, default, min, max
+veconfig-cli read-ram --port COM3 4              # raw and scaled value of a RAM variable
+veconfig-cli write-setting --port COM3 --yes 2 14.5        # value in display units
+veconfig-cli write-setting --port COM3 --yes --raw 2 1450  # value as stored on the device
+veconfig-cli --simulator dump > dump.json        # all settings and RAM variables as JSON
+```
+
+`write-setting` changes a live device: it is refused without `--yes`, checks the value against the minimum and maximum the device reports, and reads the setting back afterwards.
+
 ## Building
 
 Requires [Go](https://go.dev/dl/) (version from `go.mod`). The GUI uses [Fyne](https://fyne.io), which needs cgo and a C toolchain:
