@@ -33,6 +33,9 @@ jobs:
       - run: go vet ./...
       - run: go build ./...
       - run: go test ./...
+      - name: Fuzz frame decoder
+        if: runner.os == 'Linux'
+        run: go test -run '^$' -fuzz '^FuzzDecode$' -fuzztime 30s ./pkg/mk2
 
   build:
     name: build (${{ matrix.goos }}/${{ matrix.goarch }})
