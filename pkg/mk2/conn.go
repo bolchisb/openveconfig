@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -125,6 +126,11 @@ type Client struct {
 	closeOnce sync.Once
 	readErr   error // set before frames is closed
 
+	// received counts the bytes read from rw. readLoop drops every byte
+	// before stream offset discardTo; see discardReceived.
+	received  atomic.Int64
+	discardTo atomic.Int64
+
 	mu   sync.Mutex // held for each request
 	mode WinmonMode
 	dest byte
@@ -178,8 +184,22 @@ func (c *Client) SetDestination(addr byte) {
 }
 
 func (c *Client) readLoop() {
-	sc := bufio.NewScanner(c.rw)
-	sc.Split(ScanFrames)
+	var consumed int64 // stream offset of the scanner's first buffered byte
+	sc := bufio.NewScanner(readerFunc(func(p []byte) (int, error) {
+		n, err := c.rw.Read(p)
+		c.received.Add(int64(n))
+		return n, err
+	}))
+	sc.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+		if skip := c.discardTo.Load() - consumed; skip > 0 && len(data) > 0 {
+			n := int(min(skip, int64(len(data))))
+			consumed += int64(n)
+			return n, nil, nil
+		}
+		n, tok, err := ScanFrames(data, atEOF)
+		consumed += int64(n)
+		return n, tok, err
+	})
 	for sc.Scan() {
 		f, err := Decode(sc.Bytes())
 		if err != nil {
@@ -205,6 +225,19 @@ func (c *Client) readLoop() {
 	}
 	close(c.frames)
 }
+
+// discardReceived makes the reader drop every byte received so far,
+// including a partial frame it may be waiting to complete. Bytes received
+// at the wrong baud rate are garbage, and a garbage <Length> byte such as
+// 0xFF would otherwise make ScanFrames wait for up to 129 bytes before it
+// resynchronises.
+func (c *Client) discardReceived() {
+	c.discardTo.Store(c.received.Load())
+}
+
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
 
 // handler inspects a received frame. mine reports whether the frame belongs
 // to the current request; done reports whether the reply is complete.
