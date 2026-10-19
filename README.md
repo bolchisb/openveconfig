@@ -31,6 +31,24 @@ The original tools are Windows-only. Porting them to Go lets us ship a native bu
 
 Early development. Nothing is usable yet.
 
+## Building
+
+Requires [Go](https://go.dev/dl/) (version from `go.mod`). The GUI uses [Fyne](https://fyne.io), which needs cgo and a C toolchain:
+
+- **Windows:** a MinGW-w64 gcc on `PATH` (for example from [MSYS2](https://www.msys2.org/): `pacman -S mingw-w64-x86_64-toolchain`).
+- **macOS:** Xcode command line tools (`xcode-select --install`).
+- **Linux (Debian/Ubuntu):** `sudo apt-get install gcc libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev`
+
+```sh
+git clone https://github.com/bolchisb/victron-veconfigure-ported.git
+cd victron-veconfigure-ported
+go build ./cmd/veconfig-cli
+go build ./cmd/veconfig-gui
+go test ./...
+```
+
+CI builds both binaries on native runners for windows/amd64, darwin/arm64, darwin/amd64, linux/amd64 and linux/arm64 (see `.github/workflows/ci.yml`).
+
 ## Contributing
 
 Suggestions, bug reports and ideas are welcome. Open an [issue](https://github.com/bolchisb/victron-veconfigure-ported/issues) or send a pull request.
