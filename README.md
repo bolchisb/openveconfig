@@ -6,6 +6,8 @@
 
 **Configure Multi, Quattro and MultiPlus inverter/chargers without the original Windows-only software.**
 
+[![CI](https://github.com/bolchisb/victron-veconfigure-ported/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bolchisb/victron-veconfigure-ported/actions/workflows/ci.yml?query=branch%3Amain)
+[![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbolchisb%2Fvictron-veconfigure-ported%2Fbadges%2Ftests.json)](https://github.com/bolchisb/victron-veconfigure-ported/actions/workflows/ci.yml?query=branch%3Amain)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-blue.svg)](#about)
@@ -93,6 +95,8 @@ go test ./...
 ```
 
 CI builds both binaries on native runners for windows/amd64, darwin/arm64, darwin/amd64, linux/amd64 and linux/arm64 (see `.github/workflows/ci.yml`).
+
+Releases are made by pushing a `v*` tag (for example `v0.1.0`; a tag with a `-`, such as `v0.1.0-rc1`, becomes a pre-release) that points to a commit on `main`. The release workflow (`.github/workflows/release.yml`) refuses tags on other branches, runs the tests, and attaches the archives for all five platforms plus `SHA256SUMS.txt` to the GitHub release. The macOS binaries are not signed or notarized yet.
 
 ## Contributing
 

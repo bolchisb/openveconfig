@@ -1,0 +1,106 @@
+name: Release
+
+# A release is made only for a v* tag that points to a commit on main.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Tag must point to a commit on main
+        run: |
+          git fetch -q origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME points to $GITHUB_SHA, which is not on main. No release is made."
+            exit 1
+          fi
+
+  test:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
+      - run: go vet ./...
+      - run: go test ./...
+
+  # Same native-runner matrix as ci.yml (Fyne needs cgo).
+  build:
+    name: build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: test
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { goos: windows, goarch: amd64, runner: windows-latest }
+          - { goos: darwin, goarch: arm64, runner: macos-latest }
+          - { goos: darwin, goarch: amd64, runner: macos-latest }
+          - { goos: linux, goarch: amd64, runner: ubuntu-latest }
+          - { goos: linux, goarch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    env:
+      CGO_ENABLED: "1"
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install Fyne dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
+      - name: Build and package
+        shell: bash
+        run: |
+          ext=""
+          guiflags=""
+          if [ "$GOOS" = windows ]; then ext=".exe"; guiflags="-H=windowsgui"; fi
+          name="veconfig-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
+          mkdir -p "pkg/$name" dist
+          go build -trimpath -o "pkg/$name/veconfig-cli$ext" ./cmd/veconfig-cli
+          go build -trimpath -ldflags "$guiflags" -o "pkg/$name/veconfig-gui$ext" ./cmd/veconfig-gui
+          cp LICENSE README.md THIRD_PARTY_NOTICES.md "pkg/$name/"
+          cd pkg
+          if [ "$GOOS" = windows ]; then
+            7z a -tzip -bso0 "../dist/$name.zip" "$name"
+          else
+            tar czf "../dist/$name.tar.gz" "$name"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Create GitHub release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --generate-notes --title "$GITHUB_REF_NAME" $prerelease ./*

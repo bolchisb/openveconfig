@@ -32,7 +32,42 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
       - run: go build ./...
-      - run: go test ./...
+      - name: go test
+        if: runner.os != 'Linux'
+        run: go test ./...
+      # On Linux the results are also counted for the README badge.
+      - name: go test (counted)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set +e
+          go test -json ./... > gotest.json
+          status=$?
+          set -e
+          count() { jq -Rn "[inputs | fromjson? | select(.Test != null and .Action == \"$1\")] | length" gotest.json; }
+          passed=$(count pass)
+          failed=$(count fail)
+          if [ "$failed" -gt 0 ]; then
+            message="$failed failed, $passed passed"; color=red
+          elif [ "$status" -ne 0 ]; then
+            message="build failing"; color=red
+          else
+            message="$passed passed"; color=brightgreen
+          fi
+          mkdir -p badge
+          printf '{"schemaVersion":1,"label":"tests","message":"%s","color":"%s"}\n' "$message" "$color" > badge/tests.json
+          {
+            echo "### Tests: $message"
+            jq -Rr 'fromjson? | select(.Test != null and .Action == "fail") | "- \(.Package) \(.Test)"' gotest.json
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - name: Upload badge data
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-badge
+          path: badge/tests.json
+          if-no-files-found: ignore
       - name: Fuzz frame decoder
         if: runner.os == 'Linux'
         run: go test -run '^$' -fuzz '^FuzzDecode$' -fuzztime 30s ./pkg/mk2
@@ -75,3 +110,29 @@ jobs:
         with:
           name: veconfig-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/
+
+  # Publishes the Linux test counts for the README badge. The JSON is kept on
+  # the orphan branch "badges" and rendered by shields.io's endpoint badge.
+  badge:
+    needs: test
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency: badge
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-badge
+          path: badge
+      - name: Push badge data
+        working-directory: badge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git init -q -b badges
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests.json
+          git commit -q -m "Test badge for ${GITHUB_SHA::7}"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges
