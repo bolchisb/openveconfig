@@ -303,11 +303,11 @@ func TestValidationBlocksSend(t *testing.T) {
 	}
 	sendSettings(u)
 	dlg := u.win.Canvas().Overlays().Top()
-	if dlg == nil || !strings.Contains(labelTexts(dlg), "not valid") {
+	if dlg == nil || !strings.Contains(dialogTexts(dlg), "not valid") {
 		t.Fatal("no validation message")
 	}
-	if len(findObjects(dlg, func(o fyne.CanvasObject) bool { b, ok := o.(*widget.Button); return ok && b.Text == "Send" })) > 0 {
-		t.Error("the send confirmation is shown despite the invalid value")
+	if !findButton(t, dlg, "Send").Disabled() {
+		t.Error("sending is not blocked despite the invalid value")
 	}
 	if v, _ := readModel(t, s, 0).Display(vebus.SettingID(3)); v != 13.8 {
 		t.Errorf("device float voltage = %v, want 13.8 (nothing sent)", v)

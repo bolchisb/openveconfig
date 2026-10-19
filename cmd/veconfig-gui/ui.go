@@ -140,6 +140,7 @@ type appMenu struct {
 	main                               *fyne.MainMenu
 	recent                             *fyne.MenuItem
 	connect, get, send, find, defaults *fyne.MenuItem
+	review                             *fyne.MenuItem
 	remote, monitor                    *fyne.MenuItem
 }
 
@@ -164,10 +165,11 @@ func newAppMenu(u *ui) *appMenu {
 	})
 	m.get = item(tr("Get settings"), func() { getSettings(u) })
 	m.send = item(tr("Send settings"), func() { sendSettings(u) })
+	m.review = item(tr("Review changes…"), func() { reviewChanges(u) })
 	m.find = item(tr("Find setting…"), func() { findSetting(u) })
 	m.find.Shortcut = shortcut(fyne.KeyF)
 	m.defaults = item(tr("Reset all to defaults…"), func() { setAllToDefault(u) })
-	device := fyne.NewMenu(tr("Device"), m.connect, fyne.NewMenuItemSeparator(), m.get, m.send,
+	device := fyne.NewMenu(tr("Device"), m.connect, fyne.NewMenuItemSeparator(), m.get, m.send, m.review,
 		fyne.NewMenuItemSeparator(), m.find, fyne.NewMenuItemSeparator(), m.defaults)
 
 	m.remote = item(tr("Remote panel"), func() { showRemotePanel(u) })
@@ -195,6 +197,7 @@ func (m *appMenu) update(u *ui) {
 	}
 	set(m.get, connected)
 	set(m.send, connected && loaded)
+	set(m.review, loaded && len(u.settings.dev.ChangedIDs()) > 0)
 	set(m.find, loaded)
 	set(m.defaults, loaded)
 	set(m.remote, connected)

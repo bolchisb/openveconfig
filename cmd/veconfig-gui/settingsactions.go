@@ -11,7 +11,9 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
@@ -105,48 +107,117 @@ func tabChanges(d *vebus.Device, tab vebus.Tab) int {
 	return n
 }
 
-// reviewChanges lists the unsent changes of the loaded model with their
-// new values.
+// changeSummary sums up the changes counted in c in one line.
+func changeSummary(c changeCounts) string {
+	parts := []string{trn("{{.Count}} change", "{{.Count}} changes", c.total())}
+	if c.reset > 0 {
+		parts = append(parts, trn("{{.Count}} needs a device reset", "{{.Count}} need a device reset", c.reset))
+	}
+	if c.password > 0 {
+		parts = append(parts, trn("{{.Count}} needs a password", "{{.Count}} need a password", c.password))
+	}
+	if c.invalid > 0 {
+		parts = append(parts, trn("{{.Count}} invalid value", "{{.Count}} invalid values", c.invalid))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// reviewChanges shows the unsent changes of the loaded model in a table,
+// each with a button that reverts it, and offers the action of the changes
+// bar: send them to the device or save the file.
 func reviewChanges(u *ui) {
-	d := u.settings.dev
+	m := u.settings
+	d := m.dev
 	if d == nil {
 		return
 	}
-	var lines []string
-	for _, e := range d.Entries() {
-		if e.FlagWord || !slices.Contains(settingsTabSet, e.Tab) && e.Tab != vebus.TabGrid || !d.Dirty(e.ID()) {
-			continue
+	before := lastRead(d)
+	cols := tableColumns{old: tr("On device"), new: tr("New value"), notes: tr("Notes")}
+	intro := tr("Changes to the settings read from the device at address {{.Address}}. Nothing has been sent yet.", args{"Address": d.Address})
+	primary := widget.NewButtonWithIcon("", theme.UploadIcon(), nil)
+	if m.file != nil {
+		cols.old = tr("In file")
+		intro = tr("Changes to {{.File}}. Nothing has been saved yet.", args{"File": m.file.name})
+		primary.SetIcon(theme.DocumentSaveIcon())
+	}
+	primary.Importance = widget.HighImportance
+	table := container.NewStack()
+	summary := widget.NewLabel("")
+	summary.TextStyle.Bold = true
+	reason := mutedText("")
+	var do func()
+	var refresh func()
+	revertAll := widget.NewButtonWithIcon(tr("Revert all"), theme.ContentUndoIcon(), func() {
+		confirmDiscard(u, d, func() { refresh() })
+	})
+	revert := func(id vebus.ID) func() {
+		return func() {
+			raw, err := before.Raw(id)
+			if err == nil {
+				err = d.SetRaw(id, raw)
+			}
+			if err != nil {
+				showError(u, err)
+			}
+			m.changed()
+			refresh()
 		}
-		lines = append(lines, tr("{{.Name}}: {{.Value}}", args{"Name": entryLabel(d, e.ID()), "Value": entryValueText(d, e.ID())}))
 	}
-	for _, id := range changedGridWords(d) {
-		sid := vebus.SettingID(id)
-		lines = append(lines, tr("{{.Name}}: {{.Value}}", args{"Name": entryLabel(d, sid), "Value": entryValueText(d, sid)}))
+	refresh = func() {
+		rows := changeRows(u, d, before)
+		for i := range rows {
+			if d.Dirty(rows[i].id) {
+				rows[i].revert = revert(rows[i].id)
+			}
+		}
+		table.Objects = []fyne.CanvasObject{newChangeTable(cols, rows, tr("There are no unsent changes."))}
+		table.Refresh()
+		c := countChanges(d)
+		summary.SetText(changeSummary(c))
+		label, act, why := primaryAction(u, c)
+		primary.SetText(label)
+		do = act
+		if why == "" && c.total() > 0 {
+			primary.Enable()
+		} else {
+			primary.Disable()
+		}
+		setMutedText(reason, why)
+		if len(d.ChangedIDs()) > 0 {
+			revertAll.Enable()
+		} else {
+			revertAll.Disable()
+		}
 	}
-	msg := widget.NewLabel(modelStatus(u.settings))
-	msg.Wrapping = fyne.TextWrapWord
-	dlg := dialog.NewCustom(tr("Unsaved changes"), tr("Close"),
-		container.NewBorder(msg, nil, nil, nil, scrollText(strings.Join(lines, "\n"))), u.win)
-	dlg.Resize(fyne.NewSize(640, 420))
-	dlg.Show()
+	refresh()
+	footer := container.NewBorder(nil, nil, nil, container.NewCenter(revertAll), container.NewVBox(summary, reason))
+	content := container.NewBorder(mutedText(intro), footer, nil, nil, table)
+	showTableDialog(u, tr("Review changes"), content, tableDialogSize, tr("Close"), primary, func() { do() })
 }
 
 // discardChanges sets the loaded model back to the values last read or
 // loaded, after asking.
 func discardChanges(u *ui) {
-	d := u.settings.dev
-	if d == nil {
-		return
+	if d := u.settings.dev; d != nil {
+		confirmDiscard(u, d, nil)
 	}
+}
+
+// confirmDiscard asks whether the changes of d, the loaded model, may be
+// discarded, discards them on yes and then calls after, if not nil.
+func confirmDiscard(u *ui, d *vebus.Device, after func()) {
 	c := newConfirm(u, tr("Discard changes"), tr("Discard every change that was not sent or saved, and go back to the values "+
 		"last read from the device or loaded from the file?"), tr("Discard changes"), func() {
 		if u.settings.dev == d {
 			d.Revert()
 			u.settings.changed()
 		}
+		if after != nil {
+			after()
+		}
 	})
 	c.SetConfirmImportance(widget.DangerImportance)
-	c.Show()
+	showWithKeys(u, c, c.Confirm)
 }
 
 // validationErrors returns the issues that block sending d.
@@ -184,7 +255,15 @@ func getSettings(u *ui) {
 		})
 	}
 	if d := u.settings.dev; d != nil && len(d.ChangedIDs()) > 0 {
-		confirm(u, tr("Get settings"), tr("Reading the settings discards the changes you have not sent or saved. Continue?"), tr("Get settings"), read)
+		n := countChanges(d).total()
+		if n == 0 {
+			n = len(d.ChangedIDs())
+		}
+		c := newConfirm(u, tr("Get settings"), trn("You have {{.Count}} change that was not sent or saved. Reading the settings from the device discards it. Continue?",
+			"You have {{.Count}} changes that were not sent or saved. Reading the settings from the device discards them. Continue?", n),
+			tr("Discard and read"), read)
+		c.SetConfirmImportance(widget.DangerImportance)
+		showWithKeys(u, c, c.Confirm)
 		return
 	}
 	read()
@@ -260,54 +339,109 @@ func sendSettings(u *ui) {
 		showMessage(u, tr("Send settings"), tr("Connect to a device and load settings first."))
 		return
 	}
-	if issues := validationErrors(d); len(issues) > 0 {
-		showIssues(u, issues)
-		return
-	}
 	if err := gridWriteCheck(d); err != nil {
 		showMessage(u, tr("Send settings"), err.Error())
 		return
 	}
+	issues := validationErrors(d)
 	changedOnly, all := tr("Changed settings only"), tr("All settings")
+	explain := mutedText("")
 	what := widget.NewRadioGroup([]string{changedOnly, all}, nil)
 	what.Required = true
-	what.SetSelected(changedOnly)
-	content := container.NewVBox(what)
+	what.Horizontal = true
+	options := container.NewVBox(what, explain)
 	var target *widget.Select
 	if m.file != nil {
-		opts := make([]string, len(s.devices))
-		for i, a := range s.devices {
-			opts[i] = tr("Unit at address {{.Address}}", args{"Address": a})
+		if len(s.devices) == 1 {
+			options.Add(widget.NewLabel(tr("The file's settings are sent to the unit at address {{.Address}}.", args{"Address": s.devices[0]})))
+		} else {
+			opts := make([]string, len(s.devices))
+			for i, a := range s.devices {
+				opts[i] = tr("Unit at address {{.Address}}", args{"Address": a})
+			}
+			target = widget.NewSelect(opts, nil)
+			target.SetSelectedIndex(slices.Index(s.devices, s.target))
+			options.Add(container.NewBorder(nil, nil, widget.NewLabel(tr("Send the file's settings to:")), nil, target))
 		}
-		target = widget.NewSelect(opts, nil)
-		target.SetSelectedIndex(slices.Index(s.devices, s.target))
-		content.Add(widget.NewLabel(tr("Send the file's settings to:")))
-		content.Add(target)
+		options.Add(mutedText(tr("The device is read first. You see how its settings differ from the file before anything is sent.")))
 	} else {
-		content.Add(widget.NewLabel(tr("The settings are sent to the device at address {{.Address}}, which they were read from.", args{"Address": d.Address})))
+		options.Add(widget.NewLabel(tr("The settings are sent to the device at address {{.Address}}, which they were read from.", args{"Address": d.Address})))
 	}
-	dlg := dialog.NewCustomConfirm(tr("Send settings"), tr("Send"), tr("Cancel"), content, func(ok bool) {
-		if !ok || u.sess != s || m.dev != d {
+	// A model read from a device shows its changes; a file, which is
+	// compared with the device later, only its invalid values.
+	var rows []changeRow
+	if m.file == nil {
+		rows = changeRows(u, d, lastRead(d))
+	} else {
+		rows = markIssues(u, d, nil, issues)
+	}
+	summary := widget.NewLabel("")
+	summary.TextStyle.Bold = true
+	reason := mutedText("")
+	primary := widget.NewButtonWithIcon(tr("Send"), theme.UploadIcon(), nil)
+	primary.Importance = widget.HighImportance
+	what.OnChanged = func(sel string) {
+		if sel == all {
+			explain.Segments[0].(*widget.TextSegment).Text = tr("Every setting is written to the device again, also the ones you did not change. " +
+				"The grid code is written only if you changed it. The grid parameters are left as the device has them, " +
+				"because their check words cannot be computed yet.")
+		} else if m.file != nil {
+			explain.Segments[0].(*widget.TextSegment).Text = tr("Only the settings that differ between the file and the device are written.")
+		} else {
+			explain.Segments[0].(*widget.TextSegment).Text = tr("Only the settings you changed are written to the device.")
+		}
+		explain.Refresh()
+		why := ""
+		switch {
+		case len(issues) > 0:
+			why = trn("{{.Count}} value is not valid; correct it before sending.", "{{.Count}} values are not valid; correct them before sending.", len(issues))
+		case m.file == nil && sel != all && len(d.ChangedIDs()) == 0:
+			why = tr("No setting was changed, so there is nothing to send.")
+		}
+		if why == "" {
+			primary.Enable()
+		} else {
+			primary.Disable()
+		}
+		setMutedText(reason, why)
+	}
+	what.SetSelected(changedOnly)
+	var center fyne.CanvasObject = layout.NewSpacer()
+	if m.file == nil || len(rows) > 0 {
+		center = newChangeTable(tableColumns{old: tr("On device"), new: tr("New value"), notes: tr("Notes")}, rows, tr("There are no unsent changes."))
+		if m.file == nil {
+			summary.SetText(changeSummary(countChanges(d)))
+		}
+	}
+	content := container.NewBorder(options, container.NewVBox(summary, reason), nil, nil, center)
+	size := tableDialogSize
+	if m.file != nil && len(rows) == 0 {
+		size = fyne.NewSize(620, 340)
+	}
+	showTableDialog(u, tr("Send settings"), content, size, tr("Cancel"), primary, func() {
+		if u.sess != s || m.dev != d {
 			return
 		}
 		sendAll := what.Selected == all
-		if m.file == nil {
+		switch {
+		case m.file == nil:
 			sendToDevice(u, s, d, sendAll)
-			return
+		case target == nil:
+			sendFile(u, s, d, m.file, s.devices[0], sendAll)
+		case target.SelectedIndex() >= 0:
+			sendFile(u, s, d, m.file, s.devices[target.SelectedIndex()], sendAll)
 		}
-		if i := target.SelectedIndex(); i >= 0 {
-			sendFile(u, s, d, m.file, s.devices[i], sendAll)
-		}
-	}, u.win)
-	dlg.Show()
+	})
 }
 
-// sendToDevice writes the model d to the device it was read from.
+// sendToDevice writes the model d to the device it was read from and shows
+// the outcome.
 func sendToDevice(u *ui, s *session, d *vebus.Device, all bool) {
 	if !all && len(d.ChangedIDs()) == 0 {
 		showMessage(u, tr("Send settings"), tr("No setting was changed, so there is nothing to send."))
 		return
 	}
+	before := lastRead(d)
 	runWithProgress(u, tr("Sending the settings"), func(ctx context.Context, progress func(done, total int)) error {
 		rep, err := writeSettings(ctx, s, d, all, progress)
 		if rep == nil {
@@ -315,7 +449,7 @@ func sendToDevice(u *ui, s *session, d *vebus.Device, all bool) {
 		}
 		fyne.Do(func() {
 			u.settings.changed()
-			showWriteReport(u, d, rep, err)
+			showSendResult(u, d, before, rep, err)
 		})
 		return nil
 	})
@@ -346,49 +480,99 @@ func sendFile(u *ui, s *session, fileDev *vebus.Device, file *settingsFile, addr
 	})
 }
 
-// confirmFileSend shows the differences between the file and the device
-// model t and, if the user agrees, writes them.
+// confirmFileSend shows whether the file fits the device model t and how
+// they differ and, if the user agrees, writes the file's values.
 func confirmFileSend(u *ui, s *session, fileDev, t *vebus.Device, match *vebus.Match, all bool) {
 	if !match.OK() {
-		showMessage(u, tr("Send settings"), tr("The file does not fit this device, so nothing was sent:\n{{.Report}}", args{"Report": match.String()}))
+		list := matchList(match)
+		for _, n := range match.NotCompared {
+			list.Add(mutedText(tr("Not compared: {{.What}}", args{"What": n})))
+		}
+		content := container.NewBorder(summaryLine(theme.NewErrorThemedResource(theme.ErrorIcon()),
+			tr("The file does not fit this device, so nothing was sent.")), nil, nil, nil, container.NewVScroll(list))
+		showTableDialog(u, tr("Send settings"), content, fyne.NewSize(tableDialogSize.Width, 420), tr("Close"), nil, nil)
 		return
 	}
 	diffs := vebus.DiffDevices(fileDev, t)
+	// The device's values, before the file's are copied into t.
+	rows := make([]changeRow, 0, len(diffs))
+	for _, df := range diffs {
+		r := newRow(u, fileDev, df.ID, sideText(t, df.ID, df.InB), sideText(fileDev, df.ID, df.InA))
+		if t.ResetRequired(df.ID) {
+			r.marks = append(r.marks, resetMark())
+		}
+		if needsPassword(t, df.ID) {
+			r.marks = append(r.marks, passwordMark())
+		}
+		rows = append(rows, r)
+	}
 	if err := copyFileValues(fileDev, t); err != nil {
 		showError(u, err)
 		return
 	}
-	if issues := validationErrors(t); len(issues) > 0 {
-		showIssues(u, issues)
-		return
-	}
-	if len(diffs) == 0 && !all {
+	issues := validationErrors(t)
+	if len(diffs) == 0 && !all && len(issues) == 0 {
 		showMessage(u, tr("Send settings"), tr("The device already holds the file's settings; there is nothing to send."))
 		return
 	}
-	var lines []string
-	for _, df := range diffs {
-		lines = append(lines, tr("{{.Name}}: device {{.Device}}, file {{.File}}", args{
-			"Name": entryLabel(fileDev, df.ID), "Device": sideText(t, df.ID, df.InB), "File": sideText(fileDev, df.ID, df.InA),
-		}))
+	rows = markIssues(u, t, rows, issues)
+	head := container.NewVBox(summaryLine(theme.NewSuccessThemedResource(theme.ConfirmIcon()),
+		tr("The file fits the device at address {{.Address}}.", args{"Address": t.Address})),
+		widget.NewLabel(trn("{{.Count}} setting differs between the file and the device:", "{{.Count}} settings differ between the file and the device:", len(diffs))))
+	if all {
+		head.Add(mutedText(tr("All settings are written, also the ones that do not differ.")))
 	}
-	msg := trn("{{.Count}} setting differs between the file and the device:", "{{.Count}} settings differ between the file and the device:", len(diffs))
-	content := container.NewBorder(widget.NewLabel(msg), nil, nil, nil, scrollText(strings.Join(lines, "\n")))
-	dlg := dialog.NewCustomConfirm(tr("Send settings"), tr("Send"), tr("Cancel"), content, func(ok bool) {
-		if !ok || u.sess != s {
+	primary := widget.NewButtonWithIcon(tr("Send"), theme.UploadIcon(), nil)
+	primary.Importance = widget.HighImportance
+	reason := mutedText("")
+	setMutedText(reason, "")
+	if len(issues) > 0 {
+		primary.Disable()
+		setMutedText(reason, trn("{{.Count}} value is not valid; correct it before sending.", "{{.Count}} values are not valid; correct them before sending.", len(issues)))
+	}
+	table := newChangeTable(tableColumns{old: tr("On device"), new: tr("From file"), notes: tr("Notes")}, rows, tr("No setting differs."))
+	content := container.NewBorder(head, reason, nil, nil, table)
+	showTableDialog(u, tr("Send settings"), content, tableDialogSize, tr("Cancel"), primary, func() {
+		if u.sess != s {
 			return
 		}
+		before := lastRead(t)
 		runWithProgress(u, tr("Sending the settings"), func(ctx context.Context, progress func(done, total int)) error {
 			rep, err := writeSettings(ctx, s, t, all, progress)
 			if rep == nil {
 				return err
 			}
-			fyne.Do(func() { showWriteReport(u, t, rep, err) })
+			fyne.Do(func() { showSendResult(u, t, before, rep, err) })
 			return nil
 		})
-	}, u.win)
-	dlg.Resize(fyne.NewSize(640, 420))
-	dlg.Show()
+	})
+}
+
+// matchList lists the comparisons of a file with a device, each marked as
+// passed or failed.
+func matchList(m *vebus.Match) *fyne.Container {
+	names := map[string]string{"firmware": tr("Firmware version"), "settings count": tr("Number of settings"),
+		"setting info": tr("Setting limits"), "unit count": tr("Number of units")}
+	list := container.NewVBox()
+	for _, c := range m.Checks {
+		what := names[c.What]
+		if what == "" {
+			what = c.What
+		}
+		var icon fyne.Resource = theme.NewSuccessThemedResource(theme.ConfirmIcon())
+		colour := theme.ColorNameForeground
+		if !c.OK {
+			icon, colour = theme.NewErrorThemedResource(theme.ErrorIcon()), theme.ColorNameError
+		}
+		text := what
+		if c.Detail != "" {
+			text = tr("{{.Check}}: {{.Detail}}", args{"Check": what, "Detail": c.Detail})
+		}
+		t := widget.NewRichText(&widget.TextSegment{Text: text, Style: widget.RichTextStyle{ColorName: colour}})
+		t.Wrapping = fyne.TextWrapWord
+		list.Add(container.NewBorder(nil, nil, widget.NewIcon(icon), nil, t))
+	}
+	return list
 }
 
 // copyFileValues sets in t, a model read from a device, the current values
@@ -422,11 +606,15 @@ func sideText(d *vebus.Device, id vebus.ID, in bool) string {
 
 // entryLabel returns the label of id as the tabs show it, with its ID.
 func entryLabel(d *vebus.Device, id vebus.ID) string {
-	name := settingLabels()[id]
-	if name == "" {
-		name = d.Name(id)
+	return tr("{{.Name}} ({{.ID}})", args{"Name": settingName(d, id), "ID": idText(id)})
+}
+
+// settingName returns the label of id as the tabs show it.
+func settingName(d *vebus.Device, id vebus.ID) string {
+	if name := settingLabels()[id]; name != "" {
+		return name
 	}
-	return tr("{{.Name}} ({{.ID}})", args{"Name": name, "ID": idText(id)})
+	return d.Name(id)
 }
 
 // idText names a setting or flag number for the user.
@@ -466,76 +654,70 @@ func entryValueText(d *vebus.Device, id vebus.ID) string {
 	return valueText(d, e)
 }
 
-// scrollText returns read-only text in a scroll area.
-func scrollText(text string) fyne.CanvasObject {
-	l := widget.NewLabel(text)
-	l.Wrapping = fyne.TextWrapWord
-	s := container.NewVScroll(l)
-	s.SetMinSize(fyne.NewSize(560, 240))
-	return s
-}
-
-// showIssues shows the validation errors that block sending or saving.
-func showIssues(u *ui, issues []vebus.Issue) {
-	lines := make([]string, len(issues))
-	for i, is := range issues {
-		lines[i] = is.Message
-	}
+// showIssues shows the validation errors of d that block saving it, each
+// on the row of its setting.
+func showIssues(u *ui, d *vebus.Device, issues []vebus.Issue) {
+	rows := markIssues(u, d, nil, issues)
 	msg := trn("{{.Count}} value is not valid. Correct it, then try again:", "{{.Count}} values are not valid. Correct them, then try again:", len(issues))
-	d := dialog.NewCustom(tr("Invalid settings"), tr("OK"),
-		container.NewBorder(widget.NewLabel(msg), nil, nil, nil, scrollText(strings.Join(lines, "\n"))), u.win)
-	d.Show()
+	table := newChangeTable(tableColumns{old: tr("In file"), new: tr("New value"), notes: tr("Notes")}, rows, "")
+	showTableDialog(u, tr("Invalid settings"), container.NewBorder(summaryLine(theme.NewErrorThemedResource(theme.ErrorIcon()), msg),
+		nil, nil, nil, table), tableDialogSize, tr("Close"), nil, nil)
 }
 
-// showWriteReport shows the outcome of each setting of a send. d is the
-// model that was written.
-func showWriteReport(u *ui, d *vebus.Device, rep *vebus.WriteReport, err error) {
-	var lines []string
-	failed, password := 0, false
+// showSendResult shows the outcome of each setting of a send of d, whose
+// values before the send before holds (lastRead), with what to do next.
+func showSendResult(u *ui, d, before *vebus.Device, rep *vebus.WriteReport, err error) {
+	var sent, refused, failed, skipped int
 	for _, r := range rep.Results {
-		var status string
 		switch r.Status {
-		case vebus.StatusVerified:
-			status = tr("written and verified")
-		case vebus.StatusUnchanged:
-			status = tr("already held this value")
-		case vebus.StatusSkipped:
-			status = tr("not sent")
-		case vebus.StatusPlanned:
-			status = tr("planned")
+		case vebus.StatusVerified, vebus.StatusUnchanged:
+			sent++
 		case vebus.StatusFailed:
-			failed++
-			status = tr("failed: {{.Err}}", args{"Err": r.Err})
 			if errors.Is(r.Err, mk2.ErrAccessLevel) {
-				password = true
-				status = tr("refused: the device requires a password for this setting")
+				refused++
+			} else {
+				failed++
 			}
+		default:
+			skipped++
 		}
-		if r.ResetRequired && r.Status == vebus.StatusVerified {
-			status = tr("{{.Status}}; takes effect after a device reset", args{"Status": status})
-		}
-		lines = append(lines, tr("{{.Name}}: {{.Status}}", args{"Name": entryLabel(d, r.ID), "Status": status}))
 	}
+	icon := fyne.Resource(theme.NewSuccessThemedResource(theme.ConfirmIcon()))
 	var summary string
 	switch {
 	case len(rep.Results) == 0:
 		summary = tr("Nothing needed to be sent.")
-	case failed == 0 && err == nil:
-		summary = trn("{{.Count}} setting sent.", "{{.Count}} settings sent.", len(rep.Results))
-	case err != nil && failed == 0:
+	case sent == len(rep.Results) && err == nil:
+		summary = trn("{{.Count}} setting sent.", "{{.Count}} settings sent.", sent)
+	case err != nil && refused+failed == 0:
+		icon = theme.NewErrorThemedResource(theme.ErrorIcon())
 		summary = tr("Sending stopped: {{.Err}}", args{"Err": err})
 	default:
-		summary = trn("{{.Count}} setting could not be sent.", "{{.Count}} settings could not be sent.", failed)
+		icon = theme.NewErrorThemedResource(theme.ErrorIcon())
+		var parts []string
+		if sent > 0 {
+			parts = append(parts, trn("{{.Count}} sent", "{{.Count}} sent", sent))
+		}
+		if refused > 0 {
+			parts = append(parts, trn("{{.Count}} refused", "{{.Count}} refused", refused))
+		}
+		if failed > 0 {
+			parts = append(parts, trn("{{.Count}} failed", "{{.Count}} failed", failed))
+		}
+		if skipped > 0 {
+			parts = append(parts, trn("{{.Count}} not sent", "{{.Count}} not sent", skipped))
+		}
+		summary = strings.Join(parts, " · ")
 	}
-	if password {
-		summary += " " + tr("Some settings need a password, which this program cannot enter.")
-	}
+	head := container.NewVBox(summaryLine(icon, summary))
 	if n := len(rep.ResetRequired()); n > 0 {
-		summary += " " + trn("{{.Count}} change takes effect only after the device is reset.", "{{.Count}} changes take effect only after the device is reset.", n)
+		head.Add(callout(theme.NewWarningThemedResource(theme.WarningIcon()),
+			trn("{{.Count}} change takes effect only after the device is reset.", "{{.Count}} changes take effect only after the device is reset.", n)+" "+
+				tr("Until then the device keeps working with the old values. Restart it when its output may be interrupted, "+
+					"for example by switching it off and on again.")))
 	}
-	dlg := dialog.NewCustom(tr("Send report"), tr("OK"),
-		container.NewBorder(widget.NewLabel(summary), nil, nil, nil, scrollText(strings.Join(lines, "\n"))), u.win)
-	dlg.Show()
+	table := newChangeTable(tableColumns{old: tr("Before"), new: tr("New value"), notes: tr("Result")}, resultRows(u, d, before, rep), tr("Nothing needed to be sent."))
+	showTableDialog(u, tr("Send result"), container.NewBorder(head, nil, nil, nil, table), tableDialogSize, tr("Close"), nil, nil)
 }
 
 // setAllToDefault sets the settings of the settings pages to the device
@@ -742,7 +924,7 @@ func saveSettingsFile(u *ui) {
 		return
 	}
 	if issues := validationErrors(m.dev); len(issues) > 0 {
-		showIssues(u, issues)
+		showIssues(u, m.dev, issues)
 		return
 	}
 	d, sf := m.dev, m.file
