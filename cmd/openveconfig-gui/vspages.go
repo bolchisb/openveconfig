@@ -51,8 +51,8 @@ func (p *settingsPage) vsCards(d *vebus.Device, group string) []fyne.CanvasObjec
 				b.cond(tr("When Udc higher than"), 17, 20, sec, nil),
 				b.cond(tr("When not charging for"), 0, 22, sec, nil),
 				b.cond(tr("When fan on for"), 0, 23, sec, nil),
-				b.check(16, tr("Set VS on when bulk protection is activated"), tr("(charger stopped after 10Hr bulk)")),
-				b.check(25, tr("Set VS on when general system failure occurs"), "")),
+				b.check(16, tr("Set VS on when bulk protection is activated"), tr("(charger stopped after 10Hr bulk)"), nil),
+				b.check(25, tr("Set VS on when general system failure occurs"), "", nil)),
 			b.card(tr("When the following LED alarms are active"),
 				b.alarm(17, 24), b.alarm(18, 25), b.alarm(19, 26), b.alarm(20, 27)),
 		}
@@ -82,13 +82,30 @@ func (p *settingsPage) vsCards(d *vebus.Device, group string) []fyne.CanvasObjec
 		if higher != nil || lower != nil {
 			compensated = b.note(tr("The Udc levels of these conditions are temperature compensated."))
 		}
+		// In the dedicated usages the first switch is not used: its
+		// minimum on time is not shown and the period time follows Udc
+		// only (reverse-engineered, #6).
+		firstUsed := func() bool {
+			usage, err := d.Raw(vebus.SettingID(15))
+			return err != nil || !dedicatedUsage(usage)
+		}
+		minimum := b.card("",
+			b.value(tr("Do not switch off within"), 43, tr("minutes from switch on.")),
+			b.note(tr("Switch-off conditions with a delay of 0 do not wait for this minimum time.")))
+		if minimum != nil {
+			b.p.refreshers = append(b.p.refreshers, func() {
+				if firstUsed() {
+					minimum.Show()
+				} else {
+					minimum.Hide()
+				}
+			})
+		}
 		cards = []fyne.CanvasObject{
+			minimum,
 			b.card("",
-				b.value(tr("Do not switch off within"), 43, tr("minutes from switch on.")),
-				b.note(tr("Switch-off conditions with a delay of 0 do not wait for this minimum time."))),
-			b.card("",
-				b.check(34, tr("Change inverter period time when virtual switch is on"), ""),
-				b.check(35, tr("Change inverter period time on Udc"), ""),
+				b.check(34, tr("Change inverter period time when virtual switch is on"), "", firstUsed),
+				b.check(35, tr("Change inverter period time on Udc"), "", nil),
 				b.period(period), higher, back, lower, compensated),
 		}
 	}
@@ -99,7 +116,12 @@ func (p *settingsPage) vsCards(d *vebus.Device, group string) []fyne.CanvasObjec
 		}
 	}
 	if group == "Options" && len(shown) > 0 {
-		shown = append([]fyne.CanvasObject{b.note(tr("Inverting the virtual switch is set on the Usage page."))}, shown...)
+		invert := b.note(tr("Inverting the virtual switch is set on the Usage page."))
+		b.p.refreshers = append(b.p.refreshers, func() {
+			usage, err := d.Raw(vebus.SettingID(15))
+			setShown(invert, err == nil && usageInvertible(usage))
+		})
+		shown = append([]fyne.CanvasObject{invert}, shown...)
 	}
 	b.fit()
 	return shown
@@ -265,13 +287,14 @@ func (b *vsBuilder) value(label string, n uint16, word string) fyne.CanvasObject
 }
 
 // check returns the line of flag n: a check box labelled text, with more
-// on a second line under the text when it is not "".
-func (b *vsBuilder) check(n uint16, text, more string) fyne.CanvasObject {
+// on a second line under the text when it is not "". While on reports
+// false (nil: never) the check box is disabled.
+func (b *vsBuilder) check(n uint16, text, more string, on func() bool) fyne.CanvasObject {
 	if !b.supported(vebus.FlagID(n)) {
 		return nil
 	}
 	d := b.d
-	l := &vsLine{d: d}
+	l := &vsLine{d: d, on: on}
 	check := widget.NewCheck(text, func(on bool) {
 		if !b.p.updating {
 			b.set(d.SetFlag(n, on))
@@ -281,6 +304,7 @@ func (b *vsBuilder) check(n uint16, text, more string) fyne.CanvasObject {
 	r := &settingRow{e: e, focus: check, formRow: newRowParts(b.bare, "", check, "")}
 	r.update = func() { check.SetChecked(flagOn(d, n)) }
 	b.add(l, r)
+	l.always = append(l.always, check)
 	var main fyne.CanvasObject = check
 	if more != "" {
 		// Under the check box's text: the icon and its border are left

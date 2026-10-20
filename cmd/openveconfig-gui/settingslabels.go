@@ -547,19 +547,29 @@ func usageLabels(inverted bool) map[uint16]string {
 func usageInvertible(usage uint16) bool { return usage == 1 || usage == 2 || usage == 5 || usage == 6 }
 
 // vsGroupShown reports whether the virtual switch sub-page of group is shown
-// for usage: only the usage page while the switch is not used; the first
-// switch's pages when it drives something (1, 2, 5, 6); the second switch's
-// page for usages 3 to 6. Reverse-engineered (#6); for 3 and 4 the first
-// switch's pages are taken to be hidden (inferred).
-func vsGroupShown(group string, usage uint16) bool {
+// for usage on d (reverse-engineered, #6; seen on the original's screen for
+// usages 3 and 4): the usage page always; the on and off pages when the
+// first switch drives something (1, 2, 5, 6); the options page then too,
+// and for the dedicated usages 3 and 4 only when d can change the inverter
+// period time on Udc (flag 35); never for 0; the second switch's page for
+// usages 3 to 6.
+func vsGroupShown(group string, usage uint16, d *vebus.Device) bool {
 	switch group {
 	case "Usage":
 		return true
 	case "Virtual switch 2":
 		return usage >= 3
+	case "Options":
+		if dedicatedUsage(usage) {
+			return d.Supported(vebus.FlagID(35))
+		}
 	}
 	return usageInvertible(usage)
 }
+
+// dedicatedUsage reports the usages in which only the second switch is
+// used (dedicated ignore AC input, dedicated generator control).
+func dedicatedUsage(usage uint16) bool { return usage == 3 || usage == 4 }
 
 // flagChoices returns the flags shown as a choice of two: the label for
 // the flag off and for it on. The LED alarm choices of the virtual switch
