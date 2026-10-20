@@ -207,7 +207,6 @@
   "Connected to {{.Port}}: {{.Type}} interface, version {{.Version}}, {{.Baud}} baud.": "Connected to {{.Port}}: {{.Type}} interface, version {{.Version}}, {{.Baud}} baud.",
   "Connecting": "Connecting",
   "Connection": "Connection",
-  "Connect…": "Connect…",
   "Copy": "Copy",
   "Correct the errors of the system check to send.": "Correct the errors of the system check to send.",
   "Correct the invalid values to save.": "Correct the invalid values to save.",

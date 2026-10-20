@@ -297,6 +297,7 @@ func (p *settingsPage) build() {
 			}
 			byGroup[g] = append(byGroup[g], e)
 		}
+		sortLikeOriginal(order, byGroup)
 		// Groups shown as the two columns of one card, each with its own
 		// label column.
 		paired := map[string]string{}

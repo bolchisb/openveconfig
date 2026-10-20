@@ -207,7 +207,6 @@
   "Connected to {{.Port}}: {{.Type}} interface, version {{.Version}}, {{.Baud}} baud.": "Conectat la {{.Port}}: interfață {{.Type}}, versiunea {{.Version}}, {{.Baud}} baud.",
   "Connecting": "Conectare",
   "Connection": "Conexiune",
-  "Connect…": "Conectare…",
   "Copy": "Copiază",
   "Correct the errors of the system check to send.": "Corectați erorile verificării sistemului pentru a trimite.",
   "Correct the invalid values to save.": "Corectați valorile invalide pentru a salva.",

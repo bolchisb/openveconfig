@@ -176,7 +176,7 @@ func newGridTab(u *ui) *gridTabView {
 	g.codeNote.Wrapping = fyne.TextWrapWord
 	// The grid code row shares the label column of the settings under it.
 	g.ordinary = newSettingsPage(u, vebus.TabGrid, "AC input voltage limits", "UPS function", "AC input frequency")
-	g.codeRow = newFormRow(g.ordinary.cols, tr("Country / grid code standard"), "", g.code.button, selectMaxWidth, "")
+	g.codeRow = newFormRow(g.ordinary.cols, tr("Country / grid code standard"), "", g.code.button, controlWidth, "")
 	g.code.caption = g.codeRow.setCaption
 	g.codeRow.revert.OnTapped = func() {
 		if d := u.settings.dev; d != nil {

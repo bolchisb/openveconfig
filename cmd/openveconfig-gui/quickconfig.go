@@ -256,7 +256,7 @@ func (w *quickWizard) stepPort() {
 	s := w.r.sess
 	var content []fyne.CanvasObject
 	if s == nil {
-		connect := widget.NewButton(tr("Connect…"), func() { w.u.conn.show() })
+		connect := widget.NewButton(tr("Com port…"), func() { w.u.conn.show() })
 		content = []fyne.CanvasObject{paragraph(tr("Connect to the interface. The wizard goes on when the connection is open.")),
 			container.NewHBox(connect)}
 	} else {

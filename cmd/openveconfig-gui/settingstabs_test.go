@@ -984,3 +984,22 @@ func TestStopCondition(t *testing.T) {
 		t.Errorf("1 V: raw %d, want 2750 kept and an error", raw)
 	}
 }
+
+// TestGeneralOrder checks that General shows its groups, and the entries of
+// the multi-phase group, in the original tool's order.
+func TestGeneralOrder(t *testing.T) {
+	u := newTestUI(t)
+	d := vebus.NewDevice(nil)
+	d.AddSetting(0, mk2.SettingInfo{Sc: 1, Max: 0x0007}, 0) // flags 0-2
+	d.AddSetting(6, mk2.SettingInfo{Sc: -10, Min: 20, Max: 500}, 160)
+	d.AddSetting(13, mk2.SettingInfo{Sc: 1, Max: 4}, 0)
+	d.AddSetting(14, mk2.SettingInfo{Sc: 1, Max: 2}, 0)
+	d.AddSetting(89, mk2.SettingInfo{Sc: 1, Min: 1, Max: 10}, 1)
+	p := newSettingsPage(u, vebus.TabGeneral)
+	u.settings.load(d, nil)
+	s, f := vebus.SettingID, vebus.FlagID
+	want := []vebus.ID{s(6), f(2), s(13), f(0), f(1), s(14), s(89)}
+	if got := rowIDs(p); !slices.Equal(got, want) {
+		t.Errorf("rows %v, want %v", got, want)
+	}
+}
