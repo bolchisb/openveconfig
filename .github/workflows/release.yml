@@ -83,6 +83,10 @@ jobs:
           echo "SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
       - name: Build and package
         shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           ext=""
           guiflags=""
@@ -124,7 +128,7 @@ jobs:
           PLIST
             if [ -n "$SIGN_KEYCHAIN" ]; then
               # Developer ID signature with the hardened runtime and a secure
-              # timestamp, as notarization requires. Not notarized yet.
+              # timestamp, as notarization requires.
               sign=(--options runtime --timestamp --keychain "$SIGN_KEYCHAIN" --sign "Developer ID Application")
             else
               # Ad-hoc signature, so that the bundle is sealed.
@@ -133,6 +137,16 @@ jobs:
             codesign --force --deep "${sign[@]}" "$app"
             codesign --force "${sign[@]}" "pkg/$name/openveconfig-cli"
             codesign --verify --strict --verbose=2 "$app"
+            if [ -n "$SIGN_KEYCHAIN" ] && [ -n "$APPLE_APP_PASSWORD" ]; then
+              # Notarize the app and the CLI together, then staple the ticket
+              # to the app (a plain binary cannot hold one; Gatekeeper looks
+              # its ticket up online). stapler fails if Apple rejected it.
+              ditto -c -k --keepParent "pkg/$name" "$RUNNER_TEMP/notarize.zip"
+              xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --wait \
+                --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+              xcrun stapler staple "$app"
+              spctl --assess --type execute --verbose=2 "$app"
+            fi
           else
             go build -trimpath -ldflags "$guiflags" -o "pkg/$name/openveconfig-gui$ext" ./cmd/openveconfig-gui
           fi

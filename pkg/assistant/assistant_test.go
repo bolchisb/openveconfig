@@ -69,6 +69,41 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+// TestCompactBlocks checks the 64-byte blocks of a LargeImageSize image:
+// a program ending in a part of a block of 0xFF, free space, and a tail
+// in the last block, as in the backup seen.
+func TestCompactBlocks(t *testing.T) {
+	img := bytes.Repeat([]byte{0xFF}, LargeImageSize)
+	for i := range 656 {
+		img[i] = byte(i%5 + 1) // no two neighbours equal
+	}
+	copy(img[LargeImageSize-10:], []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+	c := Compact(img)
+	// Literal 704 (the program and 48 × 0xFF up to the block's end), fill
+	// 0xFF × 3328, literal 64 (54 × 0xFF and the tail), fill 0xFF × 0.
+	if n := binary.LittleEndian.Uint16(c); n != 704 {
+		t.Fatalf("first literal %d bytes, want 704", n)
+	}
+	if fill, count := c[2+704], binary.LittleEndian.Uint16(c[3+704:]); fill != 0xFF || count != 3328 {
+		t.Errorf("first fill %02X × %d, want FF × 3328", fill, count)
+	}
+	last := c[5+704:]
+	if n := binary.LittleEndian.Uint16(last); n != 64 || len(last) != 2+64+3 {
+		t.Fatalf("last run: literal %d, %d bytes", n, len(last))
+	}
+	if !bytes.Equal(last[2+64:], []byte{0xFF, 0, 0}) {
+		t.Errorf("last run ends % X, want FF 00 00", last[2+64:])
+	}
+	if got, err := Expand(c); err != nil || !bytes.Equal(got, img) {
+		t.Errorf("round trip: %v", err)
+	}
+	// A whole block of equal bytes in the program is a fill run as well.
+	copy(img[64:128], bytes.Repeat([]byte{7}, 64))
+	if c := Compact(img); binary.LittleEndian.Uint16(c) != 64 || c[2+64] != 7 || binary.LittleEndian.Uint16(c[3+64:]) != 64 {
+		t.Errorf("block of sevens: % X…", c[:8])
+	}
+}
+
 func TestExpandMalformed(t *testing.T) {
 	for name, b := range map[string][]byte{
 		"stray byte":         {0x00},

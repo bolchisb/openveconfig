@@ -10,8 +10,9 @@
 //
 // with integers little-endian. A run stands for its literal bytes followed
 // by count copies of fill; the image is the runs one after another. The
-// original tool turns 6 or more equal bytes into a fill run when it saves.
-// Every area of a device-form file seen expands to ImageSize bytes
+// original tool turns 6 or more equal bytes into a fill run when it saves;
+// areas of LargeImageSize bytes are compacted in 64-byte blocks instead
+// (see Compact). Every area of a device-form file seen expands to ImageSize bytes
 // (inferred: the size of the unit's assistant memory); Expand checks this
 // only when asked to.
 package assistant
@@ -26,9 +27,17 @@ import (
 // #7).
 const ImageSize = 2816
 
+// LargeImageSize is the expanded size of the areas of the other firmware
+// family seen (observed: a GX backup of six units, firmware 1956552).
+const LargeImageSize = 4096
+
 // minFill is the shortest run of equal bytes that Compact writes as a fill
 // run (reverse-engineered, #7).
 const minFill = 6
+
+// blockSize is the unit in which areas of LargeImageSize bytes are
+// compacted (observed, the same backup).
+const blockSize = 64
 
 // ErrFormat means the compact form does not follow the run layout.
 var ErrFormat = errors.New("assistant: malformed area")
@@ -60,9 +69,19 @@ func Expand(b []byte) ([]byte, error) {
 // minFill equal bytes becomes the fill of a run, the bytes before it its
 // literal; bytes after the last such stretch end in a run with no fill:
 // count 0 and fill 0x00, as in a file the original saved (observed). A
-// stretch longer than a u16 count is split. Compact(Expand(b)) gives b
-// back for the areas seen in files from a device and from the original.
+// stretch longer than a u16 count is split.
+//
+// An image of LargeImageSize bytes is compacted in blocks of blockSize
+// bytes: a fill run covers whole blocks only, and the last run's fill is
+// 0xFF (observed: every unit of that backup; its areas hold stretches of
+// up to 54 equal bytes that do not cover a whole block, kept as literal).
+// Compact(Expand(b)) gives b back for the areas seen in files from a
+// device and from the original.
 func Compact(img []byte) []byte {
+	unit, least, lastFill := 1, minFill, byte(0x00)
+	if len(img) == LargeImageSize {
+		unit, least, lastFill = blockSize, blockSize, 0xFF
+	}
 	var out []byte
 	run := func(lit []byte, fill byte, count int) {
 		out = binary.LittleEndian.AppendUint16(out, uint16(len(lit)))
@@ -76,23 +95,25 @@ func Compact(img []byte) []byte {
 		for j < len(img) && img[j] == img[i] && j-i < 0xFFFF {
 			j++
 		}
-		if j-i < minFill {
+		// The stretch [i, j) shrunk to whole units.
+		a, b := (i+unit-1)/unit*unit, j/unit*unit
+		if b-a < least {
 			i = j
 			continue
 		}
-		for start < i && i-start > 0xFFFF { // a literal longer than a u16
+		for start < a && a-start > 0xFFFF { // a literal longer than a u16
 			run(img[start:start+0xFFFF], 0xFF, 0)
 			start += 0xFFFF
 		}
-		run(img[start:i], img[i], j-i)
-		start, i = j, j
+		run(img[start:a], img[a], b-a)
+		start, i = b, b
 	}
 	if start < len(img) || len(img) == 0 {
 		for len(img)-start > 0xFFFF {
 			run(img[start:start+0xFFFF], 0xFF, 0)
 			start += 0xFFFF
 		}
-		run(img[start:], 0x00, 0)
+		run(img[start:], lastFill, 0)
 	}
 	return out
 }
