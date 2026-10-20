@@ -61,6 +61,26 @@ jobs:
       - name: Install Fyne dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
+      # The Developer ID certificate goes into a temporary keychain. Without
+      # the secrets the macOS build falls back to an ad-hoc signature.
+      - name: Import Developer ID certificate (macOS)
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then echo "No MACOS_CERT_P12 secret: the app gets an ad-hoc signature."; exit 0; fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          kcpass=$(openssl rand -base64 24)
+          security create-keychain -p "$kcpass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$kcpass" "$keychain"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpass" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          echo "SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
       - name: Build and package
         shell: bash
         run: |
@@ -102,9 +122,17 @@ jobs:
             $icon
           </dict></plist>
           PLIST
-            # Ad-hoc signature, so that the bundle is sealed; it is not a
-            # Developer ID signature and the app is not notarized.
-            codesign --force --deep --sign - "$app"
+            if [ -n "$SIGN_KEYCHAIN" ]; then
+              # Developer ID signature with the hardened runtime and a secure
+              # timestamp, as notarization requires. Not notarized yet.
+              sign=(--options runtime --timestamp --keychain "$SIGN_KEYCHAIN" --sign "Developer ID Application")
+            else
+              # Ad-hoc signature, so that the bundle is sealed.
+              sign=(--sign -)
+            fi
+            codesign --force --deep "${sign[@]}" "$app"
+            codesign --force "${sign[@]}" "pkg/$name/openveconfig-cli"
+            codesign --verify --strict --verbose=2 "$app"
           else
             go build -trimpath -ldflags "$guiflags" -o "pkg/$name/openveconfig-gui$ext" ./cmd/openveconfig-gui
           fi
