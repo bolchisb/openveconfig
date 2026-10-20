@@ -40,6 +40,8 @@ func gridLabels() map[string]string {
 		"DK2 (Eastern Denmark)":                                  tr("DK2 (Eastern Denmark)"),
 		"C10/11 grid code settings":                              tr("C10/11 grid code settings"),
 		"Northern Ireland grid code settings":                    tr("Northern Ireland grid code settings (G99/NI)"),
+		"UK G99 grid code settings":                              tr("UK G99 grid code settings"),
+		"UK G98 grid code settings":                              tr("UK G98 grid code settings"),
 		"Czech 2023 grid code settings":                          tr("Czech 2023 grid code settings"),
 		"AS/NZS4777.2:2020 Australia A (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia A (Stand alone appendix M)"),
 		"AS/NZS4777.2:2020 Australia B (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia B (Stand alone appendix M)"),
@@ -79,7 +81,7 @@ func gridLabels() map[string]string {
 		"Network-support mode: lower activation frequency":                                  tr("Start network service LF threshold"),
 		"Droop paired with power limit PSMax":                                               tr("Droop for PSMax"),
 		"AC current cap for charging and feed-in":                                           tr("Max AC current"),
-		"Use auxiliary input 2 as 4.2 kW charge-power cap signal (German EnWG section 14a)": tr("Use AUX2 as 4.2 kW charge limit signal (§14a)"),
+		"Use auxiliary input 2 as 4.2 kW charge-power cap signal (German EnWG section 14a)": tr("Use AUX2 as 4.2kW charge limit signal (§14a)"),
 		"cos-phi(P) point 1: active power":                                                  tr("Cos phi curve point 1"),
 		"cos-phi(P) point 2: active power":                                                  tr("Cos phi curve point 2"),
 		"cos-phi(P) point 3: active power":                                                  tr("Cos phi curve point 3"),
@@ -100,7 +102,7 @@ func gridLabels() map[string]string {
 		"Q(U) point 2: reactive power":                                                      tr("Q at point 2"),
 		"Q(U) point 3: reactive power":                                                      tr("Q at point 3"),
 		"Q(U) point 4: reactive power":                                                      tr("Q at point 4"),
-		"Constant reactive power (fixed mode)":                                              tr("Q"),
+		"Constant reactive power (fixed mode)":                                              tr("Q is"),
 		"Lowest cos phi allowed while following a Q set-point":                              tr("Min. Cos phi"),
 		"Active-power threshold to enable the curve (lock-in)":                              tr("P Lock-in"),
 		"Active-power threshold to disable the curve (lock-out)":                            tr("P Lock-out"),
@@ -223,9 +225,24 @@ func gridLabels() map[string]string {
 		"fixed delay":                              tr("Use specified retry delay"),
 		"random delay":                             tr("Use random retry delay"),
 
+		// The cells of the fixed protection tables (gridcode.Page.Table)
+		// that are words.
+		"Protection function": tr("Protection function"),
+		"Trip setting":        tr("Trip setting"),
+		"Trip delay":          tr("Trip delay"),
+		"LOM detection":       tr("LOM detection"),
+		"see LOM setting":     tr("see LOM setting"),
+		"Reconnection time":   tr("Reconnection time"),
+		"under voltage":       tr("under voltage"),
+		"over voltage":        tr("over voltage"),
+		"under freq.":         tr("under freq."),
+		"over freq.":          tr("over freq."),
+
 		// Units with words.
+		"seconds":              tr("seconds"),
 		"% of nominal current": tr("% of INom"),
 		"% of Un":              tr("% Un"),
+		"% of nominal voltage": tr("% of Un"),
 		"% of Pemax":           tr("% of Pemax"),
 		"% of Sr":              tr("% of Sr"),
 		"% of rated power":     tr("% of rated power"),
@@ -285,6 +302,8 @@ func gridPageLabels() map[string]map[string]string {
 		"Romania (TOR-D4 derivative)": {
 			"reduce relative to nominal power": tr("(a) reduce from Pnominal"),
 			"reduce relative to present power": tr("(b) reduce from Pactual"),
+			"P(U) curve: knee voltage":         tr("UKnick"),
+			"P(U) curve: limit voltage":        tr("UGrenz"),
 		},
 		"Europe (EN 50549-1)": {
 			"P(U) reduction method": tr("P(U) response"),

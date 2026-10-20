@@ -2,21 +2,27 @@ package gridcode
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"math/bits"
 	"slices"
 	"testing"
 )
 
-// put stores field f under p's mask in word, as the device would hold it.
+// put stores field f under p's mask (and its twin) in word, as the device
+// would hold it.
 func put(p Param, word uint16, f int) uint16 {
-	return word&^p.Mask | uint16(f)<<p.shift()&p.Mask
+	word = word&^p.Mask | uint16(f)<<p.shift()&p.Mask
+	return word&^p.Twin | uint16(f)<<bits.TrailingZeros16(p.Twin)&p.Twin
 }
 
 // fieldValues returns the field values a round trip covers for p.
 func fieldValues(p Param) []int {
 	switch p.Kind {
 	case Checkbox:
+		if p.Values != nil {
+			return p.Values[:]
+		}
 		return []int{0, int(p.Mask >> p.shift())}
 	case Choice:
 		var fs []int
@@ -69,8 +75,8 @@ func testPages() []*Page {
 func TestRoundTrip(t *testing.T) {
 	for _, pg := range testPages() {
 		for _, p := range pg.Params {
-			if p.High != 0 {
-				continue // TestTwoWordField
+			if p.High != 0 || p.ceiDroop() {
+				continue // TestTwoWordField, TestCEICurve
 			}
 			for _, f := range fieldValues(p) {
 				for _, base := range otherBits {
@@ -87,7 +93,7 @@ func TestRoundTrip(t *testing.T) {
 					}
 					// Packing into any word changes only the field's bits.
 					got, err = p.Pack(^base, v)
-					if err != nil || got&^p.Mask != ^base&^p.Mask || p.Field(got) != f {
+					if m := p.Mask | p.Twin; err != nil || got&^m != ^base&^m || p.Field(got) != f {
 						t.Errorf("%s / %s: Pack(%#04x, %g) = %#04x, %v", pg.Name, p.Name, ^base, v, got, err)
 					}
 				}
@@ -175,6 +181,9 @@ func TestKnownValues(t *testing.T) {
 		{pageMicrogrid, "Active power at reference frequency (P0)", -100, 1024},
 		{pageMicrogrid, "Fixed black-start retry delay", 0, 0xFF00},
 		{pageAUNZ2015, "Demand-response mode 0 enabled", 1, 1},
+		{pagePoland, "Over-frequency power reduction: start frequency", 50.35, 0x0E0E}, // both bytes
+		{pagePoland, "Limited frequency-sensitive mode (over-frequency) enabled", 0, 0xFFFF},
+		{pagePoland, "Limited frequency-sensitive mode (over-frequency) enabled", 1, 0x0808},
 		{pageUK, "Use auxiliary input 1 as feed-in inhibit", 1, 0}, // inverted
 		{pageUK, "Use auxiliary input 1 as feed-in inhibit", 0, 4},
 	} {
@@ -185,6 +194,25 @@ func TestKnownValues(t *testing.T) {
 		}
 		if v := p.Unpack(tc.word); math.Abs(v-tc.v) > 1e-4*math.Max(1, math.Abs(tc.v)) {
 			t.Errorf("%s: Unpack(%#04x) = %g, want %g", tc.name, tc.word, v, tc.v)
+		}
+	}
+}
+
+// TestEnabled checks when the original greys a parameter.
+func TestEnabled(t *testing.T) {
+	pu := Param{NeedsWord: 148, NeedsMask: 0x18}
+	lock := Param{NeedsWord: 148, NeedsMask: 0x20, NeedsClear: true}
+	start := Param{}.lfsmo()
+	for _, tc := range []struct {
+		p    Param
+		w    uint16
+		want bool
+	}{
+		{Param{}, 0, true}, {pu, 0xFFE7, false}, {pu, 0x08, true}, {lock, 0x20, false}, {lock, 0xFFDF, true},
+		{start, 0xFFFF, false}, {start, 0xFF00, false}, {start, 0x0808, true}, {start, 0xFE00, true},
+	} {
+		if got := tc.p.Enabled(tc.w); got != tc.want {
+			t.Errorf("%+v: Enabled(%#04x) = %t, want %t", tc.p, tc.w, got, tc.want)
 		}
 	}
 }
@@ -226,7 +254,11 @@ func TestTables(t *testing.T) {
 					t.Errorf("%s: default %d outside its limits", name, p.Default)
 				}
 			case Checkbox:
-				if bits.OnesCount16(p.Mask) != 1 {
+				if p.Values != nil {
+					if !fits(p.Values[0]) || !fits(p.Values[1]) || p.Values[0] == p.Values[1] {
+						t.Errorf("%s: checkbox values %v", name, *p.Values)
+					}
+				} else if bits.OnesCount16(p.Mask) != 1 {
 					t.Errorf("%s: checkbox mask %#04x is not one bit", name, p.Mask)
 				}
 				if p.HasDefault && p.Default != 0 && p.Default != 1 {
@@ -276,9 +308,17 @@ func TestNoOverlap(t *testing.T) {
 		}
 		return m
 	}
+	// switches reports whether p is a box that switches q off through q's
+	// own field (Param.Values).
+	switches := func(p, q Param) bool {
+		return p.Values != nil && p.Word == q.Word && p.Mask == q.Mask && p.Twin == q.Twin
+	}
 	for _, pg := range testPages() {
 		for i, p := range pg.Params {
 			for _, q := range pg.Params[i+1:] {
+				if switches(p, q) || switches(q, p) {
+					continue
+				}
 				for w, m := range parts(p) {
 					if shared := m & parts(q)[w]; shared != 0 && together(p, q) {
 						t.Errorf("%s: %q and %q share bits %#04x of word %d", pg.Name, p.Name, q.Name, shared, w)
@@ -682,4 +722,84 @@ func TestReactivePower(t *testing.T) {
 			t.Errorf("Min. Cos phi: Unpack(%d) = %g, want %g", c.word, v, c.v)
 		}
 	}
+}
+
+// reactiveTable builds a format-3 grid-info table whose code 1 uses words
+// 128, 148-157 and 191, with made-up defaults defs and mask148 as word
+// 148's mask; code 0 is empty.
+func reactiveTable(defs map[uint16]uint16, mask148 uint16) []byte {
+	e := append([]byte{0, 0, 0}, 0x06, 0, 0, 0, 0, 0, 0, 0) // version, u16, first bitmap
+	e = append(e, 0x01, 0, 0xF0, 0x3F, 0, 0, 0, 0x80)       // words 128, 148-157, 191
+	for w := uint16(148); w <= 157; w++ {
+		e = append(e, byte(defs[w]), byte(defs[w]>>8))
+	}
+	e = append(e, 20, byte(mask148), byte(mask148>>8), 0)
+	empty := append([]byte{0, 0, 0}, make([]byte, 17)...)
+	b := []byte{0, 0, 3, 2, 8, 9, 0, byte(9 + len(empty)), 0}
+	return append(append(b, empty...), e...)
+}
+
+// TestFollow checks the words the original sets along with a new
+// reactive-power regulation or "Use lock-in/out", on made-up defaults.
+func TestFollow(t *testing.T) {
+	defs := map[uint16]uint16{148: 0, 149: 0x1000, 150: 0x6478, 151: 0x3C50, 152: 0x8000, 153: 0x8000,
+		154: 0x8000, 155: 0x8000, 156: 0xFFFF, 157: 0x0C04}
+	lock := TableModel(withEntry(reactiveTable(defs, 0x3F), 17, 1))
+	page, _ := PageOf(17, lock)
+	param := func(p *Page, name string) Param {
+		t.Helper()
+		i := slices.IndexFunc(p.Params, func(q Param) bool { return q.Name == name })
+		if i < 0 {
+			t.Fatalf("%s: no %q", p.Name, name)
+		}
+		return p.Params[i]
+	}
+	// follow sets field to now in words and returns what Follow adds.
+	follow := func(c Code, m Model, p Param, words map[uint16]uint16, now int) map[uint16]uint16 {
+		old := p.Field(words[p.Word])
+		words[p.Word] = put(p, words[p.Word], now)
+		got := Follow(c, m, p, old, func(w uint16) uint16 { return words[w] })
+		for w, v := range got {
+			words[w] = v
+		}
+		return got
+	}
+	check := func(name string, got, want map[uint16]uint16) {
+		t.Helper()
+		if fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("%s: words %x, want %x", name, got, want)
+		}
+	}
+	mode, use := param(page, regulationName), param(page, lockNames[2])
+	words := maps.Clone(defs)
+	// To Q(U): the preset curve, the Limitation box's defaults (the
+	// active-power thresholds 0, as the lock-in is ticked by default) and
+	// "Use lock-in/out" cleared.
+	check("0 to 3", follow(17, lock, mode, words, 3), map[uint16]uint16{148: 0x23, 150: 0x0C1C, 151: 0xE4F4, 152: 0xB7CF, 155: 0x4831, 157: 0})
+	// Back to a fixed cos phi: 1, and the voltage lock-in box's defaults.
+	check("3 to 0", follow(17, lock, mode, words, 0), map[uint16]uint16{148: 0, 152: 0x8000, 157: 0x0C04})
+	// Within the cos phi settings: the curve's defaults; the box keeps its
+	// values.
+	words[157] = 0x0808
+	check("0 to 1", follow(17, lock, mode, words, 1), map[uint16]uint16{150: 0x6478, 151: 0x3C50, 155: 0x8000})
+	// The check box is ticked while its bit is clear.
+	check("untick", follow(17, lock, use, words, 1), map[uint16]uint16{157: 0})
+	check("tick", follow(17, lock, use, words, 0), map[uint16]uint16{157: 0x0C04})
+	if got := Follow(17, lock, param(page, fixedCosPhiName), 0, func(uint16) uint16 { return 0 }); got != nil {
+		t.Errorf("another parameter: %x", got)
+	}
+
+	// No voltage lock-in box, Q(U) by default: the cos phi(P) preset, and
+	// Min. Cos phi and the active-power thresholds 0.
+	defs[148], defs[152], defs[153], defs[156] = 0x23, 0x9000, 0x9000, 0x0080
+	noLock := TableModel(withEntry(reactiveTable(defs, 0x1F), 17, 1))
+	words = maps.Clone(defs)
+	check("3 to 1", follow(17, noLock, mode, words, 1), map[uint16]uint16{150: 0x64C8, 151: 0x283C, 152: 0x8000, 153: 0x8000, 155: 0x799A, 156: 0xFFFF, 157: 0})
+
+	// Without a table only what needs no table default: the fixed Q.
+	none := TableModel(nil)
+	words = map[uint16]uint16{152: 0x9000, 156: 0x0080, 157: 0x0C04}
+	check("no table, 0 to 2", follow(17, none, mode, words, 2), map[uint16]uint16{152: 0x8000})
+	words[152] = 0x9000
+	check("no table, 2 to 0", follow(17, none, mode, words, 0), map[uint16]uint16{152: 0x8000, 156: 0xFFFF, 157: 0})
 }

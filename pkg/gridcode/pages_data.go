@@ -1,6 +1,9 @@
 package gridcode
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 // The parameter pages. Reverse-engineered (#27): word, mask, scale, offset,
 // sign, limits and defaults are those the original tool uses for each
@@ -56,7 +59,13 @@ func (p Param) signed() Param { p.Signed = true; return p }
 func (p Param) high(word, mask uint16) Param { p.High, p.HighMask = word, mask; return p }
 
 // decimals sets the number of decimals the original shows for p.
-func (p Param) decimals(n int) Param { p.Decimals = n; return p }
+func (p Param) decimals(n int) Param {
+	p.Decimals = n
+	if n == 0 {
+		p.Decimals = -1 // none
+	}
+	return p
+}
 
 // needs makes p usable only while the field mask of word is not 0.
 // tripDelay is a TOR-D4 trip delay of 0-180 s (see Param.TripDelay), 0 s
@@ -95,45 +104,63 @@ var (
 // On several pages.
 const overVoltage10Min = "Over-voltage trip on 10-minute running average"
 
+// On both Germany pages.
+const germanyDroop = "Over-frequency power reduction: droop"
+
 // 5000000 / 2^32 Hz per step, used by several frequency fields.
 const hzStep = 0.00116415321826935
 
 var pageUK = &Page{
 	Name: "United Kingdom (G83/G59 family)",
 	Params: params(group("",
-		num("Over-frequency power reduction: start frequency", 142, 0xFFFF, hzStep, 0, "Hz", 43121, 44668, 43293),
+		num("Over-frequency power reduction: start frequency", 142, 0xFFFF, hzStep, 0, "Hz", 43121, 44668, 43293).decimals(2),
 		num("Over-frequency power reduction: start delay", 144, 0xFFFF, 0.0262144, 0, "s", 3, 76, 3),
-		num("Over-frequency power reduction: droop", 143, 0xFFFF, 0.0023283064365387, 0, "%", 859, 5154, 4295),
+		num("Over-frequency power reduction: droop", 143, 0xFFFF, 0.0023283064365387, 0, "%", 859, 5154, 4295).decimals(1),
 		check("Use auxiliary input 1 as feed-in inhibit", 148, 0x4, none).inverted(),
 	)),
 }
 
+// ceiFreqParam is a frequency of the CEI 0-21 page, stored as a period (cei.go),
+// with the field values of its limits and default.
+func ceiFreqParam(name string, word uint16, part ceiPart, min, max, def int) Param {
+	p := num(name, word, 0xFFFF, 1.0/ceiTicks, 0, "Hz", min, max, def).reciprocal().decimals(2)
+	p.cei = part
+	return p
+}
+
+// ceiDroopParam is the droop of the CEI 0-21 curve whose first word is the
+// word before word (cei.go), in 0.01 %.
+func ceiDroopParam(name string, word uint16, part ceiPart, def int) Param {
+	p := num(name, word, 0xFFFF, 0.01, 0, "%", 100, 500, def)
+	p.cei = part
+	return p
+}
+
+// pageItaly, in the original's order. Its delays count ticks of 26.2144 ms
+// from 2; the original shows them in steps of its own (0.05 s and 5 s).
 var pageItaly = &Page{
 	Name: "Italy (CEI 0-21)",
 	Params: params(group("",
-		num("Network-support mode: activation delay", 141, 0xFFFF, 0.05, 0, "s", 0, 40, 0),
-		num("Network-support mode: release band, lower frequency", 143, 0xFFFF, 0.05, 0, "Hz", 940, 1000, 998),
-		num("Network-support mode: release band, upper frequency", 142, 0xFFFF, 0.05, 0, "Hz", 1000, 1040, 1002),
-		num("Network-support mode: time inside release band", 144, 0xFFFF, 5, 0, "s", 0, 180, 60),
+		ceiFreqParam("Network-support mode: upper activation frequency", ceiOverStartWord, ceiOverStart, 50000, 48077, 49702),
+		ceiFreqParam("Network-support mode: lower activation frequency", ceiUnderStartWord, ceiUnderStart, 53191, 50000, 50302),
+		num("Network-support mode: activation delay", 141, 0xFFFF, 0.0262144, -2, "seconds", 2, 78, 2),
+		ceiFreqParam("Network-support mode: release band, lower frequency", ceiLowerStopWord, ceiStop, 53191, 50000, 50100),
+		ceiFreqParam("Network-support mode: release band, upper frequency", ceiUpperStopWord, ceiStop, 50000, 48077, 49900),
+		num("Network-support mode: time inside release band", 144, 0xFFFF, 0.0262144, -2, "seconds", 2, 34334, 11446).decimals(-1),
 		num("Power limit PSMax (CEI 0-21 term)", 146, 0xFFFF, 1, 0, "W", 100, 2400, 2400),
+		ceiDroopParam("Droop paired with power limit PSMax", ceiUnderStartWord+1, ceiUnderDroop, 120),
 		// Stored as 65536 - watts.
 		num("Power limit PCMax (CEI 0-21 term)", 145, 0xFFFF, -1, -65536, "W", 65436, 64286, 64286),
+		ceiDroopParam("Droop paired with power limit PCMax", ceiOverStartWord+1, ceiOverDroop, none),
 	)),
-	Unsupported: []string{
-		"Network-support mode: upper activation frequency",
-		"Droop paired with power limit PCMax",
-		"Network-support mode: lower activation frequency",
-		"Droop paired with power limit PSMax",
-	},
 }
 
 // germanyCommon are the parameters both Germany variants have.
 func germanyCommon() []Param {
 	return group("",
-		num("Over-frequency power reduction: start frequency", 158, 0xFFFF, hzStep, 0, "Hz", 43121, 43379, 43121),
-		// The original shows it only if a grid-code check it makes passes;
-		// that check is not known.
-		num("Over-frequency power reduction: droop", 144, 0xFF, 0.05, 0, "%", 20, 250, 100),
+		num("Over-frequency power reduction: start frequency", 158, 0xFFFF, hzStep, 0, "Hz", 43121, 43379, 43121).decimals(2),
+		// Left out when grid code 4 has no edit mask for word 158 (forCode).
+		num(germanyDroop, 144, 0xFF, 0.05, 0, "%", 20, 250, 100),
 		check("Use auxiliary input 1 as feed-in inhibit", 148, 0x4, none).inverted(),
 		check("Use auxiliary input 2 as 4.2 kW charge-power cap signal (German EnWG section 14a)", 184, 0x1, none),
 		num("AC current cap for charging and feed-in", 169, 0xFF, 0.5, 0, "% of nominal current", 0, 200, 0),
@@ -155,14 +182,115 @@ var pageGermanyB = &Page{
 	),
 }
 
+// The fixed tables of the UK and Germany pages: the interface protection of
+// the standard, as the original shows it (cells worded as on its screen,
+// blank rows kept, trailing ones left out). The original fills the UK table
+// by grid code and, for codes 2 and 31, by whether grid code 2 has an edit
+// mask for word 148, and its loss-of-mains cell by whether the AC input
+// settings box of its grid code tab is shown; that box is taken as shown
+// (INFERRED: it is for devices with setting 190).
+var (
+	protectionHeader = []string{"Protection function", "Trip setting", "Trip delay"}
+	tableG99         = [][]string{protectionHeader,
+		{"U/V", "184 V", "2.5 s"},
+		{"O/V stage 1", "262.2 V", "1 s"},
+		{"O/V stage 2", "273.7 V", "0.5 s"},
+		{"U/F stage 1", "47.5 Hz", "20 s"},
+		{"U/F stage 2", "47 Hz", "0.5 s"},
+		{"O/F", "52 Hz", "0.5 s"},
+		{"LOM detection", "see LOM setting", "0 s"},
+		{"", "", ""},
+		{"Reconnection time", "", "> 20 s"},
+	}
+	// Grid code 2 without the edit mask (the G59 settings).
+	tableG59 = [][]string{protectionHeader,
+		{"U/V stage 1", "200.1V", "2.5s"},
+		{"U/V stage 2", "184V", "0.5s"},
+		{"O/V stage 1", "262.2V", "1.0s"},
+		{"O/V stage 2", "273.7V", "0.5s"},
+		{"U/F stage 1", "47.5 Hz", "20s"},
+		{"U/F stage 2", "47 Hz", "0.5s"},
+		{"O/F stage 1", "51.5 Hz", "90s"},
+		{"O/F stage 2", "52 Hz", "0.5s"},
+		{"LOM detection", "see LOM setting", "0.0s"},
+	}
+	tableNorthernIreland = [][]string{protectionHeader,
+		{"U/V", "195.5 V", "3 s"},
+		{"O/V", "253.0 V", "0.5 s"},
+		{"U/F", "48 Hz", "0.5 s"},
+		{"O/F", "52 Hz", "1 s"},
+		{"LOM detection", "see LOM setting", "0 s"},
+		{"", "", ""},
+		{"Reconnection time", "", "> 60 s"},
+	}
+)
+
+// tableVDE returns the table of the Germany page with built-in protection
+// (grid code 5); the under-voltage trip delay follows the standard's
+// edition, told by grid code 4's edit mask for word 158.
+func tableVDE(edition2018 bool) [][]string {
+	delay := "< 100ms"
+	if edition2018 {
+		delay = "> 3s"
+	}
+	return [][]string{protectionHeader,
+		{"under voltage", "U < 184 V", delay},
+		{"over voltage", "U >> 264.5 V", "< 100ms"},
+		{"under freq.", "f < 47.5 Hz", "< 100ms"},
+		{"over freq.", "f > 51.5 Hz", "< 100ms"},
+		{"", "", ""},
+		{"Reconnection time", "", "> 60 s"},
+	}
+}
+
+// forCode returns p as the original shows it for grid code c with model m:
+// the UK captions and tables, the Germany table, and the Germany droop left
+// out when grid code 4 has no edit mask for word 158 (the original then
+// reports the droop as not supported). Where that depends on a table that
+// is not known, p is left as it is.
+func (p *Page) forCode(c Code, m Model) *Page {
+	q := *p
+	switch c {
+	case 2, 31:
+		if in31, known := m.listed(31); c == 31 {
+			q.Title = "UK G98 grid code settings"
+		} else if known && in31 {
+			q.Title = "UK G99 grid code settings"
+		}
+		if mask, known := m.mask(2, 148); known && mask != 0 {
+			q.Table = tableG99
+		} else if known {
+			q.Table = tableG59
+		}
+	case 20:
+		q.Table = tableNorthernIreland
+	case 4, 5:
+		mask, known := m.mask(4, 158)
+		if known && mask == 0 {
+			q.Params = slices.DeleteFunc(slices.Clone(p.Params), func(prm Param) bool { return prm.Name == germanyDroop })
+		}
+		if c == 5 && known {
+			q.Table = tableVDE(mask != 0)
+		}
+	default:
+		return p
+	}
+	return &q
+}
+
+// pageAUNZ2015 is the page of the AS/NZS 4777.2:2015 codes at
+// parameter-set version 0. Its other values are not stored as fields: the
+// original keeps the ramp as a rate that depends on a value it reads from
+// the device, and writes derived words with the volt-watt points (the
+// slopes between them) and with the cut-off frequency.
 var pageAUNZ2015 = &Page{
 	Name: "Australia/New Zealand (AS/NZS 4777.2:2015)",
 	Params: params(group("",
 		overVoltage(4880000, 5160000, 5100000),
-		num("Power ramp: time for a 0-100 % change", 131, 0xFFFF, 1, 0, "s", 60, 1200, 360),
 		check("Demand-response mode 0 enabled", 146, 0x1, 1),
 	)),
 	Unsupported: []string{
+		"Power ramp: time for a 0-100 % change",
 		"Volt-watt curve voltage 1",
 		"Volt-watt curve voltage 2",
 		"Volt-watt curve voltage 3",
@@ -182,34 +310,36 @@ var pageAUNZ2015B = &Page{
 	Params: params(
 		group("",
 			overVoltage(4880000, 5160000, 5100000),
-			num("Power ramp: time for a 0-100 % change", 146, 0xFFFF, 0.0262144, 0, "s", 2289, 45776, 13733),
+			num("Power ramp: time for a 0-100 % change", 146, 0xFFFF, 0.0262144, 0, "s", 2289, 45776, 13733).decimals(0),
 			check("Demand-response mode 0 enabled", 147, 0x1, 1),
 		),
 		group("Sustained over-frequency",
-			num("Sustained over-frequency: cut-off frequency", 143, 0xFFFF, hzStep, 43164, "Hz", 645, 1504, 1504),
+			num("Sustained over-frequency: cut-off frequency", 143, 0xFFFF, hzStep, 43164, "Hz", 645, 1504, 1504).decimals(2),
 		),
 		group("Volt-watt curve",
-			num("Volt-watt curve voltage 1", 131, 0xFFFF, 0.01, 0, "V", 20300, 21500, 20700),
+			num("Volt-watt curve voltage 1", 131, 0xFFFF, 0.01, 0, "V", 20300, 21500, 20700).decimals(1),
 			choice("Volt-watt point 1 applies to", 132, 0x8000, none, appliesTo),
-			num("Volt-watt curve power at voltage 1", 132, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
-			num("Volt-watt curve voltage 2", 133, 0xFFFF, 0.01, 0, "V", 21600, 23000, 22000),
+			num("Volt-watt curve power at voltage 1", 132, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0).decimals(0),
+			num("Volt-watt curve voltage 2", 133, 0xFFFF, 0.01, 0, "V", 21600, 23000, 22000).decimals(1),
 			choice("Volt-watt point 2 applies to", 134, 0x8000, none, appliesTo),
-			num("Volt-watt curve power at voltage 2", 134, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
-			num("Volt-watt curve voltage 3", 135, 0xFFFF, 0.01, 0, "V", 23500, 25500, 25000),
+			num("Volt-watt curve power at voltage 2", 134, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0).decimals(0),
+			num("Volt-watt curve voltage 3", 135, 0xFFFF, 0.01, 0, "V", 23500, 25500, 25000).decimals(1),
 			choice("Volt-watt point 3 applies to", 136, 0x8000, none, appliesTo),
-			num("Volt-watt curve power at voltage 3", 136, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
-			num("Volt-watt curve voltage 4", 137, 0xFFFF, 0.01, 0, "V", 24400, 26500, 26500),
+			num("Volt-watt curve power at voltage 3", 136, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0).decimals(0),
+			num("Volt-watt curve voltage 4", 137, 0xFFFF, 0.01, 0, "V", 24400, 26500, 26500).decimals(1),
 			choice("Volt-watt point 4 applies to", 138, 0x8000, none, appliesTo),
-			num("Volt-watt curve power at voltage 4", 138, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
+			num("Volt-watt curve power at voltage 4", 138, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0).decimals(0),
 		),
 	),
 }
 
+// pageSouthAfrica. Its one parameter, the power ramp after reconnection
+// (word 129), is a power step: the original shows it as the time for a
+// 0-100 % change, a conversion that needs the device's rated power, which
+// this program does not read.
 var pageSouthAfrica = &Page{
-	Name: "South Africa (NRS 097-2-1)",
-	Params: params(group("",
-		num("Power ramp after reconnection: time for 0-100 %", 129, 0xFFFF, 1, 0, "s", 60, 1200, 600),
-	)),
+	Name:        "South Africa (NRS 097-2-1)",
+	Unsupported: []string{"Power ramp after reconnection: time for 0-100 %"},
 }
 
 var pageFrance = &Page{
@@ -264,7 +394,7 @@ var pageRomania = &Page{
 	Name: "Romania (TOR-D4 derivative)",
 	Params: params(
 		group("",
-			num("Upper frequency allowed for reconnection", 147, 0xFFFF, hzStep, 0, "Hz", 42993, 43379, 43121),
+			num("Upper frequency allowed for reconnection", 147, 0xFFFF, hzStep, 0, "Hz", 42993, 43379, 43121).decimals(2),
 			tripDelay("Under-voltage trip delay", 134),
 			tripDelay("Fast over-voltage trip delay", 135),
 			overVoltage(5060000, 5290000, 5106000),
@@ -388,16 +518,34 @@ var pageAUNZM = &Page{
 	),
 }
 
+// pagePoland. The start frequency is the high byte of word 142; the
+// original writes it to both bytes. The LFSM-O box is ticked unless that
+// byte is 0xFF; unticking writes 0xFFFF, ticking the default start
+// frequency (INFERRED: the original sets its default, and also the droop's,
+// which is not modelled), and the two values are greyed while it is not
+// ticked.
 var pagePoland = &Page{
 	Name: "Poland",
 	Params: params(group("",
 		check("Use auxiliary input 1 as feed-in inhibit", 148, 0x4, none).inverted(),
-		num("Over-frequency power reduction: start frequency", 142, 0xFFFF, 0.025, 2000, "Hz", 8, 20, 8),
-		num("Over-frequency power reduction: droop", 144, 0xFF, 0.05, 0, "%", 20, 250, 100),
+		polandLFSMO(),
+		num("Over-frequency power reduction: start frequency", 142, 0xFF00, 0.025, 2000, "Hz", 8, 20, 8).decimals(3).twin(0xFF).lfsmo(),
+		num("Over-frequency power reduction: droop", 144, 0xFF, 0.05, 0, "%", 20, 250, 100).lfsmo(),
 	)),
-	// A checkbox of the original bound to no word; its effect is not known.
-	Unsupported: []string{"Limited frequency-sensitive mode (over-frequency) enabled"},
 }
+
+// polandLFSMO is the Poland page's LFSM-O box.
+func polandLFSMO() Param {
+	p := check("Limited frequency-sensitive mode (over-frequency) enabled", 142, 0xFF00, none).twin(0xFF)
+	p.Values = &[2]int{0xFF, 8}
+	return p
+}
+
+// lfsmo makes p greyed while the Poland page's LFSM-O box is not ticked.
+func (p Param) lfsmo() Param { p.NeedsWord, p.NeedsMask, p.NeedsOff = 142, 0xFF00, 0xFF; return p }
+
+// twin makes the bits mask of p's word a copy of its field (Param.Twin).
+func (p Param) twin(mask uint16) Param { p.Twin = mask; return p }
 
 // pageMicrogrid uses words 129-149, which the grid-code pages use too, so
 // its parameters and a grid code's parameters cannot both be meaningful.

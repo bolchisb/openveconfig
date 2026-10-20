@@ -178,6 +178,9 @@ type Unit struct {
 	ConfigProtocol byte
 	IdentifyFlag   byte
 	ResponseChar   byte
+	// VersionExtra are the device-version extra bytes (reverse-engineered,
+	// #56; see gridcode.InternalProtection for one of their bits).
+	VersionExtra []byte
 
 	sec      *Section
 	record   int // payload offset of the system record
@@ -257,10 +260,12 @@ func (u *Unit) readHeader(p []byte) error {
 	}
 	u.IdentifyFlag = p[pos]
 	pos += 1 + 4 // identify flag, firmware number
+	extra := pos + 2
 	pos += 2 + int(binary.LittleEndian.Uint16(p[pos:]))
 	if pos+1+SystemRecordLen > len(p) {
 		return fmt.Errorf("%w: %s system record beyond the payload", ErrFormat, SectionSettingData)
 	}
+	u.VersionExtra = append([]byte(nil), p[extra:pos]...)
 	u.ResponseChar = p[pos]
 	u.record = pos + 1
 	rec := p[u.record:]

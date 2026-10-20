@@ -27,7 +27,12 @@ type Page struct {
 	Name string
 	// Title, if not "", is the original's caption of the page for the grid
 	// code it is shown for, where that differs from the page's own.
-	Title  string
+	Title string
+	// Table, if not nil, is the fixed table the original shows at the top
+	// of the page for the grid code (the interface protection of the
+	// standard): a header row, then rows of cells, worded as the original
+	// shows them.
+	Table  [][]string
 	Params []Param
 	// Unsupported names parameters of the page that are left out of Params
 	// because how they map to the words is not known (values spread over
@@ -75,10 +80,15 @@ type Param struct {
 	// original's 255.3 V.
 	High, HighMask uint16
 	// NeedsWord and NeedsMask, if NeedsMask is not 0, are a field that
-	// switches p on: the original greys p's control while that field is 0,
-	// or, with NeedsClear, while it is not 0.
+	// switches p on: the original greys p's control while that field is
+	// NeedsOff (normally 0), or, with NeedsClear, while it is not 0.
 	NeedsWord, NeedsMask uint16
+	NeedsOff             int
 	NeedsClear           bool
+	// Twin, if not 0, are other bits of Word that the original writes with
+	// a copy of the field (it reads only Mask). Reverse-engineered: the
+	// Poland start frequency is kept in both bytes of its word.
+	Twin uint16
 	// ShowWord and ShowMask, if ShowMask is not 0, are a field that
 	// selects p: the original shows p only while that field is ShowValue.
 	ShowWord, ShowMask uint16
@@ -95,7 +105,7 @@ type Param struct {
 	// maximum. With a negative Scale or Reciprocal, Min > Max.
 	Min, Max int
 	// Decimals, if not 0, is the number of decimals the original shows,
-	// where one step of the field would need more.
+	// where one step of the field would need more; negative is none.
 	Decimals int
 	// TripDelay marks a delay the original converts with its own handler
 	// instead of Scale and Offset: the field counts ticks of 26.2144 ms
@@ -123,9 +133,17 @@ type Param struct {
 
 	// Checkbox only: Inverted means ticked when the field is 0.
 	Inverted bool
+	// Checkbox only: Values, if not nil, are the field values of an
+	// unticked and of a ticked box; a field of any other value than
+	// Values[0] shows ticked.
+	Values *[2]int
 	// Choice only: the allowed field values and this project's names for
 	// them.
 	Choices map[int]string
+
+	// cei marks a parameter of the CEI 0-21 page that the original
+	// converts with handlers of its own (cei.go).
+	cei ceiPart
 }
 
 // tripDelayTick is the tick of a TripDelay field, in seconds.
@@ -172,6 +190,12 @@ func (p Param) Value(field int) float64 {
 		}
 		return v
 	case Checkbox:
+		if p.Values != nil {
+			if field == p.Values[0] {
+				return 0
+			}
+			return 1
+		}
 		if (field != 0) != p.Inverted {
 			return 1
 		}
@@ -187,6 +211,19 @@ func (p Param) Unpack(word uint16) float64 { return p.Value(p.Field(word)) }
 // Shown reports whether p is shown while setting p.ShowWord holds w.
 func (p Param) Shown(w uint16) bool {
 	return p.ShowMask == 0 || Param{Mask: p.ShowMask}.Field(w) == p.ShowValue
+}
+
+// Enabled reports whether p can be changed (is not greyed) while setting
+// p.NeedsWord holds w.
+func (p Param) Enabled(w uint16) bool {
+	if p.NeedsMask == 0 {
+		return true
+	}
+	f := Param{Mask: p.NeedsMask}.Field(w)
+	if p.NeedsClear {
+		return f == 0
+	}
+	return f != p.NeedsOff
 }
 
 // FieldWords extracts p's field from word and high, the values of settings
@@ -226,19 +263,95 @@ func (p Param) PackWords(word, high uint16, v float64) (uint16, uint16, error) {
 		high&^p.HighMask | uint16(f>>p.width())<<h.shift()&p.HighMask, nil
 }
 
-// Pack returns word with p's field set to display value v; the other bits
-// of word are unchanged. A number is rounded to the nearest field value
-// and must lie within p's limits; a checkbox takes 0 or 1; a choice takes
-// one of its Choices. On error word is returned unchanged.
+func (p Param) ceiDroop() bool { return p.cei == ceiOverDroop || p.cei == ceiUnderDroop }
+
+// FieldIn returns p's field from the grid words; word returns the value of
+// a grid word. It is FieldWords, except for a CEI 0-21 droop, which
+// follows from two words (cei.go).
+func (p Param) FieldIn(word func(uint16) uint16) int {
+	if p.ceiDroop() {
+		return p.ceiField(word)
+	}
+	var high uint16
+	if p.High != 0 {
+		high = word(p.High)
+	}
+	return p.FieldWords(word(p.Word), high)
+}
+
+// PackIn returns the grid words that change when p is set to display
+// value v, with their new values; word returns the current value of a grid
+// word. It is PackWords, except that a CEI 0-21 start frequency or droop
+// also rewrites the rest of its curve, and that a CEI 0-21 frequency out of
+// order is refused (ErrFrequencyOrder).
+func (p Param) PackIn(word func(uint16) uint16, v float64) (map[uint16]uint16, error) {
+	own := map[uint16]uint16{}
+	if p.ceiDroop() {
+		if _, err := p.field(v); err != nil {
+			return nil, err
+		}
+	} else {
+		var high uint16
+		if p.High != 0 {
+			high = word(p.High)
+		}
+		w, h, err := p.PackWords(word(p.Word), high, v)
+		if err != nil {
+			return nil, err
+		}
+		own[p.Word] = w
+		if p.High != 0 {
+			own[p.High] = h
+		}
+	}
+	if p.cei != ceiNone {
+		return p.ceiPack(word, own, v)
+	}
+	return own, nil
+}
+
+// Words returns the grid words p is stored in, each with the bits of it
+// that p uses (with its Twin); a word p only reads has no bits (the start frequency of a
+// CEI 0-21 droop).
+func (p Param) Words() map[uint16]uint16 {
+	m := map[uint16]uint16{p.Word: p.Mask | p.Twin}
+	if p.High != 0 {
+		m[p.High] |= p.HighMask
+	}
+	switch p.cei {
+	case ceiOverStart, ceiUnderStart:
+		for w := p.Word + 1; w <= p.Word+5; w++ {
+			m[w] = 0xFFFF
+		}
+	case ceiOverDroop, ceiUnderDroop:
+		m[p.Word-1] = 0
+		for w := p.Word + 1; w <= p.Word+4; w++ {
+			m[w] = 0xFFFF
+		}
+	}
+	return m
+}
+
+// Pack returns word with p's field (and its Twin) set to display value v;
+// the other bits of word are unchanged. A number is rounded to the nearest
+// field value and must lie within p's limits; a checkbox takes 0 or 1; a
+// choice takes one of its Choices. On error word is returned unchanged.
 func (p Param) Pack(word uint16, v float64) (uint16, error) {
 	if p.High != 0 {
 		return word, fmt.Errorf("gridcode: %s spans two words; use PackWords", p.Name)
+	}
+	if p.ceiDroop() {
+		return word, fmt.Errorf("gridcode: %s spans several words; use PackIn", p.Name)
 	}
 	f, err := p.field(v)
 	if err != nil {
 		return word, err
 	}
-	return word&^p.Mask | uint16(f)<<p.shift()&p.Mask, nil
+	word = word&^p.Mask | uint16(f)<<p.shift()&p.Mask
+	if p.Twin != 0 {
+		word = word&^p.Twin | uint16(f)<<bits.TrailingZeros16(p.Twin)&p.Twin
+	}
+	return word, nil
 }
 
 func (p Param) field(v float64) (int, error) {
@@ -246,6 +359,9 @@ func (p Param) field(v float64) (int, error) {
 	case Checkbox:
 		if v != 0 && v != 1 {
 			return 0, fmt.Errorf("gridcode: %s: %g is not 0 or 1", p.Name, v)
+		}
+		if p.Values != nil {
+			return p.Values[int(v)], nil
 		}
 		if (v == 1) != p.Inverted {
 			return int(p.Mask >> p.shift()), nil

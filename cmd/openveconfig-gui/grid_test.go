@@ -550,7 +550,7 @@ func TestGridRomaniaPage(t *testing.T) {
 	}
 	// Reactive power regulation 0: a fixed cos phi.
 	if want := []string{"High frequency reconnect value", "Trip delay U<", "Trip delay U>>", "Over voltage U> (10 min. running mean)",
-		"Reconnection time", "P(U) curve", "U Knick", "U Grenz", "Reactive power regulation", "Filter time reactive power (1T)", "Cos phi is"}; !slices.Equal(shown(), want) {
+		"Reconnection time", "P(U) curve", "UKnick", "UGrenz", "Reactive power regulation", "Filter time reactive power (1T)", "Cos phi is"}; !slices.Equal(shown(), want) {
 		t.Errorf("rows %q, want %q", shown(), want)
 	}
 	// The values VEConfigure shows for this file.
@@ -569,9 +569,21 @@ func TestGridRomaniaPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	g.update(false)
-	if want := []string{"Reactive power curve point 1", "Q at point 1", "Reactive power curve point 2", "Q at point 2",
-		"Reactive power curve point 3", "Q at point 3", "Reactive power curve point 4", "Q at point 4"}; !slices.Equal(shown()[10:], want) {
+	if want := []string{"Q at point 1", "Reactive power curve point 1", "Q at point 2", "Reactive power curve point 2",
+		"Q at point 3", "Reactive power curve point 3", "Q at point 4", "Reactive power curve point 4"}; !slices.Equal(shown()[10:], want) {
 		t.Errorf("rows %q with Q(U), want %q after the first 10", shown(), want)
+	}
+	if err := d.SetRaw(vebus.SettingID(148), 0); err != nil {
+		t.Fatal(err)
+	}
+	g.update(false)
+	// Choosing a fixed Q sets it to 0, as the original does.
+	if err := d.SetRaw(vebus.SettingID(151), 40000); err != nil {
+		t.Fatal(err)
+	}
+	paramRowOf(t, g, "Reactive-power control mode").control.(*widget.Select).SetSelectedIndex(2)
+	if w, _ := d.Raw(vebus.SettingID(151)); w != 32768 {
+		t.Errorf("fixed Q stored as %d after choosing it, want 32768 (0 %%)", w)
 	}
 	if err := d.SetRaw(vebus.SettingID(148), 0); err != nil {
 		t.Fatal(err)
@@ -595,6 +607,41 @@ func TestGridRomaniaPage(t *testing.T) {
 	}
 	if hi, _ := d.Raw(vebus.SettingID(130)); hi != uint16(5200000>>16) {
 		t.Errorf("setting 130 = %d", hi)
+	}
+}
+
+// TestGridPolandPage checks the Poland page: the start frequency in the
+// high byte of its word with three decimals, written to both bytes, and
+// the LFSM-O box that switches it off (0xFFFF) and greys it and the droop.
+func TestGridPolandPage(t *testing.T) {
+	u, _, g, d := gridSetup(t, 2699481)
+	for id, v := range map[uint16]uint16{gridCodeSetting: 32, 142: 0x0E0E, 144: 60, 148: 0} {
+		if err := d.SetRaw(vebus.SettingID(id), v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u.settings.load(d, nil)
+	if want := "Polish grid code settings (EU 2016/631)"; g.paramsItem.Text != want {
+		t.Errorf("tab %q, want %q", g.paramsItem.Text, want)
+	}
+	start := paramRowOf(t, g, "Over-frequency power reduction: start frequency")
+	droop := paramRowOf(t, g, "Over-frequency power reduction: droop")
+	box := paramRowOf(t, g, "Limited frequency-sensitive mode (over-frequency) enabled").control.(*widget.Check)
+	if got := start.control.(*numberEntry).Text; got != "50.350" || !box.Checked {
+		t.Errorf("start frequency %q, LFSM-O ticked %t; want 50.350, ticked", got, box.Checked)
+	}
+	start.control.(*numberEntry).commit("50.2")
+	if w, _ := d.Raw(vebus.SettingID(142)); w != 0x0808 {
+		t.Errorf("setting 142 = %#04x, want 0x0808", w)
+	}
+	box.SetChecked(false)
+	if w, _ := d.Raw(vebus.SettingID(142)); w != 0xFFFF || !start.control.(*numberEntry).Disabled() || !droop.control.(*numberEntry).Disabled() {
+		t.Errorf("LFSM-O off: setting 142 = %#04x, start frequency and droop greyed %t, %t", w,
+			start.control.(*numberEntry).Disabled(), droop.control.(*numberEntry).Disabled())
+	}
+	box.SetChecked(true)
+	if w, _ := d.Raw(vebus.SettingID(142)); w != 0x0808 || start.control.(*numberEntry).Disabled() {
+		t.Errorf("LFSM-O on: setting 142 = %#04x, start frequency greyed %t", w, start.control.(*numberEntry).Disabled())
 	}
 }
 
@@ -653,6 +700,63 @@ func TestGridDeviceTable(t *testing.T) {
 		}
 		if it := gridCodeItem(9, m, 2699481); it.subtitle != want || !strings.HasSuffix(it.label, want+" (needs password)") {
 			t.Errorf("table %t: list entry %q, %q; want the standard %q", table != nil, it.subtitle, it.label, want)
+		}
+	}
+}
+
+// TestGridNSProtection chooses the Germany codes for a file of a device
+// with and without built-in interface protection: the question offers the
+// other code, and Cancel keeps the code as it was.
+func TestGridNSProtection(t *testing.T) {
+	u := newTestUI(t)
+	g := newGridTab(u)
+	sf, err := parseSettingsFile("grid.rvsc", gridFile(0x0300, 0x0300).Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadSettingsFile(u, sf)
+	code := func() uint16 {
+		v, _ := u.settings.dev.Raw(vebus.SettingID(gridCodeSetting))
+		return v
+	}
+	answer := func(button string) {
+		t.Helper()
+		dlg := u.win.Canvas().Overlays().Top()
+		if dlg == nil {
+			t.Fatal("no question")
+		}
+		bs := findObjects(dlg, func(o fyne.CanvasObject) bool { b, ok := o.(*widget.Button); return ok && b.Text == button })
+		if len(bs) != 1 {
+			t.Fatalf("no %q button in %q", button, labelTexts(dlg))
+		}
+		test.Tap(bs[0].(*widget.Button))
+	}
+	sf.unit.VersionExtra = []byte{0x08, 0x04}
+	for _, tc := range []struct {
+		button string
+		want   uint16
+	}{{"Cancel", 0}, {"Yes", 5}, {"No", 4}} {
+		selectCode(t, g, 4)
+		answer(tc.button)
+		if c := code(); c != tc.want {
+			t.Errorf("code 4 with internal protection, %s: code %d, want %d", tc.button, c, tc.want)
+		}
+	}
+	selectCode(t, g, 5) // fits: no question
+	if c := code(); c != 5 || u.win.Canvas().Overlays().Top() != nil {
+		t.Errorf("code 5 with internal protection: code %d", c)
+	}
+
+	sf.unit.VersionExtra = nil
+	selectCode(t, g, 4)
+	for _, tc := range []struct {
+		button string
+		want   uint16
+	}{{"Cancel", 4}, {"OK", 4}} {
+		selectCode(t, g, 5)
+		answer(tc.button)
+		if c := code(); c != tc.want {
+			t.Errorf("code 5 without internal protection, %s: code %d, want %d", tc.button, c, tc.want)
 		}
 	}
 }

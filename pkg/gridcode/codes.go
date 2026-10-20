@@ -32,7 +32,7 @@ var codes = []CodeInfo{
 	{7, "New Zealand", "AS/NZS 4777.2:2015", "2015 inverter rule"},
 	{8, "South Africa", "NRS 097-2-1:2017", "South African rule for small-scale embedded generation"},
 	{9, "France", "UTE C15-712-1:2013-07", "French guide for PV installations"},
-	{10, "Spain", "RD 1699/2011 | UNE 206007-1:2013", "Spanish connection decree"},
+	{10, "Spain", "RD 1699/2011 | UNE 206007-1:2013IN", "Spanish connection decree"}, // "IN" as in the original's list
 	{11, "Belgium", "C10/11", "Belgian connection rule"},
 	{12, "Austria", "TOR-D4 V2.3:2016-7; No reactive power control", "Austrian rule, without reactive-power control"},
 	{13, "Chile", "NTG-BT 2014", "Chilean low-voltage rule"},
@@ -212,6 +212,17 @@ func SelectableWithoutPassword(c Code, firmware uint32) bool {
 		return rev >= 554
 	}
 	return false
+}
+
+// InternalProtection reports whether a device has built-in interface (NS)
+// protection, from the extra bytes of its device version (as a settings
+// file holds them): bit 2 of the second byte. With fewer bytes it has not.
+// Reverse-engineered: the original reads the flag there and, when grid
+// code 4 (external NS protection) is chosen on a device with it, offers
+// code 5 (internal NS protection) instead, and code 4 instead of 5 on a
+// device without it.
+func InternalProtection(versionExtra []byte) bool {
+	return len(versionExtra) >= 2 && versionExtra[1]&0x04 != 0
 }
 
 // pageOf maps grid codes to their parameter page, nil for codes without

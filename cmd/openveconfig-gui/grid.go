@@ -23,6 +23,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -177,40 +178,7 @@ func newGridTab(u *ui) *gridTabView {
 		if g.updating || i < 0 || d == nil {
 			return
 		}
-		id := vebus.SettingID(gridCodeSetting)
-		old, _ := d.Raw(id)
-		if err := d.SetRaw(id, g.codeValues[i]); err != nil {
-			showError(u, err)
-		}
-		// A newly chosen code gets its defaults, as in the original.
-		var words map[uint16]uint16
-		if g.codeValues[i] != old {
-			var err error
-			if words, err = loadCodeDefaults(d, u.settings.grid, gridcode.Code(g.codeValues[i])); err != nil {
-				showError(u, err)
-			}
-		}
-		u.settings.changed()
-		// A code that needs a password asks for one, as in the original,
-		// which also checks it here; this program only hands it to the
-		// device when the settings are sent (accesspassword.go). Without
-		// one the choice, and the defaults it loaded, are undone.
-		s := u.sess
-		if !passwordsEnabled(s) || len(s.passwords) > 0 || gridcode.SelectableWithoutPassword(gridcode.Code(g.codeValues[i]), d.Firmware) {
-			return
-		}
-		askAccessPasswords(u, s, func(ok bool) {
-			if !ok && u.settings.dev == d {
-				errs := []error{d.SetRaw(id, old)}
-				for w, v := range words {
-					errs = append(errs, d.SetRaw(vebus.SettingID(w), v))
-				}
-				if err := errors.Join(errs...); err != nil {
-					showError(u, err)
-				}
-				u.settings.changed()
-			}
-		})
+		g.askNSProtection(g.codeValues[i], func(code uint16) { g.chooseCode(d, code) })
 	})
 	g.codeNote = widget.NewLabel("")
 	g.codeNote.Wrapping = fyne.TextWrapWord
@@ -257,6 +225,98 @@ func newGridTab(u *ui) *gridTabView {
 	return g
 }
 
+// chooseCode makes code the grid code of d, the loaded model.
+func (g *gridTabView) chooseCode(d *vebus.Device, code uint16) {
+	u := g.u
+	if u.settings.dev != d {
+		return
+	}
+	id := vebus.SettingID(gridCodeSetting)
+	old, _ := d.Raw(id)
+	if err := d.SetRaw(id, code); err != nil {
+		showError(u, err)
+	}
+	// A newly chosen code gets its defaults, as in the original.
+	var words map[uint16]uint16
+	if code != old {
+		var err error
+		if words, err = loadCodeDefaults(d, u.settings.grid, gridcode.Code(code)); err != nil {
+			showError(u, err)
+		}
+	}
+	u.settings.changed()
+	// A code that needs a password asks for one, as in the original,
+	// which also checks it here; this program only hands it to the
+	// device when the settings are sent (accesspassword.go). Without
+	// one the choice, and the defaults it loaded, are undone.
+	s := u.sess
+	if !passwordsEnabled(s) || len(s.passwords) > 0 || gridcode.SelectableWithoutPassword(gridcode.Code(code), d.Firmware) {
+		return
+	}
+	askAccessPasswords(u, s, func(ok bool) {
+		if !ok && u.settings.dev == d {
+			errs := []error{d.SetRaw(id, old)}
+			for w, v := range words {
+				errs = append(errs, d.SetRaw(vebus.SettingID(w), v))
+			}
+			if err := errors.Join(errs...); err != nil {
+				showError(u, err)
+			}
+			u.settings.changed()
+		}
+	})
+}
+
+// askNSProtection calls choose with the grid code to use when code is
+// chosen. As in the original, choosing Germany with external NS protection
+// (4) for a device with built-in interface protection offers the code with
+// internal protection (5) instead, and 5 for a device without it offers 4
+// (gridcode.InternalProtection); a cancelled question chooses nothing.
+// Whether the device has the protection is known only for settings from a
+// file; for settings read from a device nothing is asked.
+func (g *gridTabView) askNSProtection(code uint16, choose func(uint16)) {
+	f := g.u.settings.file
+	if f == nil || code != 4 && code != 5 {
+		choose(code)
+		return
+	}
+	internal := gridcode.InternalProtection(f.unit.VersionExtra)
+	if internal == (code == 5) {
+		choose(code)
+		return
+	}
+	name := func(c uint16) string {
+		ci, _ := gridcode.LookupFor(gridcode.Code(c), g.u.settings.grid, g.u.settings.dev.Firmware)
+		return tr("{{.Region}}: {{.Standard}}", args{"Region": gridCodeText(ci.Region), "Standard": ci.Standard})
+	}
+	other := uint16(9) - code // 4 <-> 5
+	a := args{"Chosen": name(code), "Other": name(other)}
+	cancel := func() { g.u.settings.changed() } // shows the code as it was
+	var dlg *dialog.CustomDialog
+	button := func(text string, then func()) fyne.CanvasObject {
+		return widget.NewButton(text, func() {
+			dlg.Hide()
+			then()
+		})
+	}
+	var msg string
+	var buttons []fyne.CanvasObject
+	if internal {
+		msg = tr("This device has built-in interface (NS) protection. You chose {{.Chosen}}. Use {{.Other}} instead?", a)
+		buttons = []fyne.CanvasObject{button(tr("Cancel"), cancel),
+			button(tr("No"), func() { choose(code) }), button(tr("Yes"), func() { choose(other) })}
+	} else {
+		msg = tr("This device has no built-in interface (NS) protection, so {{.Chosen}} cannot be used. Use {{.Other}} instead?", a)
+		buttons = []fyne.CanvasObject{button(tr("Cancel"), cancel), button(tr("OK"), func() { choose(other) })}
+	}
+	l := widget.NewLabel(msg)
+	l.Wrapping = fyne.TextWrapWord
+	dlg = dialog.NewCustomWithoutButtons(tr("Grid code"), l, g.u.win)
+	dlg.SetButtons(buttons)
+	dlg.Resize(fyne.NewSize(480, 0))
+	dlg.Show()
+}
+
 // load records the grid words of a newly loaded model and shows or hides
 // the parameters.
 func (g *gridTabView) load() {
@@ -297,7 +357,7 @@ func (g *gridTabView) update(rebuild bool) {
 		r.update()
 		g.mark(r)
 		if r.p.NeedsMask != 0 {
-			r.setEnabled((g.word(r.p.NeedsWord)&r.p.NeedsMask != 0) != r.p.NeedsClear)
+			r.setEnabled(r.p.Enabled(g.word(r.p.NeedsWord)))
 		}
 		if show := r.p.Shown(g.word(r.p.ShowWord)); show != r.root.Visible() {
 			if show {
@@ -501,6 +561,9 @@ func (g *gridTabView) buildParams(code int) {
 		note(tr("Grid code {{.Code}} has no parameters.", args{"Code": strconv.Itoa(code)}))
 	default:
 		g.page = p
+		if p.Table != nil {
+			objs = append(objs, gridTableCard(p))
+		}
 		objs = append(objs, g.paramCards(d, p)...)
 		if len(p.Params) == 0 {
 			note(tr("This grid code has no parameters to set."))
@@ -516,6 +579,20 @@ func (g *gridTabView) buildParams(code int) {
 	objs = append(objs, container.NewHBox(g.undo))
 	g.params.Objects = []fyne.CanvasObject{newForm(objs...)}
 	g.params.Refresh()
+}
+
+// gridTableCard returns the fixed table of page p (gridcode.Page.Table) as a
+// card, its first row as the header.
+func gridTableCard(p *gridcode.Page) fyne.CanvasObject {
+	var cells []fyne.CanvasObject
+	for i, row := range p.Table {
+		for _, c := range row {
+			l := widget.NewLabel(gridText(p, c))
+			l.TextStyle.Bold = i == 0
+			cells = append(cells, l)
+		}
+	}
+	return newFormCard(nil, container.NewGridWithColumns(len(p.Table[0]), cells...))
 }
 
 // gridPageFor returns the parameter page of grid code code as the original
@@ -573,8 +650,8 @@ func (g *gridTabView) paramCards(d *vebus.Device, p *gridcode.Page) []fyne.Canva
 	var params []gridcode.Param
 	for _, prm := range p.Params {
 		lost := false
-		for _, w := range []uint16{prm.Word, prm.High} {
-			if _, ok := g.loaded[w]; w != 0 && !ok {
+		for w := range prm.Words() {
+			if _, ok := g.loaded[w]; !ok {
 				lost = true
 				if s := strconv.Itoa(int(w)); !slices.Contains(missing, s) {
 					missing = append(missing, s)
@@ -624,35 +701,29 @@ func (g *gridTabView) word(id uint16) uint16 {
 }
 
 // field returns p's field in the model; loadedField as loaded.
-func (g *gridTabView) field(p gridcode.Param) int {
-	var high uint16
-	if p.High != 0 {
-		high = g.word(p.High)
-	}
-	return p.FieldWords(g.word(p.Word), high)
-}
+func (g *gridTabView) field(p gridcode.Param) int { return p.FieldIn(g.word) }
 
 func (g *gridTabView) loadedField(p gridcode.Param) int {
-	return p.FieldWords(g.loaded[p.Word], g.loaded[p.High])
+	return p.FieldIn(func(w uint16) uint16 { return g.loaded[w] })
 }
 
-// setParam sets parameter p to display value v in the model.
+// setParam sets parameter p to display value v in the model, with the
+// parameters the original changes along with it (gridcode.Follow).
 func (g *gridTabView) setParam(p gridcode.Param, v float64) error {
 	d := g.u.settings.dev
-	var high uint16
-	if p.High != 0 {
-		high = g.word(p.High)
-	}
-	w, h, err := p.PackWords(g.word(p.Word), high, v)
+	old := g.field(p)
+	words, err := p.PackIn(g.word, v)
 	if err != nil {
-		return paramRangeError(p)
+		return paramError(p, err)
 	}
-	if p.High != 0 {
-		if err := d.SetRaw(vebus.SettingID(p.High), h); err != nil {
-			return err
-		}
+	var errs []error
+	for w, x := range words {
+		errs = append(errs, d.SetRaw(vebus.SettingID(w), x))
 	}
-	return d.SetRaw(vebus.SettingID(p.Word), w)
+	for id, raw := range gridcode.Follow(gridcode.Code(g.pageCode), g.u.settings.grid, p, old, g.word) {
+		errs = append(errs, d.SetRaw(vebus.SettingID(id), raw))
+	}
+	return errors.Join(errs...)
 }
 
 // apply shows the outcome of an edit.
@@ -733,11 +804,11 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 	r.formRow = newFormRow(g.paramCols, gridText(g.page, p.Name), "", control, width, gridText(nil, p.Unit))
 	r.revert.OnTapped = func() {
 		if d := g.u.settings.dev; d != nil {
-			var err error
-			if p.High != 0 {
-				err = d.SetRaw(vebus.SettingID(p.High), g.word(p.High)&^p.HighMask|g.loaded[p.High]&p.HighMask)
+			var errs []error
+			for w, m := range p.Words() {
+				errs = append(errs, d.SetRaw(vebus.SettingID(w), g.word(w)&^m|g.loaded[w]&m))
 			}
-			g.apply(errors.Join(err, d.SetRaw(vebus.SettingID(p.Word), g.word(p.Word)&^p.Mask|g.loaded[p.Word]&p.Mask)))
+			g.apply(errors.Join(errs...))
 		}
 	}
 	if entry != nil {
@@ -750,8 +821,8 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 			if err != nil {
 				return errors.New(tr("Enter a number."))
 			}
-			if _, _, err := p.PackWords(g.word(p.Word), 0, v); err != nil {
-				return paramRangeError(p)
+			if _, err := p.PackIn(g.word, v); err != nil {
+				return paramError(p, err)
 			}
 			g.apply(g.setParam(p, v))
 			return nil
@@ -800,8 +871,8 @@ func (g *gridTabView) undoChanges() {
 // paramDecimals returns the number of decimals that shows one step of p,
 // or the number the original shows (Param.Decimals).
 func paramDecimals(p gridcode.Param) int {
-	if p.Decimals > 0 {
-		return p.Decimals
+	if p.Decimals != 0 {
+		return max(p.Decimals, 0)
 	}
 	step := math.Abs(p.Value(p.Min+1) - p.Value(p.Min))
 	if step <= 0 || step >= 1 || math.IsNaN(step) || math.IsInf(step, 0) {
@@ -813,6 +884,15 @@ func paramDecimals(p gridcode.Param) int {
 // paramText formats a display value of p with its unit.
 func paramText(p gridcode.Param, v float64) string {
 	return withUnit(formatNumber(v, paramDecimals(p)), gridText(nil, p.Unit))
+}
+
+// paramError is the message for a value p cannot take: one that breaks the
+// order of the CEI 0-21 frequencies, or else one out of p's range.
+func paramError(p gridcode.Param, err error) error {
+	if errors.Is(err, gridcode.ErrFrequencyOrder) {
+		return errors.New(tr("The network service frequencies must rise in this order: start below, stop below, stop above, start above. The value was not changed."))
+	}
+	return paramRangeError(p)
 }
 
 // paramRangeError is the message for a value p cannot take.
