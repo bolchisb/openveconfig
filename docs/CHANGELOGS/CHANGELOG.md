@@ -4,6 +4,10 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 
 ## 2026-10-20
 
+### Assistant areas of 4096 bytes compact as the original does
+
+- **`assistant.Compact`** (#78): an image of 4096 bytes (`LargeImageSize`, the other firmware family seen) is compacted in 64-byte blocks. A fill run covers whole blocks only, and the last run's fill byte is 0xFF. Areas of 2816 bytes stay as before: byte by byte, 6 or more equal bytes, last fill 0x00. Observed on a GX backup of six units (firmware 1956552); all its areas, and those of the 2816-byte files, now compact back byte for byte (`TestRealAssistantAreas`, `RVSC_TESTDATA`). The real files stay outside the repository; `TestCompactBlocks` uses synthetic bytes.
+
 ### GUI: system file dialogs
 
 - **The file dialogs are the system's own** (`cmd/openveconfig-gui/filedialog.go`, through `github.com/ncruces/zenity` v0.10.15; Fyne 2.8 has none on Windows and macOS): Load and Save settings, open and save `.vms`, Update a backup file, the export `.txt` and the assistant folder. They keep the extension filters, the suggested file name and the overwrite question, and are attached to the app window. Fyne's dialog is still used where there is no system one (Linux without zenity or kdialog, and the tests). `golang.org/x/text`, `x/image` and `x/sys` move up to the versions zenity needs.
