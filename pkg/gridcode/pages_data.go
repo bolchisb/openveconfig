@@ -275,7 +275,7 @@ var pageRomania = &Page{
 	Name: "Romania (TOR-D4 derivative)",
 	Params: params(
 		group("",
-			num("Upper frequency allowed for reconnection", 147, 0xFFFF, hzStep, 0, "Hz", 42993, 43379, 43121),
+			num("Upper frequency allowed for reconnection", 147, 0xFFFF, hzStep, 0, "Hz", 42993, 43379, 43121).decimals(2),
 			tripDelay("Under-voltage trip delay", 134),
 			tripDelay("Fast over-voltage trip delay", 135),
 			overVoltage(5060000, 5290000, 5106000),

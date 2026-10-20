@@ -100,7 +100,7 @@ func gridLabels() map[string]string {
 		"Q(U) point 2: reactive power":                                                      tr("Q at point 2"),
 		"Q(U) point 3: reactive power":                                                      tr("Q at point 3"),
 		"Q(U) point 4: reactive power":                                                      tr("Q at point 4"),
-		"Constant reactive power (fixed mode)":                                              tr("Q"),
+		"Constant reactive power (fixed mode)":                                              tr("Q is"),
 		"Lowest cos phi allowed while following a Q set-point":                              tr("Min. Cos phi"),
 		"Active-power threshold to enable the curve (lock-in)":                              tr("P Lock-in"),
 		"Active-power threshold to disable the curve (lock-out)":                            tr("P Lock-out"),
@@ -226,6 +226,7 @@ func gridLabels() map[string]string {
 		// Units with words.
 		"% of nominal current": tr("% of INom"),
 		"% of Un":              tr("% Un"),
+		"% of nominal voltage": tr("% of Un"),
 		"% of Pemax":           tr("% of Pemax"),
 		"% of Sr":              tr("% of Sr"),
 		"% of rated power":     tr("% of rated power"),
@@ -285,6 +286,8 @@ func gridPageLabels() map[string]map[string]string {
 		"Romania (TOR-D4 derivative)": {
 			"reduce relative to nominal power": tr("(a) reduce from Pnominal"),
 			"reduce relative to present power": tr("(b) reduce from Pactual"),
+			"P(U) curve: knee voltage":         tr("UKnick"),
+			"P(U) curve: limit voltage":        tr("UGrenz"),
 		},
 		"Europe (EN 50549-1)": {
 			"P(U) reduction method": tr("P(U) response"),

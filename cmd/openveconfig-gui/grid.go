@@ -636,9 +636,11 @@ func (g *gridTabView) loadedField(p gridcode.Param) int {
 	return p.FieldWords(g.loaded[p.Word], g.loaded[p.High])
 }
 
-// setParam sets parameter p to display value v in the model.
+// setParam sets parameter p to display value v in the model, with the
+// parameters the original changes along with it (gridcode.Follow).
 func (g *gridTabView) setParam(p gridcode.Param, v float64) error {
 	d := g.u.settings.dev
+	old := g.field(p)
 	var high uint16
 	if p.High != 0 {
 		high = g.word(p.High)
@@ -652,7 +654,14 @@ func (g *gridTabView) setParam(p gridcode.Param, v float64) error {
 			return err
 		}
 	}
-	return d.SetRaw(vebus.SettingID(p.Word), w)
+	if err := d.SetRaw(vebus.SettingID(p.Word), w); err != nil {
+		return err
+	}
+	var errs []error
+	for id, raw := range gridcode.Follow(gridcode.Code(g.pageCode), g.u.settings.grid, p, old, g.word) {
+		errs = append(errs, d.SetRaw(vebus.SettingID(id), raw))
+	}
+	return errors.Join(errs...)
 }
 
 // apply shows the outcome of an edit.

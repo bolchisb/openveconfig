@@ -550,7 +550,7 @@ func TestGridRomaniaPage(t *testing.T) {
 	}
 	// Reactive power regulation 0: a fixed cos phi.
 	if want := []string{"High frequency reconnect value", "Trip delay U<", "Trip delay U>>", "Over voltage U> (10 min. running mean)",
-		"Reconnection time", "P(U) curve", "U Knick", "U Grenz", "Reactive power regulation", "Filter time reactive power (1T)", "Cos phi is"}; !slices.Equal(shown(), want) {
+		"Reconnection time", "P(U) curve", "UKnick", "UGrenz", "Reactive power regulation", "Filter time reactive power (1T)", "Cos phi is"}; !slices.Equal(shown(), want) {
 		t.Errorf("rows %q, want %q", shown(), want)
 	}
 	// The values VEConfigure shows for this file.
@@ -569,9 +569,21 @@ func TestGridRomaniaPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	g.update(false)
-	if want := []string{"Reactive power curve point 1", "Q at point 1", "Reactive power curve point 2", "Q at point 2",
-		"Reactive power curve point 3", "Q at point 3", "Reactive power curve point 4", "Q at point 4"}; !slices.Equal(shown()[10:], want) {
+	if want := []string{"Q at point 1", "Reactive power curve point 1", "Q at point 2", "Reactive power curve point 2",
+		"Q at point 3", "Reactive power curve point 3", "Q at point 4", "Reactive power curve point 4"}; !slices.Equal(shown()[10:], want) {
 		t.Errorf("rows %q with Q(U), want %q after the first 10", shown(), want)
+	}
+	if err := d.SetRaw(vebus.SettingID(148), 0); err != nil {
+		t.Fatal(err)
+	}
+	g.update(false)
+	// Choosing a fixed Q sets it to 0, as the original does.
+	if err := d.SetRaw(vebus.SettingID(151), 40000); err != nil {
+		t.Fatal(err)
+	}
+	paramRowOf(t, g, "Reactive-power control mode").control.(*widget.Select).SetSelectedIndex(2)
+	if w, _ := d.Raw(vebus.SettingID(151)); w != 32768 {
+		t.Errorf("fixed Q stored as %d after choosing it, want 32768 (0 %%)", w)
 	}
 	if err := d.SetRaw(vebus.SettingID(148), 0); err != nil {
 		t.Fatal(err)

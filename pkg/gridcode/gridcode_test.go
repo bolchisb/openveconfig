@@ -2,6 +2,7 @@ package gridcode
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"math/bits"
 	"slices"
@@ -721,4 +722,84 @@ func TestReactivePower(t *testing.T) {
 			t.Errorf("Min. Cos phi: Unpack(%d) = %g, want %g", c.word, v, c.v)
 		}
 	}
+}
+
+// reactiveTable builds a format-3 grid-info table whose code 1 uses words
+// 128, 148-157 and 191, with made-up defaults defs and mask148 as word
+// 148's mask; code 0 is empty.
+func reactiveTable(defs map[uint16]uint16, mask148 uint16) []byte {
+	e := append([]byte{0, 0, 0}, 0x06, 0, 0, 0, 0, 0, 0, 0) // version, u16, first bitmap
+	e = append(e, 0x01, 0, 0xF0, 0x3F, 0, 0, 0, 0x80)       // words 128, 148-157, 191
+	for w := uint16(148); w <= 157; w++ {
+		e = append(e, byte(defs[w]), byte(defs[w]>>8))
+	}
+	e = append(e, 20, byte(mask148), byte(mask148>>8), 0)
+	empty := append([]byte{0, 0, 0}, make([]byte, 17)...)
+	b := []byte{0, 0, 3, 2, 8, 9, 0, byte(9 + len(empty)), 0}
+	return append(append(b, empty...), e...)
+}
+
+// TestFollow checks the words the original sets along with a new
+// reactive-power regulation or "Use lock-in/out", on made-up defaults.
+func TestFollow(t *testing.T) {
+	defs := map[uint16]uint16{148: 0, 149: 0x1000, 150: 0x6478, 151: 0x3C50, 152: 0x8000, 153: 0x8000,
+		154: 0x8000, 155: 0x8000, 156: 0xFFFF, 157: 0x0C04}
+	lock := TableModel(withEntry(reactiveTable(defs, 0x3F), 17, 1))
+	page, _ := PageOf(17, lock)
+	param := func(p *Page, name string) Param {
+		t.Helper()
+		i := slices.IndexFunc(p.Params, func(q Param) bool { return q.Name == name })
+		if i < 0 {
+			t.Fatalf("%s: no %q", p.Name, name)
+		}
+		return p.Params[i]
+	}
+	// follow sets field to now in words and returns what Follow adds.
+	follow := func(c Code, m Model, p Param, words map[uint16]uint16, now int) map[uint16]uint16 {
+		old := p.Field(words[p.Word])
+		words[p.Word] = put(p, words[p.Word], now)
+		got := Follow(c, m, p, old, func(w uint16) uint16 { return words[w] })
+		for w, v := range got {
+			words[w] = v
+		}
+		return got
+	}
+	check := func(name string, got, want map[uint16]uint16) {
+		t.Helper()
+		if fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("%s: words %x, want %x", name, got, want)
+		}
+	}
+	mode, use := param(page, regulationName), param(page, lockNames[2])
+	words := maps.Clone(defs)
+	// To Q(U): the preset curve, the Limitation box's defaults (the
+	// active-power thresholds 0, as the lock-in is ticked by default) and
+	// "Use lock-in/out" cleared.
+	check("0 to 3", follow(17, lock, mode, words, 3), map[uint16]uint16{148: 0x23, 150: 0x0C1C, 151: 0xE4F4, 152: 0xB7CF, 155: 0x4831, 157: 0})
+	// Back to a fixed cos phi: 1, and the voltage lock-in box's defaults.
+	check("3 to 0", follow(17, lock, mode, words, 0), map[uint16]uint16{148: 0, 152: 0x8000, 157: 0x0C04})
+	// Within the cos phi settings: the curve's defaults; the box keeps its
+	// values.
+	words[157] = 0x0808
+	check("0 to 1", follow(17, lock, mode, words, 1), map[uint16]uint16{150: 0x6478, 151: 0x3C50, 155: 0x8000})
+	// The check box is ticked while its bit is clear.
+	check("untick", follow(17, lock, use, words, 1), map[uint16]uint16{157: 0})
+	check("tick", follow(17, lock, use, words, 0), map[uint16]uint16{157: 0x0C04})
+	if got := Follow(17, lock, param(page, fixedCosPhiName), 0, func(uint16) uint16 { return 0 }); got != nil {
+		t.Errorf("another parameter: %x", got)
+	}
+
+	// No voltage lock-in box, Q(U) by default: the cos phi(P) preset, and
+	// Min. Cos phi and the active-power thresholds 0.
+	defs[148], defs[152], defs[153], defs[156] = 0x23, 0x9000, 0x9000, 0x0080
+	noLock := TableModel(withEntry(reactiveTable(defs, 0x1F), 17, 1))
+	words = maps.Clone(defs)
+	check("3 to 1", follow(17, noLock, mode, words, 1), map[uint16]uint16{150: 0x64C8, 151: 0x283C, 152: 0x8000, 153: 0x8000, 155: 0x799A, 156: 0xFFFF, 157: 0})
+
+	// Without a table only what needs no table default: the fixed Q.
+	none := TableModel(nil)
+	words = map[uint16]uint16{152: 0x9000, 156: 0x0080, 157: 0x0C04}
+	check("no table, 0 to 2", follow(17, none, mode, words, 2), map[uint16]uint16{152: 0x8000})
+	words[152] = 0x9000
+	check("no table, 2 to 0", follow(17, none, mode, words, 0), map[uint16]uint16{152: 0x8000, 156: 0xFFFF, 157: 0})
 }

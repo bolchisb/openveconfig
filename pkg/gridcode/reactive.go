@@ -222,13 +222,32 @@ type reactiveLayout struct {
 	lockU, lockKnown bool
 }
 
+// Names of the group's parameters that Follow sets; the curve point
+// names take the point number.
+const (
+	regulationName  = "Reactive-power control mode"
+	fixedCosPhiName = "Constant cos phi (fixed mode)"
+	fixedQName      = "Constant reactive power (fixed mode)"
+	minCosPhiName   = "Lowest cos phi allowed while following a Q set-point"
+	pLockInName     = "Active-power threshold to enable the curve (lock-in)"
+	pLockOutName    = "Active-power threshold to disable the curve (lock-out)"
+	cosPhiXName     = "cos-phi(P) point %d: active power"
+	cosPhiYName     = "cos-phi(P) point %d: cos phi"
+	qXName          = "Q(U) point %d: voltage"
+	qYName          = "Q(U) point %d: reactive power"
+)
+
+// lockNames are the voltage lock-in box: lock-in, lock-out, check box.
+var lockNames = [...]string{"Voltage threshold to enable the curve (lock-in)", "Voltage threshold to disable the curve (lock-out)", "Apply voltage lock-in/lock-out"}
+
 // reactiveParams returns the reactive-power parameters of layout l and the
 // names of those that are not shown because what the original does is
-// not known.
+// not known. A curve point is in the original's reading order: the cos
+// phi or Q, then where it applies.
 func reactiveParams(l reactiveLayout) (params []Param, unsupported []string) {
 	const common, limits = "Reactive power: common", "Reactive power: limits for the Q set-point"
 	const pct = 0.0030517578125
-	regulation := choice("Reactive-power control mode", 148, 0x3, none, map[int]string{
+	regulation := choice(regulationName, 148, 0x3, none, map[int]string{
 		// Values are the list positions (INFERRED).
 		0: "constant cos phi", 1: "cos phi follows active power", 2: "constant Q", 3: "Q follows grid voltage",
 	})
@@ -252,40 +271,41 @@ func reactiveParams(l reactiveLayout) (params []Param, unsupported []string) {
 	activePower := func(n int, pt point) Param {
 		if l.compact {
 			// The range of layout A (INFERRED: 10-100 %).
-			return num(fmt.Sprintf("cos-phi(P) point %d: active power", n), pt.x, pt.xMask, 0.5, 0, "% of Pemax", 20, 200, none)
+			return num(fmt.Sprintf(cosPhiXName, n), pt.x, pt.xMask, 0.5, 0, "% of Pemax", 20, 200, none)
 		}
-		return num(fmt.Sprintf("cos-phi(P) point %d: active power", n), pt.x, pt.xMask, pct, 0, "% of Pemax", 3277, 32768, none)
+		return num(fmt.Sprintf(cosPhiXName, n), pt.x, pt.xMask, pct, 0, "% of Pemax", 3277, 32768, none)
 	}
+	// The original words the unit of the Q(U) voltages "% of Un", unlike
+	// its other "% Un" values: hence a unit name of its own.
 	voltage := func(n int, pt point) Param {
-		name := fmt.Sprintf("Q(U) point %d: voltage", n)
+		name := fmt.Sprintf(qXName, n)
 		switch {
 		case l.volts:
 			return num(name, pt.x, pt.xMask, 0.01, 0, "V", 20300, 26500, none)
 		case l.compact:
 			// The original shows two decimals here (INFERRED from the
 			// display type it sets for this layout only).
-			p := num(name, pt.x, pt.xMask, 0.25, 400, "% of Un", -80, 80, none).signed()
+			p := num(name, pt.x, pt.xMask, 0.25, 400, "% of nominal voltage", -80, 80, none).signed()
 			p.Decimals = 2
 			return p
 		}
-		return num(name, pt.x, pt.xMask, pct, 0, "% of Un", 26215, 39321, none)
+		return num(name, pt.x, pt.xMask, pct, 0, "% of nominal voltage", 26215, 39321, none)
 	}
 	reactive := func(name string, word uint16) Param {
 		return num(name, word, 0xFFFF, pct, -32768, "% of Sr", 13107, 52429, none)
 	}
 
 	// The cos phi tab.
-	params = append(params, group(common, cosPhi("Constant cos phi (fixed mode)", fixed, l.lowest).mode(0))...)
+	params = append(params, group(common, cosPhi(fixedCosPhiName, fixed, l.lowest).mode(0))...)
 	for i, pt := range points {
 		params = append(params, group(common,
-			activePower(i+1, pt).mode(1),
-			cosPhi(fmt.Sprintf("cos-phi(P) point %d: cos phi", i+1), pt.y, l.lowest).mode(1))...)
+			cosPhi(fmt.Sprintf(cosPhiYName, i+1), pt.y, l.lowest).mode(1),
+			activePower(i+1, pt).mode(1))...)
 	}
-	lockNames := []string{"Voltage threshold to enable the curve (lock-in)", "Voltage threshold to disable the curve (lock-out)", "Apply voltage lock-in/lock-out"}
 	switch {
 	case !l.compact:
 	case !l.lockKnown:
-		unsupported = append(unsupported, lockNames...)
+		unsupported = append(unsupported, lockNames[:]...)
 	case l.lockU:
 		lockIn := num(lockNames[0], 157, 0xFF00, 0.25, 400, "% of Un", -120, 120, none).signed().tab(false)
 		lockOut := num(lockNames[1], 157, 0xFF, 0.25, 400, "% of Un", -120, 120, none).signed().tab(false)
@@ -293,27 +313,27 @@ func reactiveParams(l reactiveLayout) (params []Param, unsupported []string) {
 		for _, p := range []*Param{&lockIn, &lockOut} {
 			p.NeedsWord, p.NeedsMask, p.NeedsClear, p.Decimals = 148, 0x20, true, 2
 		}
-		params = append(params, group(common, lockIn, lockOut,
-			check(lockNames[2], 148, 0x20, none).inverted().tab(false))...)
+		params = append(params, group(common,
+			check(lockNames[2], 148, 0x20, none).inverted().tab(false), lockIn, lockOut)...)
 	}
 
 	// The Q tab.
-	params = append(params, group(common, reactive("Constant reactive power (fixed mode)", fixed).mode(2))...)
+	params = append(params, group(common, reactive(fixedQName, fixed).mode(2))...)
 	for i, pt := range points {
 		params = append(params, group(common,
-			voltage(i+1, pt).mode(3),
-			reactive(fmt.Sprintf("Q(U) point %d: reactive power", i+1), pt.y).mode(3))...)
+			reactive(fmt.Sprintf(qYName, i+1), pt.y).mode(3),
+			voltage(i+1, pt).mode(3))...)
 	}
 	if l.filterQ {
 		params = append(params, group(common, filter.mode(3))...)
 	}
 	if l.compact {
-		minCosPhi := num("Lowest cos phi allowed while following a Q set-point", 156, 0xFFFF, 0.01, 0, "", 0xFFFF, 0, none)
+		minCosPhi := num(minCosPhiName, 156, 0xFFFF, 0.01, 0, "", 0xFFFF, 0, none)
 		minCosPhi.TanPhi, minCosPhi.Decimals = true, 2
 		params = append(params, group(limits,
 			minCosPhi.tab(true),
-			num("Active-power threshold to enable the curve (lock-in)", 157, 0xFF00, 0.5, 0, "% of Pemax", 0, 200, none).tab(true),
-			num("Active-power threshold to disable the curve (lock-out)", 157, 0xFF, 0.5, 0, "% of Pemax", 0, 200, none).tab(true),
+			num(pLockInName, 157, 0xFF00, 0.5, 0, "%", 0, 200, none).tab(true),
+			num(pLockOutName, 157, 0xFF, 0.5, 0, "%", 0, 200, none).tab(true),
 		)...)
 	}
 	return decimals1(params), unsupported
@@ -341,24 +361,215 @@ func (p *Page) WithReactivePower(c Code, m Model) *Page {
 	q := *p
 	q.Params = slices.Clone(p.Params)
 	q.Unsupported = slices.Clone(p.Unsupported)
+	l, known := layoutOf(c, m)
+	if !known {
+		q.Unsupported = append(q.Unsupported, ReactivePowerUnknownLayout)
+		return &q
+	}
+	params, unsupported := reactiveParams(l)
+	q.Params = append(q.Params, params...)
+	q.Unsupported = append(q.Unsupported, unsupported...)
+	return &q
+}
+
+// layoutOf returns the layout of the group of grid code c with model m;
+// known is false when it depends on what is not known.
+func layoutOf(c Code, m Model) (l reactiveLayout, known bool) {
 	v := m.version(c)
 	compact, known := compactReactive(c, v)
 	filterQ, filterKnown := filterWithQCurve(c, m)
 	if !known || !filterKnown {
-		q.Unsupported = append(q.Unsupported, ReactivePowerUnknownLayout)
-		return &q
+		return l, false
 	}
 	lock, lockKnown := m.mask(c, 148)
-	params, unsupported := reactiveParams(reactiveLayout{
+	return reactiveLayout{
 		compact: compact,
 		volts:   c == 6 || c == 7 || c == 15 || c == 16,
 		filterQ: filterQ,
 		lowest:  lowestCosPhi(c, v),
 		lockU:   lock&0x20 != 0, lockKnown: lockKnown,
-	})
-	q.Params = append(q.Params, params...)
-	q.Unsupported = append(q.Unsupported, unsupported...)
-	return &q
+	}, true
+}
+
+// cosPhiPreset is the cos phi(P) curve the original makes the default
+// when the grid code's default regulation uses the Q settings (the two
+// curves share their words): the four points' X values in % of Pemax,
+// then their cos phi. Reverse-engineered.
+var cosPhiPreset = [8]float64{20, 30, 50, 100, 1, 1, 1, -0.95}
+
+// qPreset returns the Q(U) curve the original makes the default of grid
+// code c with parameter-set version v when the code's default regulation
+// uses the cos phi settings: the four points' X values (% of Un; V for
+// the AS/NZS 4777.2:2015 codes), then their Q in % of Sr. ok is false
+// for Czech (30), where the original reports an unexpected condition
+// instead. Reverse-engineered.
+func qPreset(c Code, v int) (preset [8]float64, ok bool) {
+	switch {
+	case c == 6, c == 7, c == 15, c == 16:
+		return [8]float64{207, 220, 244, 255, 30, 0, 0, -30}, true
+	case c == 12 && v > 0:
+		return [8]float64{92, 96, 105, 108, 43.6, 0, 0, -43.6}, true
+	case c == 30:
+		return preset, false
+	}
+	return [8]float64{93, 97, 103, 107, 43.6, 0, 0, -43.6}, true
+}
+
+// Follow returns the grid words, with their new values, that the original
+// changes along with parameter p of grid code c's page (model m) when the
+// user changes p from field value old; word gives the words' values with
+// p's change made. It returns nil when there are none. Reverse-engineered;
+// only the reactive-power group has such rules here:
+//
+//   - A new regulation sets the fields shown with it to their defaults:
+//     the fixed value or the curve of the new regulation and, when it
+//     moves between the cos phi settings (0, 1) and the Q settings (2, 3),
+//     the box shown with them (the voltage lock-in or the Limitation box).
+//     Then, with the cos phi settings of layout B, Min. Cos phi is set to 0
+//     and, without the voltage lock-in box, both active-power thresholds
+//     to 0; with the Q settings, "Use lock-in/out" is cleared.
+//   - Clearing "Use lock-in/out" sets both voltage thresholds to 100 % of
+//     Un (field 0); ticking it sets them to their defaults.
+//
+// The defaults are those of the grid-info table, except: the fixed cos phi
+// is 1 and the fixed Q 0; the curve that the code's default regulation
+// does not use gets a preset (cosPhiPreset, qPreset); and when "Use
+// lock-in/out" is ticked by default, the active-power thresholds are 0.
+// Without the table's defaults (the original then has defaults of its own,
+// not known) only the values that do not depend on them are set.
+func Follow(c Code, m Model, p Param, old int, word func(uint16) uint16) map[uint16]uint16 {
+	if p.Name != regulationName && p.Name != lockNames[2] {
+		return nil
+	}
+	page, _ := PageFor(c, m.version(c))
+	l, known := layoutOf(c, m)
+	now := p.Field(word(p.Word))
+	if !known || !slices.Contains(reactivePages, page) || now == old {
+		return nil
+	}
+	params, _ := reactiveParams(l)
+	param := func(name string) Param {
+		return params[slices.IndexFunc(params, func(q Param) bool { return q.Name == name })]
+	}
+	f := follower{c: c, v: m.version(c), word: word, out: map[uint16]uint16{}}
+	if m.Known {
+		f.defs, _ = Defaults(m.Table, c)
+	}
+	lockU := l.compact && l.lockKnown && l.lockU
+	switch p.Name {
+	case regulationName:
+		toQ := now >= 2
+		for _, q := range params {
+			if q.ShowMask == 0x3 && q.ShowValue == now ||
+				q.ShowMask == 0x2 && (q.ShowValue == 1) == toQ && toQ != (old >= 2) {
+				f.reset(q)
+			}
+		}
+		switch {
+		case !toQ && l.compact:
+			f.set(param(minCosPhiName), 0)
+			if l.lockKnown && !lockU {
+				f.setField(param(pLockInName), 0)
+				f.setField(param(pLockOutName), 0)
+			}
+		case toQ && lockU:
+			f.setField(param(lockNames[2]), 1)
+		}
+	case lockNames[2]:
+		for _, n := range lockNames[:2] {
+			if now != 0 {
+				f.setField(param(n), 0)
+			} else {
+				f.reset(param(n))
+			}
+		}
+	}
+	for w, v := range f.out {
+		if v == word(w) {
+			delete(f.out, w)
+		}
+	}
+	if len(f.out) == 0 {
+		return nil
+	}
+	return f.out
+}
+
+// follower collects the words Follow changes.
+type follower struct {
+	c    Code
+	v    int
+	word func(uint16) uint16
+	out  map[uint16]uint16
+	defs map[uint16]uint16 // the table's defaults; nil when not known
+}
+
+func (f *follower) get(w uint16) uint16 {
+	if v, ok := f.out[w]; ok {
+		return v
+	}
+	return f.word(w)
+}
+
+// set sets q to display value v; setField sets q's field.
+func (f *follower) set(q Param, v float64) {
+	if w, err := q.Pack(f.get(q.Word), v); err == nil {
+		f.out[q.Word] = w
+	}
+}
+
+func (f *follower) setField(q Param, field int) {
+	f.out[q.Word] = f.get(q.Word)&^q.Mask | uint16(field)<<q.shift()&q.Mask
+}
+
+// reset sets q to its default (see Follow).
+func (f *follower) reset(q Param) {
+	switch q.Name {
+	case fixedCosPhiName:
+		f.set(q, 1)
+		return
+	case fixedQName:
+		f.set(q, 0)
+		return
+	}
+	if f.defs == nil {
+		return
+	}
+	// A word the table gives no default gets 0xFFFF (Defaults).
+	def := func(w uint16) uint16 {
+		if v, ok := f.defs[w]; ok {
+			return v
+		}
+		return 0xFFFF
+	}
+	if v, ok := f.preset(q.Name, int(def(148)&0x3)); ok {
+		f.set(q, v)
+		return
+	}
+	if (q.Name == pLockInName || q.Name == pLockOutName) && def(148)&0x20 == 0 {
+		f.setField(q, 0)
+		return
+	}
+	f.setField(q, q.Field(def(q.Word)))
+}
+
+// preset returns the preset of curve parameter name when its curve is not
+// the one of regulation mode, the code's default.
+func (f *follower) preset(name string, mode int) (float64, bool) {
+	preset, x, y, ok := cosPhiPreset, cosPhiXName, cosPhiYName, mode >= 2
+	if !ok {
+		preset, ok = qPreset(f.c, f.v)
+		x, y = qXName, qYName
+	}
+	for i := range 4 {
+		switch name {
+		case fmt.Sprintf(x, i+1):
+			return preset[i], ok
+		case fmt.Sprintf(y, i+1):
+			return preset[4+i], ok
+		}
+	}
+	return 0, false
 }
 
 // ReactivePowerUnknownLayout is listed as not supported when the layout of
