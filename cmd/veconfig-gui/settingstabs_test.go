@@ -159,6 +159,9 @@ func TestVirtualSwitchSubTabs(t *testing.T) {
 	d.AddSetting(1, mk2.SettingInfo{Sc: 1, Max: 1 << 10}, 0) // flag 26 (invert)
 	d.AddSetting(15, mk2.SettingInfo{Sc: 1, Max: 6}, 0)
 	d.AddSetting(16, mk2.SettingInfo{Sc: -10, Max: 500}, 100)
+	d.AddSetting(19, mk2.SettingInfo{Sc: -60, Offset: -1, Max: 255}, 0)
+	d.AddSetting(38, mk2.SettingInfo{Sc: -60, Offset: -1, Max: 255}, 0)
+	d.AddSetting(43, mk2.SettingInfo{Sc: 1, Max: 1200}, 0)
 	d.AddSetting(52, mk2.SettingInfo{Sc: -10, Max: 500}, 100)
 	u.settings.load(d, nil)
 	titles := func() (s []string) {
@@ -183,9 +186,9 @@ func TestVirtualSwitchSubTabs(t *testing.T) {
 		invertible bool
 	}{
 		{0, []string{"Usage"}, false},
-		{1, []string{"Usage", "Switch on when"}, true},
+		{1, []string{"Usage", "A: Set VS ON", "B: Set VS OFF", "VS options"}, true},
 		{3, []string{"Usage", "Second switch"}, false},
-		{5, []string{"Usage", "Switch on when", "Second switch"}, true},
+		{5, []string{"Usage", "A: Set VS ON", "B: Set VS OFF", "VS options", "Second switch"}, true},
 	} {
 		usage(tc.usage)
 		if !slices.Equal(titles(), tc.tabs) {

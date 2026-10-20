@@ -189,11 +189,12 @@ var defaultEntries = []Entry{
 
 	// Settings 66-88, community names (FINDINGS.md §12.2). 76-80 ("Vebus
 	// config. Ignore") and 85 ("Info ID 0") are left out: they are not user
-	// settings.
-	setting(66, "Frequency shift Ubat start", "V", TabAdvanced, "Frequency shift", srcCommSet),
-	setting(67, "Frequency shift start delay", "", TabAdvanced, "Frequency shift", srcCommSet),
-	setting(68, "Frequency shift Ubat stop", "V", TabAdvanced, "Frequency shift", srcCommSet),
-	setting(69, "Frequency shift stop delay", "", TabAdvanced, "Frequency shift", srcCommSet),
+	// settings. The frequency shift (66-69, flag 35) is on the virtual switch
+	// options page, as in the original tool (reverse-engineered, #6).
+	setting(66, "Frequency shift Ubat start", "V", TabVirtualSwitch, "Options", srcCommSet),
+	setting(67, "Frequency shift start delay", "", TabVirtualSwitch, "Options", srcCommSet),
+	setting(68, "Frequency shift Ubat stop", "V", TabVirtualSwitch, "Options", srcCommSet),
+	setting(69, "Frequency shift stop delay", "", TabVirtualSwitch, "Options", srcCommSet),
 	setting(70, "VS2 on SOC level", "", TabVirtualSwitch, "Virtual switch 2", srcCommSet),
 	setting(71, "Assistant temp compensation", "", TabAdvanced, "Assistants", srcCommSet),
 	setting(72, "Charge efficiency", "", TabGeneral, "Battery monitor", srcCommSet),
@@ -252,7 +253,7 @@ var defaultEntries = []Entry{
 
 	// Flags 35-41, community names (FINDINGS.md §12.3). The document calls
 	// 35-63 unused.
-	flag(35, "Frequency changes by Ubat", TabAdvanced, "Frequency shift", srcCommFlags),
+	flag(35, "Frequency changes by Ubat", TabVirtualSwitch, "Options", srcCommFlags),
 	flag(36, "Lithium battery", TabCharger, "Battery type", srcCommFlags),
 	flag(37, "Allow enable feed-in", TabGrid, "Grid code", srcCommFlags),
 	flag(38, "External mains current sensor connected", TabGeneral, "AC input current", srcCommFlags),

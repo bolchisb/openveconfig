@@ -72,6 +72,11 @@ func settingLabels() map[vebus.ID]string {
 		s(43): tr("Minimum on time"),
 		f(34): tr("Shift the inverter frequency while on"),
 		s(62): tr("Inverter period while shifted"),
+		f(35): tr("Shift the inverter frequency with the DC voltage"),
+		s(66): tr("Frequency shift: start above DC voltage"),
+		s(67): tr("Frequency shift: start delay"),
+		s(68): tr("Frequency shift: stop below DC voltage"),
+		s(69): tr("Frequency shift: stop delay"),
 
 		// Virtual switch: on conditions.
 		s(16): tr("Load above"),
@@ -128,11 +133,6 @@ func settingLabels() map[vebus.ID]string {
 		f(33): tr("Invert the second switch"),
 
 		// Advanced.
-		f(35): tr("Shift the inverter frequency with the DC voltage"),
-		s(66): tr("Frequency shift: start above DC voltage"),
-		s(67): tr("Frequency shift: start delay"),
-		s(68): tr("Frequency shift: stop below DC voltage"),
-		s(69): tr("Frequency shift: stop delay"),
 		s(71): tr("Temperature compensation used by assistants"),
 		f(41): tr("Give renewable energy priority"),
 		s(88): tr("Sustain voltage"),
@@ -340,15 +340,13 @@ func groupLabel(group string) string {
 	case "Usage":
 		return tr("Usage")
 	case "On conditions":
-		return tr("Switch on when")
+		return tr("A: Set VS ON") // the original's words, as the next two
 	case "Off conditions":
-		return tr("Switch off when")
+		return tr("B: Set VS OFF")
 	case "Options":
-		return tr("Options")
+		return tr("VS options")
 	case "Virtual switch 2":
 		return tr("Second switch")
-	case "Frequency shift":
-		return tr("Frequency shift")
 	case "Assistants":
 		return tr("Assistants")
 	case "Renewable energy priority":
@@ -411,14 +409,18 @@ func vsGroupShown(group string, usage uint16) bool {
 }
 
 // flagChoices returns the flags shown as a choice of two: the label for
-// the flag off and for it on.
+// the flag off and for it on. The LED alarm choices of the virtual switch
+// are the original tool's words (see usageLabels).
 func flagChoices() map[uint16][2]string {
-	alarm := [2]string{tr("Alarm"), tr("Pre-alarm")}
+	temperature := [2]string{tr("Temperature alarm"), tr("Temperature pre-alarm")}
+	lowBattery := [2]string{tr("Low-battery alarm"), tr("Low-battery pre-alarm")}
+	overload := [2]string{tr("Overload alarm"), tr("Overload pre-alarm")}
+	ripple := [2]string{tr("Udc ripple alarm"), tr("Udc ripple pre-alarm")}
 	return map[uint16][2]string{
 		2:  {tr("50 Hz"), tr("60 Hz")},
 		31: {tr("Low-power modified sine"), tr("Search mode (pulses)")},
-		17: alarm, 18: alarm, 19: alarm, 20: alarm,
-		21: alarm, 22: alarm, 23: alarm, 24: alarm,
+		17: temperature, 18: lowBattery, 19: overload, 20: ripple,
+		21: temperature, 22: lowBattery, 23: overload, 24: ripple,
 	}
 }
 

@@ -87,6 +87,9 @@ type settingsPage struct {
 	switches map[uint16]*valueSwitch
 	// cardRows are the rows of each card, which is hidden when they all are.
 	cardRows map[fyne.CanvasObject][]*settingRow
+	// refreshers show the model on the lines of a virtual switch page
+	// (vsCards), after the rows of their entries are updated.
+	refreshers []func()
 }
 
 // valueSwitch is the card switch of a group switched on by a master value.
@@ -223,8 +226,12 @@ func (p *settingsPage) show(e vebus.Entry) {
 			y := drv.AbsolutePositionForObject(r.root).Y - drv.AbsolutePositionForObject(p.scroll.Content).Y
 			p.scroll.ScrollToOffset(fyne.NewPos(0, max(0, y-2*theme.Padding())))
 		}
-		if r.focus != nil {
-			p.u.win.Canvas().Focus(r.focus)
+		f := r.focus
+		if c, ok := f.(fyne.Disableable); ok && c.Disabled() && r.line != nil && r.line.delay != nil {
+			f = r.line.delay.focus // a condition that is off: its delay turns it on
+		}
+		if f != nil {
+			p.u.win.Canvas().Focus(f)
 		}
 	}
 }
@@ -242,10 +249,12 @@ func (p *settingsPage) note() fyne.CanvasObject {
 
 // build rebuilds the page for the loaded model.
 func (p *settingsPage) build() {
-	p.rows, p.switches, p.cardRows = nil, map[uint16]*valueSwitch{}, map[fyne.CanvasObject][]*settingRow{}
+	p.rows, p.switches, p.cardRows, p.refreshers = nil, map[uint16]*valueSwitch{}, map[fyne.CanvasObject][]*settingRow{}, nil
 	d := p.u.settings.dev
 	var cards []fyne.CanvasObject
-	if d != nil {
+	if d != nil && p.tab == vebus.TabVirtualSwitch && len(p.groups) == 1 && slices.Contains(vsLaidOut, p.groups[0]) {
+		cards = p.vsCards(d, p.groups[0])
+	} else if d != nil {
 		labels := settingLabels()
 		byGroup := map[string][]vebus.Entry{}
 		var order, texts []string
@@ -400,6 +409,9 @@ func (p *settingsPage) update() {
 	lithium := lithiumOn(d)
 	for _, r := range p.rows {
 		r.update()
+		if r.line != nil {
+			continue // marked and enabled by its line, below
+		}
 		p.mark(r)
 		on, ok := enabled[r.e.ID()]
 		r.setEnabled(!ok || on)
@@ -415,6 +427,9 @@ func (p *settingsPage) update() {
 	// A card whose rows are all hidden is hidden too.
 	for c, rows := range p.cardRows {
 		setShown(c, slices.ContainsFunc(rows, func(r *settingRow) bool { return r.header || r.root.Visible() }))
+	}
+	for _, f := range p.refreshers {
+		f()
 	}
 }
 
@@ -512,6 +527,10 @@ type settingRow struct {
 	update func()         // shows the model's value
 	focus  fyne.Focusable // what Find focuses; nil for none
 	entry  *numberEntry   // the entry of a number; nil for other entries
+	// line is the line of a virtual switch page that shows the entry, with
+	// its dot, markers and revert button; nil for a row of its own. The
+	// row's formRow then only holds the entry's error.
+	line *vsLine
 }
 
 // newRow returns the row of entry e, labelled label, of the loaded model:
@@ -809,7 +828,7 @@ func (n numberView) decimals() int {
 	if step <= 0 || step >= 1 {
 		return 0
 	}
-	return min(3, int(math.Ceil(-math.Log10(step)-1e-9)))
+	return min(4, int(math.Ceil(-math.Log10(step)-1e-9)))
 }
 
 // text formats a value in shown units, with its unit.
