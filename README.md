@@ -94,7 +94,7 @@ go build ./cmd/veconfig-gui
 go test ./...
 ```
 
-CI builds both binaries on native runners for windows/amd64, darwin/arm64, darwin/amd64, linux/amd64 and linux/arm64 (see `.github/workflows/ci.yml`).
+CI (`.github/workflows/ci.yml`) runs gofmt, `go vet`, `go build` and the tests on Linux, macOS and Windows, only for pull requests from a `feature/*` branch into `main`; other branches run nothing, to save Actions minutes. `feature/*` branches are created by maintainers only.
 
 Releases are made by pushing a `v*` tag (for example `v0.1.0`; a tag with a `-`, such as `v0.1.0-rc1`, becomes a pre-release) that points to a commit on `main`. The release workflow (`.github/workflows/release.yml`) refuses tags on other branches, runs the tests, and attaches the archives for all five platforms plus `SHA256SUMS.txt` to the GitHub release. The macOS binaries are not signed or notarized yet.
 

@@ -1,19 +1,24 @@
 name: CI
 
+# To save Actions minutes, CI runs only for pull requests from a feature/*
+# branch into main. Work on any other branch (merged into a feature/* branch
+# first) runs nothing. Release builds are made by release.yml on v* tags.
 on:
-  push:
   pull_request:
     branches: [main]
 
 permissions:
   contents: read
 
-# Fyne needs cgo, so every target is built on a native runner with its own C
-# toolchain. darwin/amd64 is built on the arm64 macOS runner: Go passes
-# "-arch x86_64" to Apple clang, so no extra toolchain is needed.
+# A new push to the same pull request cancels the run still in progress.
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: test (${{ matrix.os }})
+    if: startsWith(github.head_ref, 'feature/')
     strategy:
       fail-fast: false
       matrix:
@@ -72,50 +77,12 @@ jobs:
         if: runner.os == 'Linux'
         run: go test -run '^$' -fuzz '^FuzzDecode$' -fuzztime 30s ./pkg/mk2
 
-  build:
-    name: build (${{ matrix.goos }}/${{ matrix.goarch }})
-    needs: test
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { goos: windows, goarch: amd64, runner: windows-latest }
-          - { goos: darwin, goarch: arm64, runner: macos-latest }
-          - { goos: darwin, goarch: amd64, runner: macos-latest }
-          - { goos: linux, goarch: amd64, runner: ubuntu-latest }
-          - { goos: linux, goarch: arm64, runner: ubuntu-24.04-arm }
-    runs-on: ${{ matrix.runner }}
-    env:
-      CGO_ENABLED: "1"
-      GOOS: ${{ matrix.goos }}
-      GOARCH: ${{ matrix.goarch }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: Install Fyne dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
-      - name: Build
-        shell: bash
-        run: |
-          ext=""
-          guiflags=""
-          if [ "$GOOS" = windows ]; then ext=".exe"; guiflags="-H=windowsgui"; fi
-          mkdir -p dist
-          go build -trimpath -o "dist/veconfig-cli$ext" ./cmd/veconfig-cli
-          go build -trimpath -ldflags "$guiflags" -o "dist/veconfig-gui$ext" ./cmd/veconfig-gui
-      - uses: actions/upload-artifact@v4
-        with:
-          name: veconfig-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/
-
-  # Publishes the Linux test counts for the README badge. The JSON is kept on
-  # the orphan branch "badges" and rendered by shields.io's endpoint badge.
+  # Publishes the Linux test counts of the feature/* pull request for the
+  # README badge. The JSON is kept on the orphan branch "badges" and rendered
+  # by shields.io's endpoint badge.
   badge:
     needs: test
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: always() && startsWith(github.head_ref, 'feature/') && needs.test.result != 'skipped'
     runs-on: ubuntu-latest
     permissions:
       contents: write
