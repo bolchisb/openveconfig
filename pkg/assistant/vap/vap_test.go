@@ -139,3 +139,15 @@ func TestRealPackages(t *testing.T) {
 	}
 	t.Logf("%d packages, %d assistants", len(list), len(Latest(list)))
 }
+
+func TestReadIndex(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, IndexFile), []byte("packageversion=7\r\nDownloadedBy=123\r\nother=x\r\n"), 0o644)
+	pv, by, err := ReadIndex(dir)
+	if err != nil || pv != 7 || by != 123 {
+		t.Errorf("ReadIndex = %d %d %v", pv, by, err)
+	}
+	if _, _, err := ReadIndex(t.TempDir()); err == nil {
+		t.Error("missing index accepted")
+	}
+}

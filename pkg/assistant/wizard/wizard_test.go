@@ -299,11 +299,27 @@ func TestEncode(t *testing.T) {
 		{"XOR", []Operand{imm(6)}, []byte{0x19, 0x06}},
 		{"ROL", []Operand{imm(7)}, []byte{0x1D, 0x07}},
 		{"STOREW", []Operand{mem(0x12)}, []byte{0x41, 0x12}},
-		{"MUL", []Operand{imm(0x1234)}, []byte{0x48, 0x34, 0x12}},
+		{"MUL", []Operand{imm(0x1234)}, []byte{0x48, 0x34, 0x12, 0x00}},
+		{"MULSHR", []Operand{mem(0x20), imm(8)}, []byte{0x4B, 0x20, 0x08}},
+		{"BAREMUL", []Operand{imm(0x30)}, []byte{0x49, 0x30, 0x20}},
+		// The inc/dec family and ->dest arithmetic (addendum).
+		{"INC", []Operand{mem(0x10)}, []byte{0x21, 0x10}},
+		{"INCTO", []Operand{mem(0x10)}, []byte{0x25, 0x10}},
+		{"INCTO", []Operand{mem(0x10), imm(9)}, []byte{0x29, 0x10, 0x09}},
+		{"CLAMPMAX", []Operand{mem(0x1000)}, []byte{0x2C, 0x00, 0x10}},
+		{"DEC", []Operand{mem(0x10)}, []byte{0x31, 0x10}},
+		{"DECTO", []Operand{mem(0x10)}, []byte{0x35, 0x10}},
+		{"DECTO", []Operand{mem(0x10), imm(9)}, []byte{0x39, 0x10, 0x09}},
+		{"CLAMPMIN", []Operand{mem(0x10)}, []byte{0x3D, 0x10}},
+		{"ADD", []Operand{imm(5), mem(0x10)}, []byte{0x23, 0x05, 0x10}},
+		{"SUB", []Operand{imm(0x1388), mem(0x10)}, []byte{0x2A, 0x88, 0x13, 0x10}},
+		{"ROL", []Operand{imm(1), mem(0x10)}, []byte{0x3F, 0x01, 0x10}},
 		{"DIV", []Operand{imm(10)}, []byte{0x4D, 0x0A}},
-		{"MOV", []Operand{mem(0x10), imm(0x1234)}, []byte{0x54, 0x10, 0x34, 0x12}},
-		{"MOV", []Operand{mem(0x10), {Value: 0x05, Indirect: true}}, []byte{0x57, 0x10, 0x85}},
-		{"CMP", []Operand{mem(0x1000), imm(1)}, []byte{0x59, 0x00, 0x10, 0x01}},
+		// MOV/CMP dest, src: the source's bytes first (addendum).
+		{"MOV", []Operand{mem(0x10), imm(0x1234)}, []byte{0x54, 0x34, 0x12, 0x10}},
+		{"MOV", []Operand{mem(0x10), {Value: 0x05, Indirect: true}}, []byte{0x57, 0x85, 0x10}},
+		{"MOV", []Operand{mem(0x64), imm(0x2C1)}, []byte{0x54, 0xC1, 0x02, 0x64}},
+		{"CMP", []Operand{mem(0x1000), imm(1)}, []byte{0x59, 0x01, 0x00, 0x10}},
 		{"CALL", []Operand{imm(0x2C1)}, []byte{0x62, 0xC1}},
 	}
 	for _, tc := range tests {
@@ -316,7 +332,7 @@ func TestEncode(t *testing.T) {
 			t.Errorf("Is(%s, %#x) false", tc.mn, got[0])
 		}
 	}
-	if Is("LOADW", 0x50) || Is("NOSUCH", 0) {
+	if Is("LOADW", 0x50) || Is("NOSUCH", 0) || Is("ADD", 0x20) || Is("INC", 0x22) || Is("INCTO", 0x2A) {
 		t.Error("Is matched the wrong opcode")
 	}
 	for _, bad := range [][]Operand{{{Value: 0x80, Indirect: true}}, {}} {

@@ -23,7 +23,12 @@ import (
 
 func newTestUI(t *testing.T) *ui {
 	t.Helper()
-	return newUI(test.NewTempApp(t))
+	a := test.NewTempApp(t)
+	// An empty assistant folder, not the one of the machine (assistantspage.go).
+	a.Preferences().SetString(prefAssistantFolder, t.TempDir())
+	u := newUI(a)
+	<-u.assistants.ready
+	return u
 }
 
 // fakeSession returns a session on a simulator, without the connection
