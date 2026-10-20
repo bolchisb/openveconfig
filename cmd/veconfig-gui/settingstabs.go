@@ -84,6 +84,8 @@ type settingsPage struct {
 	// switches are the card switches of the valueSwitches groups on the
 	// page, by master setting.
 	switches map[uint16]*valueSwitch
+	// cardRows are the rows of each card, which is hidden when they all are.
+	cardRows map[fyne.CanvasObject][]*settingRow
 }
 
 // valueSwitch is the card switch of a group switched on by a master value.
@@ -215,7 +217,7 @@ func (p *settingsPage) note() fyne.CanvasObject {
 
 // build rebuilds the page for the loaded model.
 func (p *settingsPage) build() {
-	p.rows, p.switches = nil, map[uint16]*valueSwitch{}
+	p.rows, p.switches, p.cardRows = nil, map[uint16]*valueSwitch{}, map[fyne.CanvasObject][]*settingRow{}
 	d := p.u.settings.dev
 	var cards []fyne.CanvasObject
 	if d != nil {
@@ -226,10 +228,11 @@ func (p *settingsPage) build() {
 			if e.Tab != p.tab || e.FlagWord || (len(p.groups) > 0 && !slices.Contains(p.groups, e.Group)) {
 				continue
 			}
-			if _, ok := byGroup[e.Group]; !ok {
-				order = append(order, e.Group)
+			g := entryGroup(e)
+			if _, ok := byGroup[g]; !ok {
+				order = append(order, g)
 			}
-			byGroup[e.Group] = append(byGroup[e.Group], e)
+			byGroup[g] = append(byGroup[g], e)
 		}
 		// Groups shown as the two columns of one card, each with its own
 		// label column.
@@ -262,6 +265,7 @@ func (p *settingsPage) build() {
 				head = p.newValueSwitch(g, n).head.root
 			}
 			var rows []fyne.CanvasObject
+			var rowList []*settingRow
 			for _, e := range byGroup[g] {
 				title := ""
 				if isMasterFlag(e) {
@@ -269,13 +273,16 @@ func (p *settingsPage) build() {
 				}
 				r := p.newRow(p.cols, e, entryName(e, labels), title)
 				p.rows = append(p.rows, r)
+				rowList = append(rowList, r)
 				if r.header {
 					head = r.root
 				} else {
 					rows = append(rows, r.root)
 				}
 			}
-			cards = append(cards, newFormCard(head, rows...))
+			c := newFormCard(head, rows...)
+			p.cardRows[c] = rowList
+			cards = append(cards, c)
 		}
 	}
 	switch {
@@ -361,6 +368,10 @@ func (p *settingsPage) update() {
 				setShown(r.root, lithium)
 			}
 		}
+	}
+	// A card whose rows are all hidden is hidden too.
+	for c, rows := range p.cardRows {
+		setShown(c, slices.ContainsFunc(rows, func(r *settingRow) bool { return r.header || r.root.Visible() }))
 	}
 }
 

@@ -795,14 +795,19 @@ func TestLithiumRules(t *testing.T) {
 	if raw, _ := d.Raw(vebus.SettingID(10)); raw != 1 {
 		t.Errorf("lithium on: algorithm %d, want 1 (fixed)", raw)
 	}
+	// The low-temperature block has a switch of its own: on while its raw
+	// value is not 0.
+	if s := charger.switches[86]; s == nil || !s.toggle.On {
+		t.Error("low-temperature block: no switch, or off while set")
+	}
 
 	if err := d.SetFlag(39, true); err != nil {
 		t.Fatal(err)
 	}
 	u.settings.changed()
 	test.Tap(rowOf(t, charger, vebus.FlagID(36)).control.(*widget.Check))
-	if raw, _ := d.Raw(vebus.SettingID(86)); raw != 0 {
-		t.Errorf("lithium off: low-temperature block raw %d, want 0 (off)", raw)
+	if raw, _ := d.Raw(vebus.SettingID(86)); raw != 0 || charger.switches[86].toggle.On {
+		t.Errorf("lithium off: low-temperature block raw %d (want 0, off), switch on %v", raw, charger.switches[86].toggle.On)
 	}
 	if on, _ := d.Flag(39); on {
 		t.Error("lithium off left the VE.Bus BMS flag on")

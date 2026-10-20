@@ -190,6 +190,20 @@ var masterFlags = map[uint16][]vebus.ID{
 var masterValues = map[uint16][]vebus.ID{
 	64: {vebus.SettingID(65), vebus.SettingID(72), vebus.SettingID(74)},
 	84: {vebus.SettingID(83)},
+	86: nil, // the low-temperature charge block: raw 0 is off
+}
+
+// groupOverrides moves entries to a group of the settings pages other than
+// their catalogue group: the low-temperature charge block gets a card of
+// its own, so that its switch does not sit on the temperature compensation.
+var groupOverrides = map[vebus.ID]string{vebus.SettingID(86): "Low-temperature charge block"}
+
+// entryGroup returns the group e is shown in on the settings pages.
+func entryGroup(e vebus.Entry) string {
+	if g, ok := groupOverrides[e.ID()]; ok {
+		return g
+	}
+	return e.Group
 }
 
 // valueSwitches are the groups switched on by a master value (masterValues)
@@ -197,13 +211,16 @@ var masterValues = map[uint16][]vebus.ID{
 // not 0", like the original tool's check box that is no device value
 // (reverse-engineered, #6). While the function is off, the master value
 // itself is disabled too.
-var valueSwitches = map[string]uint16{"Battery monitor": 64, "State of charge shutdown": 84}
+var valueSwitches = map[string]uint16{"Battery monitor": 64, "State of charge shutdown": 84, "Low-temperature charge block": 86}
 
 // valueSwitchHint is shown under a value switch that was turned on before
 // its master value n was entered.
 func valueSwitchHint(n uint16) string {
-	if n == 64 {
+	switch n {
+	case 64:
 		return tr("Enter the battery bank capacity to turn the battery monitor on.")
+	case 86:
+		return tr("Enter the temperature below which charging stops.")
 	}
 	return tr("Enter the restart level to turn the shutdown on.")
 }
@@ -307,6 +324,8 @@ func groupLabel(group string) string {
 		return tr("Charger")
 	case "Temperature":
 		return tr("Temperature")
+	case "Low-temperature charge block":
+		return tr("Stop charging at low temperature")
 	case "Usage":
 		return tr("Usage")
 	case "On conditions":
