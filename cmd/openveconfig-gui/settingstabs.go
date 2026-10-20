@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -75,10 +76,17 @@ type settingsPage struct {
 	cols    *formColumns        // the label column of the rows
 	scroll  *container.Scroll   // the scroll area of the page the rows are on; nil until set
 	lead    []fyne.CanvasObject // shown above the cards
+	// leadLabels are the labels of rows in lead that share the label
+	// column, which is fitted to them too.
+	leadLabels []string
 	// sub are the pages of the sub-tabs of a tab shown as sub-tabs.
 	sub       []*settingsPage
 	subTabs   *container.AppTabs
-	subsShown []bool // which sub-pages have a tab
+	subsShown []bool   // which sub-pages have a tab
+	subTitles []string // the titles of those tabs
+	// vs2 are the labels that follow the values (vs2Labels) the page was
+	// built with; nil on pages without them.
+	vs2 map[vebus.ID]string
 	// updating is set while the controls are set from the model, so their
 	// change callbacks do not write back.
 	updating bool
@@ -116,7 +124,7 @@ func newSettingsPage(u *ui, tab vebus.Tab, groups ...string) *settingsPage {
 	p := &settingsPage{u: u, tab: tab, groups: groups, content: container.NewStack(), cols: &formColumns{}}
 	p.build()
 	u.settings.onChange(func(loaded bool) {
-		if loaded {
+		if loaded || p.vs2 != nil && u.settings.dev != nil && !maps.Equal(p.vs2, vs2Labels(u.settings.dev)) {
 			p.build()
 		} else {
 			p.update()
@@ -134,7 +142,7 @@ func newSubPages(u *ui, tab vebus.Tab) *settingsPage {
 	}
 	p.buildSubTabs()
 	u.settings.onChange(func(loaded bool) {
-		if loaded || !slices.Equal(p.shownSubs(), p.subsShown) {
+		if loaded || !slices.Equal(p.shownSubs(), p.subsShown) || !slices.Equal(p.subTabTitles(), p.subTitles) {
 			p.buildSubTabs()
 		}
 	})
@@ -163,11 +171,11 @@ func (p *settingsPage) buildSubTabs() {
 		selected = p.subTabs.Selected().Content
 	}
 	p.subTabs = nil
-	p.subsShown = p.shownSubs()
+	p.subsShown, p.subTitles = p.shownSubs(), p.subTabTitles()
 	var items []*container.TabItem
 	for i, s := range p.sub {
 		if p.subsShown[i] {
-			items = append(items, container.NewTabItem(groupLabel(s.groups[0]), s.content))
+			items = append(items, container.NewTabItem(p.subTitles[i], s.content))
 		}
 	}
 	if len(items) == 0 {
@@ -182,6 +190,24 @@ func (p *settingsPage) buildSubTabs() {
 		p.content.Objects = []fyne.CanvasObject{p.subTabs}
 	}
 	p.content.Refresh()
+}
+
+// subTabTitles returns the titles of the sub-pages' tabs.
+func (p *settingsPage) subTabTitles() []string {
+	titles := make([]string, len(p.sub))
+	for i, s := range p.sub {
+		titles[i] = p.groupTitle(s.groups[0])
+	}
+	return titles
+}
+
+// groupTitle returns the title of group g: groupLabel, except for the
+// second virtual switch, which the original names after its usage.
+func (p *settingsPage) groupTitle(g string) string {
+	if d := p.u.settings.dev; d != nil && g == "Virtual switch 2" {
+		return vs2Title(d)
+	}
+	return groupLabel(g)
 }
 
 // catalogueGroups returns the groups of tab in catalogue order.
@@ -249,13 +275,16 @@ func (p *settingsPage) note() fyne.CanvasObject {
 
 // build rebuilds the page for the loaded model.
 func (p *settingsPage) build() {
-	p.rows, p.switches, p.cardRows, p.refreshers = nil, map[uint16]*valueSwitch{}, map[fyne.CanvasObject][]*settingRow{}, nil
+	p.rows, p.switches, p.cardRows, p.refreshers, p.vs2 = nil, map[uint16]*valueSwitch{}, map[fyne.CanvasObject][]*settingRow{}, nil, nil
 	d := p.u.settings.dev
 	var cards []fyne.CanvasObject
 	if d != nil && p.tab == vebus.TabVirtualSwitch && len(p.groups) == 1 && slices.Contains(vsLaidOut, p.groups[0]) {
 		cards = p.vsCards(d, p.groups[0])
 	} else if d != nil {
-		labels := settingLabels()
+		labels := deviceLabels(d)
+		if slices.Contains(p.groups, "Virtual switch 2") {
+			p.vs2 = vs2Labels(d)
+		}
 		byGroup := map[string][]vebus.Entry{}
 		var order, texts []string
 		for _, e := range d.Entries() {
@@ -289,7 +318,7 @@ func (p *settingsPage) build() {
 				}
 			}
 		}
-		p.cols.fit(texts)
+		p.cols.fit(append(texts, p.leadLabels...))
 		for _, g := range order {
 			if r, ok := paired[g]; ok {
 				if r != "" {
@@ -309,7 +338,7 @@ func (p *settingsPage) build() {
 				cards = append(cards, p.pairCard(groupLabel(g), left, right, labels))
 				continue
 			}
-			head := cardTitle(groupLabel(g))
+			head := cardTitle(p.groupTitle(g))
 			if n, ok := valueSwitches[g]; ok && slices.ContainsFunc(byGroup[g], func(e vebus.Entry) bool { return e.ID() == vebus.SettingID(n) }) {
 				head = p.newValueSwitch(g, n).head.root
 			}
@@ -381,6 +410,8 @@ func (p *settingsPage) update() {
 	if usage, err := d.Raw(vebus.SettingID(15)); err == nil {
 		enabled[vebus.FlagID(26)] = usageInvertible(usage)
 	}
+	// As in the original, where it is never enabled.
+	enabled[vebus.FlagID(1)] = false
 	for n, ids := range masterValues {
 		raw, err := d.Raw(vebus.SettingID(n))
 		if err != nil {
@@ -415,6 +446,9 @@ func (p *settingsPage) update() {
 		p.mark(r)
 		on, ok := enabled[r.e.ID()]
 		r.setEnabled(!ok || on)
+		if r.e.ID() == vebus.FlagID(32) {
+			setShown(r.root, vs2Generator(d)) // only for a generator, as in the original
+		}
 		if lithiumErr == nil {
 			switch id := r.e.ID(); {
 			case slices.Contains(lithiumHidden, id):
@@ -553,6 +587,7 @@ func (p *settingsPage) newRow(cols *formColumns, e vebus.Entry, label, title str
 	}
 	var control fyne.CanvasObject
 	var width float32
+	var cond *widget.Select // the stop condition of setting 58; nil on other rows
 	switch {
 	case e.Kind == vebus.Flag:
 		if c, ok := flagChoices()[e.Num]; ok {
@@ -629,6 +664,11 @@ func (p *settingsPage) newRow(cols *formColumns, e vebus.Entry, label, title str
 	default:
 		r.entry = newNumberEntry()
 		control, width, r.focus = r.entry, numberWidth, r.entry
+		if id == vs2StopSetting {
+			cond = widget.NewSelect(stopConditions(), nil)
+			control = container.NewHBox(cond, container.New(fixedWidth(numberWidth), r.entry))
+			width = cond.MinSize().Width + numberWidth + theme.Padding()
+		}
 	}
 	if title != "" {
 		r.formRow = newFormHeader(cols, title, control)
@@ -637,11 +677,22 @@ func (p *settingsPage) newRow(cols *formColumns, e vebus.Entry, label, title str
 	}
 	r.revert.OnTapped = func() { set(revertEntry(d, id)) }
 	if r.entry != nil {
-		show := r.bindNumber(r.entry, func() string { return numberEntryText(d, e) }, func(text string) error {
+		current := func() string {
+			if raw, _ := d.Raw(id); id == vs2StopSetting && raw < 256 {
+				return "" // a stop condition, not a voltage
+			}
+			return numberEntryText(d, e)
+		}
+		show := r.bindNumber(r.entry, current, func(text string) error {
 			if u.settings.dev != d {
 				return nil
 			}
+			old, _ := d.Raw(id)
 			err := setNumber(d, e, text)
+			if raw, _ := d.Raw(id); err == nil && id == vs2StopSetting && raw < 256 {
+				// The value would read as a stop condition.
+				err = errors.Join(d.SetRaw(id, old), errors.New(tr("Enter a higher voltage.")))
+			}
 			if err == nil {
 				u.settings.changed()
 			}
@@ -661,7 +712,58 @@ func (p *settingsPage) newRow(cols *formColumns, e vebus.Entry, label, title str
 			show()
 		}
 	}
+	if cond != nil {
+		p.bindStopCondition(r, cond, set)
+	}
 	return r
+}
+
+// vs2StopSetting is the setting that holds the stop condition of the second
+// virtual switch: below 256, 0 is "bulk finished" and 1 "absorption
+// finished"; otherwise it is the voltage of "Udc higher than" (public doc).
+var vs2StopSetting = vebus.SettingID(58)
+
+// stopConditions returns the choices of vs2StopSetting, in the original's
+// words: the two codes, then the voltage.
+func stopConditions() []string {
+	return []string{tr("Bulk finished"), tr("Absorption finished"), tr("Udc higher than")}
+}
+
+// bindStopCondition binds the choice of r's stop condition (setting 58).
+// Choosing "Udc higher than" while a code is set leaves the code until a
+// voltage is entered.
+func (p *settingsPage) bindStopCondition(r *settingRow, cond *widget.Select, set func(error)) {
+	d, id := p.u.settings.dev, r.e.ID()
+	pending := false // "Udc higher than" chosen, no voltage entered yet
+	cond.OnChanged = func(string) {
+		if p.updating {
+			return
+		}
+		switch i := cond.SelectedIndex(); i {
+		case 0, 1:
+			pending = false
+			set(d.SetRaw(id, uint16(i)))
+		case 2:
+			if raw, _ := d.Raw(id); raw < 256 {
+				pending = true
+				p.u.win.Canvas().Focus(r.entry)
+			}
+		}
+	}
+	number := r.update
+	r.update = func() {
+		number()
+		raw, _ := d.Raw(id)
+		switch {
+		case raw >= 256 || pending:
+			pending = pending && raw < 256
+			cond.SetSelectedIndex(2)
+		case raw <= 1:
+			cond.SetSelectedIndex(int(raw))
+		default:
+			cond.ClearSelected() // a code the original does not offer
+		}
+	}
 }
 
 // newRadio returns a required choice of opts, side by side when they fit
@@ -743,6 +845,10 @@ func choiceOptions(d *vebus.Device, e vebus.Entry) ([]uint16, []string) {
 	}
 	slices.Sort(values)
 	names := choiceLabels()[e.Num]
+	if e.Num == 15 {
+		inverted, _ := d.Flag(26)
+		names = usageLabels(inverted)
+	}
 	labels := make([]string, len(values))
 	for i, v := range values {
 		switch {

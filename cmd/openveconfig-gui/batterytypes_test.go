@@ -111,7 +111,7 @@ func TestApplyTypeScaled(t *testing.T) {
 	for _, cells := range []int{6, 12, 24} {
 		k := float64(cells) / 6
 		d := typeDevice(cells)
-		res := builtin(t, "AGM fast recharge, tubular semi-float, spiral AGM").apply(d)
+		res := builtin(t, "AGM Victron Deep Discharge (fastest recharge), Tubular plate batteries (semi float use), AGM spiral cell").apply(d)
 		if len(res.errs) > 0 || len(res.limited) > 0 || res.noBMS {
 			t.Fatalf("%d cells: %+v", cells, res)
 		}
@@ -131,7 +131,7 @@ func TestApplyTypeScaled(t *testing.T) {
 
 	// A lithium type on the 48 V device.
 	d := typeDevice(24)
-	res := builtin(t, "LFP lithium, generic").apply(d)
+	res := builtin(t, "Lithium Iron Phosphate (LiFePo4) batteries").apply(d)
 	if want := []vebus.ID{s(2), s(3), s(9), f(36), s(10), s(65), s(72), f(29)}; !slices.Equal(res.changed, want) {
 		t.Errorf("LFP on 48 V: changed %v, want %v", res.changed, want)
 	}
@@ -149,7 +149,7 @@ func TestApplyTypeSimulator(t *testing.T) {
 	if err := d.SetFlag(typeTractionFlag, true); err != nil {
 		t.Fatal(err)
 	}
-	res := builtin(t, "AGM fast recharge, tubular semi-float, spiral AGM").apply(d)
+	res := builtin(t, "AGM Victron Deep Discharge (fastest recharge), Tubular plate batteries (semi float use), AGM spiral cell").apply(d)
 	if len(res.errs) > 0 || len(res.limited) > 0 || res.noBMS {
 		t.Fatalf("result %+v", res)
 	}
@@ -159,19 +159,19 @@ func TestApplyTypeSimulator(t *testing.T) {
 	if v := displayOf(t, d, vebus.SettingID(2)); !near(v, 14.7) {
 		t.Errorf("absorption = %v, want 14.7", v)
 	}
-	if i := matchType(d, builtinTypes()); i != builtinIndex(t, "AGM fast recharge, tubular semi-float, spiral AGM") {
+	if i := matchType(d, builtinTypes()); i != builtinIndex(t, "AGM Victron Deep Discharge (fastest recharge), Tubular plate batteries (semi float use), AGM spiral cell") {
 		t.Errorf("after applying, the match is %d", i)
 	}
 	// The BMS type on a device without the VE.Bus BMS flag: plain lithium,
 	// with the notice.
-	if res := builtin(t, "LFP lithium with a VE.Bus BMS").apply(d); !res.noBMS || len(res.errs) > 0 {
+	if res := builtin(t, "Victron Smart Lithium batteries, i.c.w. with VE.Bus BMS").apply(d); !res.noBMS || len(res.errs) > 0 {
 		t.Errorf("BMS type on the simulator: %+v, want the VE.Bus BMS notice", res)
 	}
 }
 
 func TestApplyTypeBMS(t *testing.T) {
 	d := typeDevice(6)
-	res := builtin(t, "LFP lithium with a VE.Bus BMS").apply(d)
+	res := builtin(t, "Victron Smart Lithium batteries, i.c.w. with VE.Bus BMS").apply(d)
 	if res.noBMS || len(res.errs) > 0 {
 		t.Fatalf("result %+v", res)
 	}
@@ -189,16 +189,16 @@ func TestApplyTypeLimited(t *testing.T) {
 	d := typeDevice(6)
 	d.AddSetting(2, mk2.SettingInfo{Sc: -100, Default: 1440, Min: 800, Max: 1450}, 1440)
 	u.settings.load(d, nil)
-	bt := builtin(t, "AGM fast recharge, tubular semi-float, spiral AGM")
+	bt := builtin(t, "AGM Victron Deep Discharge (fastest recharge), Tubular plate batteries (semi float use), AGM spiral cell")
 	applyBatteryType(u, d, bt)
 	if raw, _ := d.Raw(vebus.SettingID(2)); raw != 1450 {
 		t.Errorf("absorption raw %d, want the maximum 1450", raw)
 	}
 	text := dialogTexts(u.win.Canvas().Overlays().Top())
-	for _, want := range []string{"“AGM fast recharge, tubular semi-float, spiral AGM” was applied.",
+	for _, want := range []string{"“AGM Victron Deep Discharge (fastest recharge), Tubular plate batteries (semi float use), AGM spiral cell” was applied.",
 		"1 value of the type is outside this device's range and was set to the nearest limit.",
 		"limited", "The type asks for 14.70 V; this device allows 8.00 V to 14.50 V.", "14.40 V", "14.50 V",
-		"Traction battery charge curve", "The settings now match no type."} {
+		"Use equalization (tubular plate traction battery curve)", "The settings now match no type."} {
 		if !strings.Contains(text, want) {
 			t.Errorf("result dialog does not show %q:\n%s", want, text)
 		}
@@ -222,7 +222,7 @@ func TestMatchType(t *testing.T) {
 		}
 	}
 
-	gel := builtinIndex(t, "Gel/AGM deep-cycle, standard")
+	gel := builtinIndex(t, "Gel/AGM, Victron Energy, Gel Exide A200")
 	d = typeDevice(6)
 	types[gel].apply(d)
 	if got := matchType(d, types); got != gel {
@@ -329,7 +329,7 @@ func TestBatteryTypeDialog(t *testing.T) {
 	d := typeDevice(6)
 	u.settings.load(d, nil)
 	card := batteryTypeCard(u)
-	if text := dialogTexts(card); !strings.Contains(text, "No matching type (custom values)") {
+	if text := dialogTexts(card); !strings.Contains(text, "No corresponding default") {
 		t.Errorf("card shows %q", text)
 	}
 
@@ -337,7 +337,7 @@ func TestBatteryTypeDialog(t *testing.T) {
 	dlg := u.win.Canvas().Overlays().Top()
 	text := dialogTexts(dlg)
 	for _, want := range []string{"The current values match no type (custom values).", "Built-in types", "Your types",
-		"LFP lithium, generic", "Absorption 14.20 V · Float 13.50 V · 1 h absorption · Fixed", "Lithium", "VE.Bus BMS",
+		"Lithium Iron Phosphate (LiFePo4) batteries", "Absorption 14.20 V · Float 13.50 V · 1 h absorption · Fixed", "Lithium", "VE.Bus BMS",
 		"Values are shown for the 12 V battery of this device.", "You have no types of your own yet."} {
 		if !strings.Contains(text, want) {
 			t.Errorf("dialog does not show %q", want)
@@ -346,25 +346,25 @@ func TestBatteryTypeDialog(t *testing.T) {
 	if !findButton(t, dlg, "Apply").Disabled() {
 		t.Error("Apply is enabled with no type chosen")
 	}
-	gel := builtinIndex(t, "Gel/AGM deep-cycle, standard")
+	gel := builtinIndex(t, "Gel/AGM, Victron Energy, Gel Exide A200")
 	test.Tap(choiceCards(dlg)[gel])
 	pressKey(u, fyne.KeyReturn)
 	if v := displayOf(t, d, vebus.FlagID(11)); v != 1 || !d.Dirty(vebus.FlagID(11)) {
 		t.Error("Enter did not apply the chosen type")
 	}
 	result := u.win.Canvas().Overlays().Top()
-	if text := dialogTexts(result); !strings.Contains(text, "The settings now match “Gel/AGM deep-cycle, standard”.") {
+	if text := dialogTexts(result); !strings.Contains(text, "The settings now match “Gel/AGM, Victron Energy, Gel Exide A200”.") {
 		t.Errorf("result dialog shows %q", text)
 	}
 	pressKey(u, fyne.KeyEscape)
-	if text := dialogTexts(card); !strings.Contains(text, "Gel/AGM deep-cycle, standard") {
+	if text := dialogTexts(card); !strings.Contains(text, "Gel/AGM, Victron Energy, Gel Exide A200") {
 		t.Errorf("card shows %q after applying", text)
 	}
 
 	// The current values match a type: they cannot be saved as a new one.
 	test.Tap(card.(*choiceCard))
 	dlg = u.win.Canvas().Overlays().Top()
-	if !findButton(t, dlg, "Save current values as a type…").Disabled() || !strings.Contains(dialogTexts(dlg), "current") {
+	if !findButton(t, dlg, "Create new type…").Disabled() || !strings.Contains(dialogTexts(dlg), "current") {
 		t.Error("Save is enabled while a type matches, or the match is not marked current")
 	}
 	pressKey(u, fyne.KeyEscape)
@@ -372,15 +372,15 @@ func TestBatteryTypeDialog(t *testing.T) {
 	// Custom values: save them as a type, which then matches.
 	set(t, d, 2, "14.5")
 	u.settings.changed()
-	if text := dialogTexts(card); !strings.Contains(text, "No matching type") {
+	if text := dialogTexts(card); !strings.Contains(text, "No corresponding default") {
 		t.Errorf("card shows %q after an edit", text)
 	}
 	test.Tap(card.(*choiceCard))
 	dlg = u.win.Canvas().Overlays().Top()
-	test.Tap(findButton(t, dlg, "Save current values as a type…"))
+	test.Tap(findButton(t, dlg, "Create new type…"))
 	named := u.win.Canvas().Overlays().Top()
 	entry := findObjects(named, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.Entry); return ok })[0].(*widget.Entry)
-	entry.SetText("Gel/AGM deep-cycle, standard")
+	entry.SetText("Gel/AGM, Victron Energy, Gel Exide A200")
 	if !findButton(t, named, "Save").Disabled() {
 		t.Error("a built-in type's name is accepted")
 	}
@@ -413,7 +413,7 @@ func TestBatteryTypeDialog(t *testing.T) {
 	if u.win.Canvas().Overlays().Top() != nil || u.win.Canvas().OnTypedKey() != nil {
 		t.Error("Escape did not close the dialog, or left its key handler")
 	}
-	if text := dialogTexts(card); !strings.Contains(text, "No matching type") {
+	if text := dialogTexts(card); !strings.Contains(text, "No corresponding default") {
 		t.Errorf("card shows %q after removing the matching type", text)
 	}
 }

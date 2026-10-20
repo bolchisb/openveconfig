@@ -369,7 +369,7 @@ func onOff(v float64) string {
 }
 
 // readError is the value text of a value that could not be read.
-func readError() string { return tr("read error") }
+func readError() string { return tr("Error during read") }
 
 // stateText names a device state reported by CommandGetSetDeviceState or
 // the AC info frame (Â§7.3.2, Â§6.1), in our own words.
@@ -451,19 +451,19 @@ func newPanel(u *ui) *panel {
 	p := &panel{
 		u:         u,
 		status:    widget.NewLabel(""),
-		mainsV:    newField(tr("Voltage")),
-		mainsI:    newField(tr("Current")),
-		mainsF:    newField(tr("Frequency")),
-		outV:      newField(tr("Voltage")),
-		outI:      newField(tr("Current")),
-		outF:      newField(tr("Frequency")),
-		batV:      newField(tr("Voltage")),
-		batRipple: newField(tr("Ripple")),
-		batI:      newField(tr("Current")),
+		mainsV:    newField(tr("UMains")),
+		mainsI:    newField(tr("IMains")),
+		mainsF:    newField(tr("Freq. In")),
+		outV:      newField(tr("UOut")),
+		outI:      newField(tr("IOut")),
+		outF:      newField(tr("Freq. Out")),
+		batV:      newField(tr("Udc")),
+		batRipple: newField(tr("Udc ripple")),
+		batI:      newField(tr("Idc")),
 		state:     newField(tr("Device state")),
-		vswitch:   newField(tr("Virtual switch")),
-		ignoreAC:  newField(tr("Ignore AC input")),
-		relay:     newField(tr("Relay")),
+		vswitch:   newField(tr("Virtual sw.")),
+		ignoreAC:  newField(tr("Ignore AC")),
+		relay:     newField(tr("Aux. relay")),
 	}
 	p.status.Wrapping = fyne.TextWrapWord
 	p.chips = []*statusChip{

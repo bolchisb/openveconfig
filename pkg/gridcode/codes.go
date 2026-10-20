@@ -11,6 +11,8 @@ type Code uint16
 type CodeInfo struct {
 	Code Code
 	// Region is the country or region; "" for codes without a standard.
+	// Region and Standard are worded as in the original tool's grid code
+	// list.
 	Region string
 	// Standard is the public name of the standard; "none" for codes
 	// without one.
@@ -22,37 +24,38 @@ type CodeInfo struct {
 var codes = []CodeInfo{
 	{0, "", "none", "No grid code; feeding energy back to the grid is disabled"},
 	{1, "", "none", "Grid connection without a standard; not compliant"},
-	{2, "United Kingdom", "G83/2 (2012), G59/3-1 (2014)", "UK rules for small and large generators"},
-	{3, "Italy", "CEI 0-21 (2014-09 and V1 2014-12)", "Italian low-voltage connection rule"},
-	{4, "Germany", "VDE-AR-N 4105:2011-08", "German low-voltage rule, external grid-protection device"},
-	{5, "Germany", "VDE-AR-N 4105:2011-08", "German low-voltage rule, built-in grid protection"},
+	{2, "UK", "G83/2 August 2012, G59/3-1 August 2014", "UK rules for small and large generators"},
+	{3, "Italy", "CEI 0-21, 2014-09 and CEI 0-21;V1, 2014-12", "Italian low-voltage connection rule"},
+	{4, "Germany", "VDE-AR-N 4105:2011-08, external NS protection", "German low-voltage rule, external grid-protection device"},
+	{5, "Germany", "VDE-AR-N 4105:2011-08, internal NS protection", "German low-voltage rule, built-in grid protection"},
 	{6, "Australia", "AS/NZS 4777.2:2015", "2015 inverter rule"},
 	{7, "New Zealand", "AS/NZS 4777.2:2015", "2015 inverter rule"},
 	{8, "South Africa", "NRS 097-2-1:2017", "South African rule for small-scale embedded generation"},
 	{9, "France", "UTE C15-712-1:2013-07", "French guide for PV installations"},
-	{10, "Spain", "RD 1699/2011, UNE 206007-1:2013", "Spanish connection decree"},
+	{10, "Spain", "RD 1699/2011 | UNE 206007-1:2013", "Spanish connection decree"},
 	{11, "Belgium", "C10/11", "Belgian connection rule"},
-	{12, "Austria", "TOR-D4 V2.3 (2016)", "Austrian rule, without reactive-power control"},
+	{12, "Austria", "TOR-D4 V2.3:2016-7; No reactive power control", "Austrian rule, without reactive-power control"},
 	{13, "Chile", "NTG-BT 2014", "Chilean low-voltage rule"},
-	{14, "Romania", "derived from TOR-D4", "Romanian variant of the Austrian rule"},
-	{15, "New Zealand", "AS/NZS 4777.2:2015", "As code 7, with the neutral path joined outside the unit"},
-	{16, "Australia", "AS/NZS 4777.2:2015", "As code 6, with the neutral path joined outside the unit"},
-	{17, "Europe", "EN 50549-1:2019", "Generic European rule"},
-	{18, "Denmark (DK1, west)", "Technical regulation 3.3.1", "Danish rule, western grid"},
-	{19, "Denmark (DK2, east)", "Technical regulation 3.3.1", "Danish rule, eastern grid"},
-	{20, "Northern Ireland", "G99/NI (April 2019)", "Northern Irish generator rule"},
+	{14, "Romania", "TOR-D4 derivative", "Romanian variant of the Austrian rule"},
+	{15, "New Zealand", "AS/NZS 4777.2:2015 (AC Neutral Path externally joined)", "As code 7, with the neutral path joined outside the unit"},
+	{16, "Australia", "AS/NZS 4777.2:2015 (AC Neutral Path externally joined)", "As code 6, with the neutral path joined outside the unit"},
+	{17, "Europe", "EN50549-1:2019", "Generic European rule"},
+	{18, "Denmark", "DK1, Western Denmark (Technical regulation 3.3.1)", "Danish rule, western grid"},
+	{19, "Denmark", "DK2, Eastern Denmark (Technical regulation 3.3.1)", "Danish rule, eastern grid"},
+	{20, "Northern Ireland", "G99/NI April 2019", "Northern Irish generator rule"},
 	{21, "", "none", "As code 1, with the neutral path joined outside the unit; not compliant"},
-	{22, "Australia, region A", "AS/NZS 4777.2 (edition not known, likely 2020)", "Regional setting A"},
-	{23, "Australia, region B", "AS/NZS 4777.2 (edition not known, likely 2020)", "Regional setting B"},
-	{24, "Australia, region C", "AS/NZS 4777.2 (edition not known, likely 2020)", "Regional setting C"},
+	// The original sets the standard of 22-25 at run time; not known.
+	{22, "Australia A", "AS/NZS 4777.2 (edition not known, likely 2020)", "Regional setting A"},
+	{23, "Australia B", "AS/NZS 4777.2 (edition not known, likely 2020)", "Regional setting B"},
+	{24, "Australia C", "AS/NZS 4777.2 (edition not known, likely 2020)", "Regional setting C"},
 	{25, "New Zealand", "AS/NZS 4777.2:2020", "2020 rule"},
-	{26, "Australia, region A", "AS/NZS 4777.2:2020 + A1 + A2, appendix M", "Stand-alone use with neutral bypass"},
-	{27, "Australia, region B", "AS/NZS 4777.2:2020 + A1 + A2, appendix M", "Stand-alone use with neutral bypass"},
-	{28, "Australia, region C", "AS/NZS 4777.2:2020 + A1 + A2, appendix M", "Stand-alone use with neutral bypass"},
-	{29, "New Zealand", "AS/NZS 4777.2:2020 + A1 + A2, appendix M", "Stand-alone use with neutral bypass"},
-	{30, "Czech Republic", "PPDS 2024, type A1/A2", "Czech distribution rule"},
-	{31, "United Kingdom", "G98/1 amendment 6", "UK micro-generator rule, 16 A at most"},
-	{32, "Poland", "EU 2016/631 (RfG) with Polish requirements (2018, 2021)", "Polish rule"},
+	{26, "Australia A", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M (with N-bypass)", "Stand-alone use with neutral bypass"},
+	{27, "Australia B", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M (with N-bypass)", "Stand-alone use with neutral bypass"},
+	{28, "Australia C", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M (with N-bypass)", "Stand-alone use with neutral bypass"},
+	{29, "New Zealand", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M (with N-bypass)", "Stand-alone use with neutral bypass"},
+	{30, "Czech", "Czech 2024 PPDS type A1/A2", "Czech distribution rule"},
+	{31, "UK", "G98/1 Amendment 6 (16 A max.)", "UK micro-generator rule, 16 A at most"},
+	{32, "Poland", "Commission Regulation (EU) 2016/631; Wymogi ogólnego stosowania 18-12-2018; zasady wykorzysta certyfikatow v.1.2 (26/04/2021)", "Polish rule"},
 }
 
 // Codes returns the known grid codes in ascending order.

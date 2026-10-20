@@ -22,7 +22,14 @@ type Unit struct {
 	SaveTime                    uint32 // Unix seconds
 	Settings                    []uint16
 	Assistant                   []byte
+	// Identity, if set, replaces the pattern in the letter index,
+	// config-protocol byte and response char (pkg/rvsc Unit), for a unit
+	// that pkg/vebus/system takes as a real one.
+	Identity *Identity
 }
+
+// Identity is the identity bytes before a unit's system record.
+type Identity struct{ Letter, ConfigProtocol, ResponseChar byte }
 
 // File describes a whole file.
 type File struct {
@@ -87,6 +94,9 @@ func unit(u Unit) []byte {
 		b = append(b, byte(0x40+i))
 	}
 	binary.LittleEndian.PutUint16(b[0x13:], 6) // 6 extra bytes: the system record starts at 0x1c
+	if id := u.Identity; id != nil {
+		b[0x0c], b[0x0d], b[0x1b] = id.Letter, id.ConfigProtocol, id.ResponseChar
+	}
 	b = append(b, u.Phase, u.AssistantFlag, u.Index)
 	b = binary.LittleEndian.AppendUint16(b, uint16(len(u.Serial)))
 	serial := make([]byte, 11)

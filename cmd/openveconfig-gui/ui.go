@@ -140,6 +140,7 @@ type appMenu struct {
 	main                               *fyne.MainMenu
 	recent                             *fyne.MenuItem
 	connect, get, send, find, defaults *fyne.MenuItem
+	print, export                      *fyne.MenuItem
 	review                             *fyne.MenuItem
 	remote, monitor                    *fyne.MenuItem
 }
@@ -147,16 +148,19 @@ type appMenu struct {
 func newAppMenu(u *ui) *appMenu {
 	m := &appMenu{}
 	item := func(label string, f func()) *fyne.MenuItem { return fyne.NewMenuItem(label, f) }
-	open := item(tr("Open settings file…"), func() { openSettingsFile(u) })
+	open := item(tr("Load settings…"), func() { openSettingsFile(u) })
 	open.Shortcut = shortcut(fyne.KeyO)
-	save := item(tr("Save settings file"), func() { saveSettingsFile(u) })
+	save := item(tr("Save settings"), func() { saveSettingsFile(u) })
 	save.Shortcut = shortcut(fyne.KeyS)
 	m.recent = item(tr("Recent files"), nil)
 	m.recent.ChildMenu = fyne.NewMenu("")
+	m.print = item(tr("Print settings"), func() { printSettings(u) })
+	m.export = item(tr("Export settings"), func() { exportSettings(u) })
 	file := fyne.NewMenu(tr("File"), open, save, m.recent, fyne.NewMenuItemSeparator(),
-		&fyne.MenuItem{Label: tr("Quit"), IsQuit: true})
+		m.print, m.export, fyne.NewMenuItemSeparator(),
+		&fyne.MenuItem{Label: tr("Exit"), IsQuit: true})
 
-	m.connect = item(tr("Connect…"), func() {
+	m.connect = item(tr("Com port…"), func() {
 		if u.sess != nil {
 			u.setSession(nil)
 		} else {
@@ -166,22 +170,24 @@ func newAppMenu(u *ui) *appMenu {
 	m.get = item(tr("Get settings"), func() { getSettings(u) })
 	m.send = item(tr("Send settings"), func() { sendSettings(u) })
 	m.review = item(tr("Review changes…"), func() { reviewChanges(u) })
-	m.find = item(tr("Find setting…"), func() { findSetting(u) })
+	m.find = item(tr("Find item…"), func() { findSetting(u) })
 	m.find.Shortcut = shortcut(fyne.KeyF)
-	m.defaults = item(tr("Reset all to defaults…"), func() { setAllToDefault(u) })
-	device := fyne.NewMenu(tr("Device"), m.connect, fyne.NewMenuItemSeparator(), m.get, m.send, m.review,
+	m.defaults = item(tr("Set all settings to default…"), func() { setAllToDefault(u) })
+	device := fyne.NewMenu(tr("Target"), m.connect, fyne.NewMenuItemSeparator(), m.get, m.send, m.review,
 		fyne.NewMenuItemSeparator(), m.find, fyne.NewMenuItemSeparator(), m.defaults)
 
-	m.remote = item(tr("Remote panel"), func() { showRemotePanel(u) })
-	m.monitor = item(tr("VE.Bus monitor"), func() { showVEBusMonitor(u) })
-	tools := fyne.NewMenu(tr("Tools"), m.remote, m.monitor)
+	m.remote = item(tr("Show panel"), func() { showRemotePanel(u) })
+	m.monitor = item(tr("Show VE.Bus monitor"), func() { showVEBusMonitor(u) })
+	tools := fyne.NewMenu(tr("Tools"), m.remote, m.monitor,
+		item(tr("System Configurator"), func() { showSystemConfigurator(u) }),
+		item(tr("Quick Configure"), func() { showQuickConfigure(u) }))
 
-	language := item(tr("Language"), nil)
+	language := item(tr("Languages"), nil)
 	language.ChildMenu = languageMenu(u)
 	look := item(tr("Theme"), nil)
 	look.ChildMenu = themeMenu(u)
 	options := fyne.NewMenu(tr("Options"), language, look)
-	m.main = fyne.NewMainMenu(file, device, tools, options)
+	m.main = fyne.NewMainMenu(file, device, tools, options, helpMenu(u))
 	return m
 }
 
@@ -200,9 +206,11 @@ func (m *appMenu) update(u *ui) {
 	set(m.review, loaded && len(u.settings.dev.ChangedIDs()) > 0)
 	set(m.find, loaded)
 	set(m.defaults, loaded)
+	set(m.print, loaded)
+	set(m.export, loaded)
 	set(m.remote, connected)
 	set(m.monitor, connected)
-	label := tr("Connect…")
+	label := tr("Com port…")
 	if connected {
 		label = tr("Disconnect")
 	}
@@ -228,7 +236,7 @@ func languageMenu(u *ui) *fyne.Menu {
 				it.Checked = it == item
 			}
 			m.Refresh()
-			showMessage(u, tr("Language"), tr("The new language is used after you restart the program."))
+			showMessage(u, tr("Languages"), tr("The new language is used after you restart the program."))
 		}
 		m.Items = append(m.Items, item)
 	}

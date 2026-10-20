@@ -21,9 +21,14 @@ import (
 )
 
 // settingsTabSet are the tabs whose settings "Reset all to defaults"
-// changes: the pages of settingstabs.go. System configuration and the grid
-// tab are left alone.
+// changes: the pages of settingstabs.go. System configuration (systemIDs)
+// and the grid tab are left alone.
 var settingsTabSet = []vebus.Tab{vebus.TabGeneral, vebus.TabInverter, vebus.TabCharger, vebus.TabVirtualSwitch, vebus.TabAdvanced}
+
+// systemIDs are the entries of the General tab that describe the unit's
+// place in a system (parallel and multi-phase). Resetting the settings to
+// their defaults leaves them alone, so that a unit stays in its system.
+var systemIDs = []vebus.ID{vebus.FlagID(0), vebus.FlagID(1), vebus.SettingID(13), vebus.SettingID(14)}
 
 // modelStatus describes the loaded model and its unsent changes.
 func modelStatus(m *settingsModel) string {
@@ -346,7 +351,7 @@ func sendSettings(u *ui) {
 		return
 	}
 	issues := validationErrors(d)
-	changedOnly, all := tr("Changed settings only"), tr("All settings")
+	changedOnly, all := tr("Modified settings"), tr("All settings")
 	explain := mutedText("")
 	what := widget.NewRadioGroup([]string{changedOnly, all}, nil)
 	what.Required = true
@@ -363,7 +368,7 @@ func sendSettings(u *ui) {
 			}
 			target = widget.NewSelect(opts, nil)
 			target.SetSelectedIndex(slices.Index(s.devices, s.target))
-			options.Add(container.NewBorder(nil, nil, widget.NewLabel(tr("Send the file's settings to:")), nil, target))
+			options.Add(container.NewBorder(nil, nil, widget.NewLabel(tr("Send where?")), nil, target))
 		}
 		options.Add(mutedText(tr("The device is read first. You see how its settings differ from the file before anything is sent.")))
 	} else {
@@ -612,7 +617,7 @@ func entryLabel(d *vebus.Device, id vebus.ID) string {
 
 // settingName returns the label of id as the tabs show it.
 func settingName(d *vebus.Device, id vebus.ID) string {
-	if name := settingLabels()[id]; name != "" {
+	if name := deviceLabels(d)[id]; name != "" {
 		return name
 	}
 	return d.Name(id)
@@ -728,9 +733,9 @@ func setAllToDefault(u *ui) {
 	if d == nil {
 		return
 	}
-	c := newConfirm(u, tr("Reset all to defaults"), tr("Set every setting on the General, Inverter, Charger, Virtual switch and Advanced pages "+
+	c := newConfirm(u, tr("Set all settings to default"), tr("Set every setting on the General, Inverter, Charger, Virtual switch and Advanced pages "+
 		"to the device's default? Your values on these pages are replaced. Nothing is sent until you send the settings."),
-		tr("Reset all to defaults"), func() {
+		tr("Set all settings to default"), func() {
 			if u.settings.dev != d {
 				return
 			}
@@ -748,7 +753,7 @@ func setAllToDefault(u *ui) {
 func applyDefaults(d *vebus.Device) []error {
 	var errs []error
 	for _, e := range d.Entries() {
-		if !slices.Contains(settingsTabSet, e.Tab) || e.FlagWord {
+		if !slices.Contains(settingsTabSet, e.Tab) || e.FlagWord || slices.Contains(systemIDs, e.ID()) {
 			continue
 		}
 		def, err := d.Default(e.ID())
@@ -816,7 +821,7 @@ func findSetting(u *ui) {
 		list.Refresh()
 	}
 	content := container.NewBorder(query, nil, nil, nil, list)
-	dlg = dialog.NewCustom(tr("Find setting"), tr("Close"), content, u.win)
+	dlg = dialog.NewCustom(tr("Find item"), tr("Close"), content, u.win)
 	dlg.Resize(fyne.NewSize(560, 420))
 	dlg.Show()
 	u.win.Canvas().Focus(query)
@@ -829,8 +834,8 @@ var rvscFilter = storage.NewExtensionFileFilter([]string{".rvsc", ".rvms"})
 // editing; for a file with several units, it asks which one.
 func openSettingsFile(u *ui) {
 	if d := u.settings.dev; d != nil && len(d.ChangedIDs()) > 0 {
-		confirm(u, tr("Open settings file"), tr("Opening a file discards the changes you have not sent or saved. Continue?"),
-			tr("Open settings file"), func() { chooseSettingsFile(u) })
+		confirm(u, tr("Load settings"), tr("Opening a file discards the changes you have not sent or saved. Continue?"),
+			tr("Load settings"), func() { chooseSettingsFile(u) })
 		return
 	}
 	chooseSettingsFile(u)
@@ -862,8 +867,8 @@ func openRecentFile(u *ui, uri fyne.URI) {
 		readSettingsFile(u, r)
 	}
 	if d := u.settings.dev; d != nil && len(d.ChangedIDs()) > 0 {
-		confirm(u, tr("Open settings file"), tr("Opening a file discards the changes you have not sent or saved. Continue?"),
-			tr("Open settings file"), open)
+		confirm(u, tr("Load settings"), tr("Opening a file discards the changes you have not sent or saved. Continue?"),
+			tr("Load settings"), open)
 		return
 	}
 	open()
@@ -920,7 +925,7 @@ func loadSettingsFile(u *ui, sf *settingsFile) {
 func saveSettingsFile(u *ui) {
 	m := u.settings
 	if m.file == nil {
-		showMessage(u, tr("Save settings file"), tr("Only an opened settings file can be saved. "+
+		showMessage(u, tr("Save settings"), tr("Only an opened settings file can be saved. "+
 			"Creating a new file from a device is not supported yet."))
 		return
 	}

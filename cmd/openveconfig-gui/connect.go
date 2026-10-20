@@ -33,6 +33,8 @@ type portChoice struct {
 	label string
 	port  string // serial port name; empty for the demo
 	demo  bool
+	// system selects the VE.Bus system demo (with demo).
+	system bool
 }
 
 // connBar is the content of the connection dialog: the port list, the
@@ -54,7 +56,7 @@ func newConnBar(u *ui) *connBar {
 	b.ports = widget.NewSelect(nil, nil)
 	b.ports.PlaceHolder = tr("Choose a port")
 	b.refresh = widget.NewButtonWithIcon(tr("Refresh"), theme.ViewRefreshIcon(), b.refreshPorts)
-	b.detect = widget.NewButtonWithIcon(tr("Auto-detect"), theme.SearchIcon(), b.autoDetect)
+	b.detect = widget.NewButtonWithIcon(tr("Auto detect"), theme.SearchIcon(), b.autoDetect)
 	b.connect = widget.NewButton(tr("Connect"), b.toggle)
 	b.status = widget.NewLabel("")
 	b.status.Wrapping = fyne.TextWrapWord
@@ -70,9 +72,9 @@ func (b *connBar) show() {
 		hint := widget.NewLabel(tr("Choose the serial port of the MK2 or MK3 interface, let the program look for it, " +
 			"or choose the demo, which simulates two devices."))
 		hint.Wrapping = fyne.TextWrapWord
-		row := container.NewBorder(nil, nil, widget.NewLabel(tr("Port:")), nil, b.ports)
+		row := container.NewBorder(nil, nil, widget.NewLabel(tr("Com port:")), nil, b.ports)
 		content := container.NewVBox(hint, row, container.NewHBox(b.refresh, b.detect), b.status)
-		b.dlg = dialog.NewCustomWithoutButtons(tr("Connect to a device"), content, b.u.win)
+		b.dlg = dialog.NewCustomWithoutButtons(tr("Port selection"), content, b.u.win)
 		b.dlg.SetButtons([]fyne.CanvasObject{widget.NewButton(tr("Close"), b.dlg.Hide), b.connect})
 		b.dlg.Resize(fyne.NewSize(560, b.dlg.MinSize().Height))
 	}
@@ -82,7 +84,8 @@ func (b *connBar) show() {
 // refreshPorts rebuilds the port list and selects the last choice, or else
 // the first likely interface.
 func (b *connBar) refreshPorts() {
-	b.choices = []portChoice{{label: tr("Demo (no hardware)"), demo: true}}
+	b.choices = []portChoice{{label: tr("Demo (no hardware)"), demo: true},
+		{label: tr("Demo: a VE.Bus system of three new units"), demo: true, system: true}}
 	ports, err := serialport.List()
 	if err != nil {
 		showError(b.u, &uiError{err: err, msg: tr("Cannot list the serial ports: {{.Err}}", args{"Err": err})})
@@ -161,7 +164,13 @@ func (b *connBar) open(c portChoice) {
 		prefs.SetString(prefLastPort, c.port)
 	}
 	runWithProgress(u, tr("Connecting"), func(ctx context.Context, progress func(done, total int)) error {
-		s, err := connect(ctx, c.port, c.demo, progress)
+		var s *session
+		var err error
+		if c.system {
+			s, err = connectSystemDemo(ctx, progress)
+		} else {
+			s, err = connect(ctx, c.port, c.demo, progress)
+		}
 		if err != nil {
 			return err
 		}

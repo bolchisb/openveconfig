@@ -90,9 +90,9 @@ func startScreen(u *ui) fyne.CanvasObject {
 		return container.NewStack(newColourRect(colorNameSurface, fyne.NewSize(0, 200), theme.SizeNameCardRadius),
 			container.New(layout.NewCustomPaddedLayout(12, 12, 12, 12), body))
 	}
-	connect := widget.NewButton(tr("Connect…"), func() { u.conn.show() })
+	connect := widget.NewButton(tr("Com port…"), func() { u.conn.show() })
 	connect.Importance = widget.HighImportance
-	open := widget.NewButton(tr("Open file…"), func() { openSettingsFile(u) })
+	open := widget.NewButton(tr("Load settings…"), func() { openSettingsFile(u) })
 	demo := widget.NewButton(tr("Start the demo"), func() { u.conn.open(portChoice{demo: true}) })
 	cards := container.NewGridWithColumns(3,
 		card(theme.ComputerIcon(), tr("Connect a device"),

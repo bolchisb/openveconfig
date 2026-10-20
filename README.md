@@ -60,6 +60,12 @@ openveconfig-cli rvsc-diff old.rvms new.rvms         # settings that differ betw
 openveconfig-cli rvsc-diff --port COM3 --unit HQ1234ABCDE backup.rvms   # does the file match the device, and what differs
 openveconfig-cli rvsc-set backup.rvsc 2 14.6 -o edited.rvsc             # change one setting offline
 openveconfig-cli rvsc-apply --port COM3 --unit HQ1234ABCDE backup.rvms  # dry run; --yes writes the unit's settings
+openveconfig-cli rvsc-system backup.rvms site.vms -o new.rvms           # put a system layout into a GX backup (offline)
+openveconfig-cli firmware info 2600568.vff                              # check a .vff firmware file and show its parts (offline)
+openveconfig-cli system show --port COM3             # units of a VE.Bus system and the check of their records
+openveconfig-cli system write --port COM3 site.vms   # dry run of a System Configurator layout; --yes writes it
+openveconfig-cli system reset --port COM3 --yes      # restart every unit
+openveconfig-cli system standalone --port COM3 --yes # make the one unit switched on standalone
 ```
 
 `write-setting` changes a live device: it is refused without `--yes`, checks the value against the minimum and maximum the device reports, and reads the setting back afterwards.
@@ -67,6 +73,10 @@ openveconfig-cli rvsc-apply --port COM3 --unit HQ1234ABCDE backup.rvms  # dry ru
 `apply` is a dry run without `--yes`. With it, it writes only the settings that differ from the device (`--all`: every setting), after checking the device limits and validation (`--force` skips validation only), reads each one back, and lists the settings that need a device reset.
 
 The `rvsc-*` commands work on the `.rvsc`/`.rvms` files of a GX device's backup and VRM Remote VEConfigure. The format is community-reported. `rvsc-set` changes only the setting's bytes and the checksum. `rvsc-apply` refuses a file that does not match the device (firmware, setting info, number of units) and writes only settings, not assistants. Both refuse grid-code settings unless `--allow-grid-code` is given.
+
+The `system` commands configure multi-unit VE.Bus systems (parallel, split and three phase); with `--simulator` they use a simulated system of two units in parallel. `system write` is a dry run without `--yes`. A write is refused before anything is sent when the layout fails the system check or does not have exactly the units on the bus; a write that removes assistants also needs `--remove-assistants`. Every unit is written and read back; if one fails, the previous configuration is written back to every unit and the system is not restarted. `reset` and `standalone` are refused without `--yes`, and `standalone` also unless exactly one unit answers. These commands switch the whole system off for a moment.
+
+How these and the other write features are tested on real units, with backups and abort criteria, is in [docs/HARDWARE-TESTING.md](docs/HARDWARE-TESTING.md).
 
 ## Graphical tool
 
@@ -76,6 +86,8 @@ The `rvsc-*` commands work on the `.rvsc`/`.rvms` files of a GX device's backup 
 - **Grid page**: the grid code and the AC input limits. The device enforces the installer password for grid codes; the program never enters or bypasses one. Grid code parameters can be viewed and edited. A changed grid code and changed grid parameters are saved to a settings file with newly computed check words (reverse-engineered), to apply through a GX device; sending them straight to a device is disabled until the write order has been verified on hardware.
 - **Overview** page with the connection and live values, and **Tools > VE.Bus monitor** with per-phase values.
 - **Tools > Remote panel**: on/off/charger only/inverter only, the AC input current limit (where the device lets a panel override it) and the LEDs.
+- **Tools > System Configurator**: find the units of a VE.Bus system, arrange them on a grid of phases and AC inputs (drag and drop, or choose the unit and the cell), set the phases, AC inputs, L2 option and grouping, and see the system check as you go; errors block sending. Send writes and checks every unit, restores the previous configuration if one fails, and asks separately before assistants are removed. Units can be identified (their LEDs flash), renamed (names are kept on this computer) and opened in the main window. Layouts are opened and saved as `.vms` files, and can be put into a copy of a GX backup (`.rvms`) of the same units. The connection dialog offers a demo of three new units.
+- **Tools > Quick Configure**: a wizard that sets up two or three units in parallel, split phase (fixed or with automatic detection), two phases at 120° or 240°, or three phase, by switching the units on one at a time; each new unit is checked against the first, and a mismatch stops the flow before anything is written. It also shows which system existing units form and opens each unit's settings, resets a unit to standalone, and reads a VE.Bus error code from the LEDs (based on Victron's public error-code pages).
 - English and Romanian (**Options > Language**, applied at the next start), and a light and a dark theme that follow the OS or are chosen in **Options > Theme**.
 
 ## Building
@@ -96,11 +108,13 @@ go test ./...
 
 CI builds both binaries on native runners for windows/amd64, darwin/arm64, darwin/amd64, linux/amd64 and linux/arm64 (see `.github/workflows/ci.yml`).
 
-Releases are made by pushing a `v*` tag (for example `v0.1.0`; a tag with a `-`, such as `v0.1.0-rc1`, becomes a pre-release) that points to a commit on `main`. The release workflow (`.github/workflows/release.yml`) refuses tags on other branches, runs the tests, and attaches the archives for all five platforms plus `SHA256SUMS.txt` to the GitHub release. The macOS binaries are not signed or notarized yet.
+Releases are made by pushing a `v*` tag (for example `v0.1.0`; a tag with a `-`, such as `v0.1.0-rc1`, becomes a pre-release) that points to a commit on `main`. The release workflow (`.github/workflows/release.yml`) refuses tags on other branches, runs the tests, and attaches the archives for all five platforms plus `SHA256SUMS.txt` to the GitHub release. On macOS the GUI comes as `OpenVeConfig.app`, with the CLI next to it.
+
+Signing: the macOS app has only an ad-hoc signature and is not notarized, because that needs an Apple Developer ID. On first start, right-click the app and choose **Open**, or allow it in System Settings > Privacy & Security, or run `xattr -dr com.apple.quarantine OpenVeConfig.app`. The Windows `.exe` files are not code-signed, so SmartScreen may ask for confirmation (**More info** > **Run anyway**). Linux comes as a tarball; there is no AppImage.
 
 ## Contributing
 
-Suggestions, bug reports and ideas are welcome. Open an [issue](https://github.com/bolchisb/openveconfig/issues) or send a pull request.
+Suggestions, bug reports and ideas are welcome. Open an [issue](https://github.com/bolchisb/openveconfig/issues) or send a pull request; [CONTRIBUTING.md](CONTRIBUTING.md) explains the setup, the rules and the workflow.
 
 This is a clean-room, interoperability-only project. Before contributing, read the [clean-room and licensing policy](docs/CLEAN-ROOM.md): never paste decompiled code, data extracted from Victron software, firmware or help text into code, issues or pull requests.
 

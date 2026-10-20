@@ -112,7 +112,7 @@ func TestShell(t *testing.T) {
 		t.Errorf("badges = %v, want 1 on Charger and Inverter", badges)
 	}
 	b := u.changes
-	if !b.root.Visible() || !strings.HasPrefix(b.summary.Text, "2 unsaved changes") || b.primary.Text != "Save file" || b.primary.Disabled() {
+	if !b.root.Visible() || !strings.HasPrefix(b.summary.Text, "2 unsaved changes") || b.primary.Text != "Save settings" || b.primary.Disabled() {
 		t.Errorf("changes bar: visible %v, summary %q, primary %q (disabled %v)", b.root.Visible(), b.summary.Text, b.primary.Text, b.primary.Disabled())
 	}
 	if err := setNumber(d, mustEntry(t, d, vebus.SettingID(3)), "15"); err != nil { // float above absorption
@@ -136,7 +136,7 @@ func TestShell(t *testing.T) {
 	u.settings.load(dev, nil)
 	_ = setNumber(dev, mustEntry(t, dev, vebus.SettingID(2)), "14.6")
 	u.settings.changed()
-	if b.primary.Text != "Send to device" || !b.primary.Disabled() || !strings.Contains(b.reason.String(), "Connect to the device") {
+	if b.primary.Text != "Send settings" || !b.primary.Disabled() || !strings.Contains(b.reason.String(), "Connect to the device") {
 		t.Errorf("device model, disconnected: primary %q (disabled %v), reason %q", b.primary.Text, b.primary.Disabled(), b.reason.String())
 	}
 }

@@ -54,6 +54,12 @@ var newSimulator = func() *simulator.Simulator {
 	}})
 }
 
+// newSystemSimulator returns the simulator of the VE.Bus system demo: three
+// new units, all with the factory record at address 0. Tests replace it.
+var newSystemSimulator = func() *simulator.Simulator {
+	return simulator.New(simulator.Config{HighSpeed: true, Devices: simulator.SystemFactory(3)})
+}
+
 // errFirmwareUnsupported means the target device did not answer the
 // setting info request of the firmware gate.
 var errFirmwareUnsupported = errors.New("device firmware does not report setting limits")
@@ -92,6 +98,21 @@ func connect(ctx context.Context, port string, demo bool, progress func(done, to
 	}
 	// As in openveconfig-cli: settings are read back after a write, so a
 	// missing write acknowledgement need not fail it.
+	s.client = mk2.NewClient(s.line, &mk2.Options{IgnoreMissingWriteAck: true})
+	if err := s.handshake(ctx, progress); err != nil {
+		s.close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// connectSystemDemo is connect for the VE.Bus system demo
+// (newSystemSimulator).
+func connectSystemDemo(ctx context.Context, progress func(done, total int)) (*session, error) {
+	if progress == nil {
+		progress = func(int, int) {}
+	}
+	s := &session{demo: true, firmware: map[byte]uint32{}, lock: make(chan struct{}, 1), line: newSystemSimulator().Port()}
 	s.client = mk2.NewClient(s.line, &mk2.Options{IgnoreMissingWriteAck: true})
 	if err := s.handshake(ctx, progress); err != nil {
 		s.close()
