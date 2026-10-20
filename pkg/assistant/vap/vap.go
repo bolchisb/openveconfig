@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -262,4 +263,32 @@ func Latest(list []Info) map[string]Info {
 		}
 	}
 	return m
+}
+
+// IndexFile is the file in the package folder in which VEConfigure notes
+// the package set it downloaded (observed, #8).
+const IndexFile = "AssistantsInfo.txt"
+
+// ReadIndex returns the package-set version and the downloader's version
+// from dir's IndexFile ("packageversion=" and "DownloadedBy=" lines); a
+// value that is missing is 0.
+func ReadIndex(dir string) (packageVersion, downloadedBy int64, err error) {
+	b, err := os.ReadFile(filepath.Join(dir, IndexFile))
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(l), "=")
+		n, nerr := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if !ok || nerr != nil {
+			continue
+		}
+		switch strings.ToLower(k) {
+		case "packageversion":
+			packageVersion = n
+		case "downloadedby":
+			downloadedBy = n
+		}
+	}
+	return packageVersion, downloadedBy, nil
 }

@@ -1,7 +1,6 @@
 package main
 
 // The Overview page: the connection, the unit whose settings Get reads,
-// whether the file and the unit have assistants (assistants.go),
 // and the live values of the connected device as tiles (monitor.go).
 
 import (
@@ -73,7 +72,7 @@ func overviewContent(u *ui) fyne.CanvasObject {
 	conn := widget.NewCard("", tr("Connection"), container.NewVBox(status, container.NewHBox(unitBox, get, connect)))
 	heading := widget.NewLabelWithStyle(tr("Live values"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	heading.SizeName = theme.SizeNameSubHeadingText
-	return container.NewVBox(conn, assistantsCard(u), heading, empty, monitorPanel(u))
+	return container.NewVBox(conn, heading, empty, monitorPanel(u))
 }
 
 // emptyState returns a card that says why there is nothing to show: an

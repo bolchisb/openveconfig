@@ -8,7 +8,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
-	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/openveconfig/internal/rvsctest"
 	"github.com/bolchisb/openveconfig/pkg/assistant"
@@ -68,17 +67,15 @@ func assistantSession(t *testing.T, img []byte) (*session, *simulator.Simulator)
 	return s, sim
 }
 
-// assistantsCardOf returns the Assistants card of u's Overview page.
-func assistantsCardOf(t *testing.T, u *ui) *widget.Card {
+// assistantsCardOf returns u's Assistants page, which holds the card of
+// the installed assistants.
+func assistantsCardOf(t *testing.T, u *ui) fyne.CanvasObject {
 	t.Helper()
-	cards := findObjects(u.overview.view, func(o fyne.CanvasObject) bool {
-		c, ok := o.(*widget.Card)
-		return ok && c.Subtitle == "Assistants"
-	})
-	if len(cards) != 1 {
-		t.Fatalf("%d Assistants cards on the Overview page", len(cards))
+	pg := u.pages[len(u.pages)-1]
+	if pg.title != "Assistants" {
+		t.Fatalf("last page is %q", pg.title)
 	}
-	return cards[0].(*widget.Card)
+	return pg.view
 }
 
 func simArea(t *testing.T, sim *simulator.Simulator) ([]byte, int) {
@@ -101,7 +98,7 @@ func TestAssistantsCard(t *testing.T) {
 	}
 	sf := assistantFile(t, simulator.ErasedArea())
 	loadSettingsFile(u, sf)
-	if !strings.Contains(dialogTexts(card), "No assistants · 2,812 bytes free") {
+	if !strings.Contains(dialogTexts(card), "No assistants") {
 		t.Errorf("file row shows %q", dialogTexts(card))
 	}
 
@@ -125,7 +122,8 @@ func TestAssistantsCard(t *testing.T) {
 	}
 	test.Tap(findButton(t, card, "Read from unit"))
 	waitFor(t, "the unit's assistants", func() bool {
-		return strings.Contains(dialogTexts(card), "Unit at address 0: Assistant IDs 8737, 9251, 9765 · 906 bytes used, 1,906 free. Running: 5 (ESS).")
+		text := dialogTexts(card) // a label's text is in it twice
+		return strings.Contains(text, "Unit at address 0. Running: 5 (ESS).") && strings.Count(text, "Assistant 0x2423") == 2
 	})
 
 	test.Tap(findButton(t, card, "Copy into the file"))
@@ -136,7 +134,7 @@ func TestAssistantsCard(t *testing.T) {
 	if img, _ := sf.unit.AssistantImage(); !bytes.Equal(img, prog) {
 		t.Error("the file does not hold the unit's area")
 	}
-	if !strings.Contains(dialogTexts(card), "Assistant IDs 8737, 9251, 9765") {
+	if strings.Count(dialogTexts(card), "Assistant 0x2423") != 4 {
 		t.Error("the file row does not show the new area")
 	}
 	findButton(t, u.win.Canvas().Overlays().Top(), "Save settings")
