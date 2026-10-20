@@ -8,10 +8,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
 	"strconv"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -22,6 +24,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/openveconfig/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/rvsc"
 	"github.com/bolchisb/openveconfig/pkg/vebus/system"
 	"github.com/bolchisb/openveconfig/pkg/vebus/system/bus"
 	"github.com/bolchisb/openveconfig/pkg/vms"
@@ -99,10 +102,11 @@ func newSysConfig(u *ui, s *session) *sysConfig {
 	setup := widget.NewButtonWithIcon(tr("Setup…"), theme.SettingsIcon(), c.showSetup)
 	open := widget.NewButtonWithIcon(tr("Open file…"), theme.FolderOpenIcon(), c.openFile)
 	save := widget.NewButtonWithIcon(tr("Save file…"), theme.DocumentSaveIcon(), c.saveFile)
+	backup := widget.NewButtonWithIcon(tr("Update a backup file…"), theme.DocumentCreateIcon(), c.updateBackup)
 	c.send = widget.NewButtonWithIcon(tr("Send configuration"), theme.UploadIcon(), c.sendConfiguration)
 	c.send.Importance = widget.HighImportance
 	c.reason = mutedText("")
-	bar := container.NewBorder(nil, nil, container.NewHBox(c.get, setup, open, save), container.NewHBox(c.reason, c.send))
+	bar := container.NewBorder(nil, nil, container.NewHBox(c.get, setup, open, save, backup), container.NewHBox(c.reason, c.send))
 
 	c.grid = container.NewVBox()
 	c.issues = container.NewVBox()
@@ -794,5 +798,84 @@ func (c *sysConfig) saveFile() {
 		name = "system.vms"
 	}
 	dlg.SetFileName(name)
+	dlg.Show()
+}
+
+// updatedBackup returns the .rvsc/.rvms backup data with the layout's
+// system records in it (rvsc.File.SetLayout).
+func (c *sysConfig) updatedBackup(data []byte) ([]byte, error) {
+	f, err := rvsc.Parse(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.SetLayout(c.layout); err != nil {
+		if errors.Is(err, rvsc.ErrLayout) {
+			return nil, &uiError{err: err, msg: tr("The backup does not fit the layout. It must hold exactly the units of the layout, with the same firmware, and the layout must have no errors. ({{.Err}})", args{"Err": err})}
+		}
+		return nil, err
+	}
+	return f.MarshalBinary()
+}
+
+// updateBackup asks for a backup downloaded from these units (a GX
+// device's VE.Bus backup), puts the layout into it and saves the result as
+// a new file. The backup itself is never overwritten.
+func (c *sysConfig) updateBackup() {
+	dlg := dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
+		if err != nil || r == nil {
+			if err != nil {
+				showMessageOn(c.win, tr("Error"), err.Error())
+			}
+			return
+		}
+		data, err := io.ReadAll(r)
+		r.Close()
+		src := r.URI()
+		if err == nil {
+			data, err = c.updatedBackup(data)
+		}
+		if err != nil {
+			showMessageOn(c.win, tr("Error"), tr("Cannot update {{.File}}: {{.Err}}", args{"File": src.Name(), "Err": err}))
+			return
+		}
+		note := tr("Each unit's system configuration in the copy is set to this layout; its settings and assistants stay as they are. Settings 76 to 80 are not changed, because whether they follow the system configuration has not been checked on hardware. Whether a GX device applies the system configuration when it restores the file has not been checked either.")
+		d := dialog.NewConfirm(tr("Update a backup file"), note, func(ok bool) {
+			if ok {
+				c.saveBackup(src, data)
+			}
+		}, c.win)
+		d.SetConfirmText(tr("Save copy…"))
+		d.SetDismissText(tr("Cancel"))
+		d.Show()
+	}, c.win)
+	dlg.SetFilter(rvscFilter)
+	dlg.Show()
+}
+
+// saveBackup saves data as a new file, never over src.
+func (c *sysConfig) saveBackup(src fyne.URI, data []byte) {
+	dlg := dialog.NewFileSave(func(w fyne.URIWriteCloser, err error) {
+		if err != nil || w == nil {
+			if err != nil {
+				showMessageOn(c.win, tr("Error"), err.Error())
+			}
+			return
+		}
+		if w.URI().String() == src.String() {
+			w.Close()
+			showMessageOn(c.win, tr("Error"), tr("Choose another name: the backup itself is not overwritten."))
+			return
+		}
+		_, err = w.Write(data)
+		if cerr := w.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			showMessageOn(c.win, tr("Error"), err.Error())
+		}
+	}, c.win)
+	dlg.SetFilter(rvscFilter)
+	name := src.Name()
+	dlg.SetFileName(strings.TrimSuffix(name, src.Extension()) + "-system" + src.Extension())
 	dlg.Show()
 }

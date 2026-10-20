@@ -9,10 +9,13 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
 
+	"github.com/bolchisb/openveconfig/internal/rvsctest"
 	"github.com/bolchisb/openveconfig/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/rvsc"
 	"github.com/bolchisb/openveconfig/pkg/simulator"
 	"github.com/bolchisb/openveconfig/pkg/vebus/system"
 	"github.com/bolchisb/openveconfig/pkg/vebus/system/bus"
+	"github.com/bolchisb/openveconfig/pkg/vms"
 )
 
 // The System Configurator tests run on simulated buses with short
@@ -271,4 +274,49 @@ func findText(o fyne.CanvasObject, text string) bool {
 		return slices.ContainsFunc(x.Objects, func(c fyne.CanvasObject) bool { return findText(c, text) })
 	}
 	return false
+}
+
+func TestSystemConfiguratorUpdateBackup(t *testing.T) {
+	spec := rvsctest.File{ToolVersion: "0.01", InfoFirmware: 2699481}
+	for i := range 2 {
+		spec.Units = append(spec.Units, rvsctest.Unit{
+			LongID: 0x10000001 + uint32(i), Firmware: 2699481, AssistantFlag: 0xf0, SaveTime: 1700000000,
+			Settings: []uint16{1, 2}, Identity: &rvsctest.Identity{ConfigProtocol: 1, ResponseChar: 0x02},
+		})
+	}
+	backup := spec.Bytes()
+	f, _ := rvsc.Parse(backup)
+	units, _ := f.SystemUnits()
+
+	// Offline: the layout comes from a .vms of these units.
+	l := system.NewLayout()
+	for _, un := range units {
+		l.Add(un)
+		l.Place(un, system.Cell{Phase: 0, AC: 0})
+	}
+	file, _ := vms.FromLayout(l).MarshalBinary()
+	u := newTestUI(t)
+	c := newSysConfig(u, nil)
+	t.Cleanup(c.win.Close)
+	if err := c.loadFile("site.vms", file); err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.updatedBackup(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := rvsc.Parse(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, _ := g.SystemUnits()
+	if l2, bad := system.FromRecords(back); bad != nil || len(l2.Entries(system.Cell{Phase: 0, AC: 0})) != 2 {
+		t.Errorf("the copy does not load as two units in parallel: %v", bad)
+	}
+
+	// A layout with an unplaced unit is refused with an explanation.
+	c.place(c.layout.Units()[1], system.Unconfigured)
+	if _, err := c.updatedBackup(backup); err == nil || !strings.Contains(err.Error(), "does not fit the layout") {
+		t.Errorf("unplaced unit: %v", err)
+	}
 }

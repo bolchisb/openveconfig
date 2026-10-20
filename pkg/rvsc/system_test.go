@@ -19,23 +19,10 @@ func backup(t *testing.T, n int) []byte {
 			LongID: 0x10000001 + uint32(i), Firmware: 2699481, AssistantFlag: 0xe0,
 			Serial: "HQ0000000" + string(rune('A'+i)), SaveTime: 1700000000,
 			Settings: []uint16{1, 2, 3}, Assistant: []byte{0x00, 0x0b},
+			Identity: &rvsctest.Identity{Letter: 0, ConfigProtocol: 1, ResponseChar: 0x02},
 		})
 	}
-	// The builder fills the undecoded bytes with a pattern; give the
-	// letter, config-protocol byte and response char real values
-	// (payload offsets 0x0c, 0x0d and 0x1b with 6 extra bytes).
-	g, err := rvsc.Parse(f.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, s := range g.Sections[2:] {
-		s.Payload[0x0c], s.Payload[0x0d], s.Payload[0x1b] = 0, 1, 0x02
-	}
-	b, err := g.MarshalBinary()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
+	return f.Bytes()
 }
 
 // layoutOf returns a layout of the file's units with each unit i in cells[i].

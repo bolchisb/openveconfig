@@ -17,6 +17,7 @@
 //	rvsc-diff      compare a .rvsc/.rvms file with a device or another file
 //	rvsc-set       change one setting in a .rvsc/.rvms file (offline)
 //	rvsc-apply     write one .rvsc/.rvms unit to a device (dry run without --yes)
+//	rvsc-system    put the system layout of a .vms file into a .rvsc/.rvms backup (offline)
 //	apply          write the settings of a dump file to devices (dry run without --yes)
 //	system show        find the units of a VE.Bus system and check their records
 //	system write       write a .vms layout to the units (dry run without --yes)
@@ -103,7 +104,7 @@ type options struct {
 var errUsage = errors.New("usage error")
 
 var commands = []*command{portsCmd, versionCmd, readSettingCmd, readRAMCmd, writeSettingCmd, dumpCmd,
-	rvscShowCmd, rvscDiffCmd, rvscSetCmd, rvscApplyCmd, applyCmd, systemCmd}
+	rvscShowCmd, rvscDiffCmd, rvscSetCmd, rvscApplyCmd, rvscSystemCmd, applyCmd, systemCmd}
 
 // run is main without the process: it returns the exit code.
 func run(args []string, stdout, stderr io.Writer) int {
