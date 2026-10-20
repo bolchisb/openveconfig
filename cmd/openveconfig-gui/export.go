@@ -73,7 +73,7 @@ func settingsReport(u *ui) []reportPage {
 			rp.groups[i].rows = append(rp.groups[i].rows, [2]string{settingName(d, e.ID()), value})
 		}
 		if p.tab == vebus.TabGrid {
-			rp.groups = append(rp.groups, gridReport(d, u.settings.file)...)
+			rp.groups = append(rp.groups, gridReport(d, u.settings.grid)...)
 		}
 		if len(rp.groups) > 0 {
 			pages = append(pages, rp)
@@ -83,12 +83,12 @@ func settingsReport(u *ui) []reportPage {
 }
 
 // gridReport returns the grid parameters of d's grid code, by group.
-func gridReport(d *vebus.Device, file *settingsFile) []reportGroup {
+func gridReport(d *vebus.Device, grid gridcode.Model) []reportGroup {
 	code, err := d.Raw(vebus.SettingID(gridCodeSetting))
 	if err != nil {
 		return nil
 	}
-	p, _ := gridPageFor(int(code), file)
+	p, _ := gridPageFor(int(code), grid)
 	if p == nil {
 		return nil
 	}
@@ -116,6 +116,9 @@ func gridReport(d *vebus.Device, file *settingsFile) []reportGroup {
 			title := gridText(p, prm.Group)
 			if prm.Group == "" {
 				title = gridText(p, p.Name)
+				if p.Title != "" {
+					title = gridText(p, p.Title)
+				}
 			}
 			groups = append(groups, reportGroup{title: title})
 		}

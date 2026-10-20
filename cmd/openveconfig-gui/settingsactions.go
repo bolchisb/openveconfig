@@ -16,6 +16,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"github.com/bolchisb/openveconfig/pkg/gridcode"
 	"github.com/bolchisb/openveconfig/pkg/mk2"
 	"github.com/bolchisb/openveconfig/pkg/vebus"
 )
@@ -250,8 +251,9 @@ func getSettings(u *ui) {
 			if err != nil {
 				return err
 			}
+			grid := readGridInfo(ctx, s, addr)
 			fyne.Do(func() {
-				u.settings.load(d, nil)
+				u.settings.loadFromDevice(d, grid)
 				if len(rep.Failed) > 0 {
 					showMessage(u, tr("Get settings"), trn("{{.Count}} setting could not be read and is not shown.",
 						"{{.Count}} settings could not be read and are not shown.", len(rep.Failed)))
@@ -309,6 +311,26 @@ func readSettings(ctx context.Context, s *session, addr byte, ids []uint16, prog
 		return nil, nil, s.deviceFailure(ctx, err)
 	}
 	return d, rep, nil
+}
+
+// readGridInfo reads the grid-info table of the device at addr through s,
+// as the original does when it connects (mk2.Client.ReadGridInfo). When
+// that fails the table is not known, and the grid pages leave out what
+// depends on it.
+func readGridInfo(ctx context.Context, s *session, addr byte) gridcode.Model {
+	var table []byte
+	err := s.Do(ctx, func(ctx context.Context, c *mk2.Client) error {
+		if err := c.SetAddress(ctx, addr); err != nil {
+			return err
+		}
+		var err error
+		table, err = c.ReadGridInfo(ctx)
+		return err
+	})
+	if err != nil {
+		return gridcode.Model{}
+	}
+	return gridcode.TableModel(table)
 }
 
 // writeSettings writes the changed settings of d (all with all, except the

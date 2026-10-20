@@ -14,24 +14,37 @@ import "github.com/bolchisb/openveconfig/pkg/gridcode"
 func gridLabels() map[string]string {
 	return map[string]string{
 		// Pages.
-		"United Kingdom (G83/G59 family)":                tr("UK grid code settings (G83/2, G59/3-1)"),
-		"Italy (CEI 0-21)":                               tr("CEI grid code settings (CEI 0-21)"),
-		"Germany, variant A (VDE-AR-N 4105, short form)": tr("VDE grid code settings (VDE-AR-N 4105, variant A)"),
-		"Germany, variant B (VDE-AR-N 4105, full form)":  tr("VDE grid code settings (VDE-AR-N 4105, variant B)"),
-		"Australia/New Zealand (AS/NZS 4777.2:2015)":     tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2015)"),
-		"Australia/New Zealand (AS/NZS 4777.2:2020)":     tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2020)"),
-		"South Africa (NRS 097-2-1)":                     tr("NRS097 grid code settings (NRS 097-2-1)"),
-		"France (UTE C15-712-1)":                         tr("UTE C15 grid code settings (UTE C15-712-1)"),
-		"Spain (RD 1699/2011)":                           tr("RD1699 grid code settings (RD 1699/2011)"),
-		"Belgium (C10/11)":                               tr("C10/11 grid code settings"),
-		"Austria (TOR-D4)":                               tr("TOR-D4 grid code settings"),
-		"Chile (NTG-BT)":                                 tr("NTG-BT grid code settings"),
-		"Romania (TOR-D4 derivative)":                    tr("Romania grid code settings (TOR-D4 derivative)"),
-		"Europe (EN 50549-1)":                            tr("European grid code settings (EN 50549-1)"),
-		// The original's caption of this page is set at run time and not known.
+		"United Kingdom (G83/G59 family)":                                       tr("UK grid code settings (G83/2, G59/3-1)"),
+		"Italy (CEI 0-21)":                                                      tr("CEI grid code settings (CEI 0-21)"),
+		"Germany, variant A (VDE-AR-N 4105, short form)":                        tr("VDE grid code settings (VDE-AR-N 4105, variant A)"),
+		"Germany, variant B (VDE-AR-N 4105, full form)":                         tr("VDE grid code settings (VDE-AR-N 4105, variant B)"),
+		"Australia/New Zealand (AS/NZS 4777.2:2015)":                            tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2015)"),
+		"Australia/New Zealand (AS/NZS 4777.2:2015, parameter set 1 and later)": tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2015)"),
+		"South Africa (NRS 097-2-1)":                                            tr("NRS097 grid code settings (NRS 097-2-1)"),
+		"France (UTE C15-712-1)":                                                tr("UTE C15 grid code settings (UTE C15-712-1)"),
+		"Spain (RD 1699/2011)":                                                  tr("RD1699 grid code settings (RD 1699/2011)"),
+		"Belgium (C10/11)":                                                      tr("C10/11 grid code settings"),
+		"Austria (TOR-D4)":                                                      tr("TOR-D4 grid code settings"),
+		"Chile (NTG-BT)":                                                        tr("NTG-BT grid code settings"),
+		"Romania (TOR-D4 derivative)":                                           tr("Romania grid code settings (TOR-D4 derivative)"),
+		"Europe (EN 50549-1)":                                                   tr("European grid code settings (EN 50549-1)"),
+		// The original sets this page's caption by grid code (Page.Title).
 		"Australia/New Zealand, stand-alone (AS/NZS 4777.2:2020 appendix M)": tr("Australia/New Zealand, stand-alone (AS/NZS 4777.2:2020 appendix M)"),
 		"Poland":    tr("Polish grid code settings (EU 2016/631)"),
 		"Microgrid": tr("Microgrid related settings"),
+
+		// Captions the original gives a page for some grid codes.
+		"VFR 2019 grid code settings":                            tr("VFR 2019 grid code settings (VDE V 0126-1-1 VFR 2019)"),
+		"TOR Erzeuger Typ A grid code settings":                  tr("TOR Erzeuger Typ A grid code settings"),
+		"DK1 (Western Denmark)":                                  tr("DK1 (Western Denmark)"),
+		"DK2 (Eastern Denmark)":                                  tr("DK2 (Eastern Denmark)"),
+		"Northern Ireland grid code settings":                    tr("Northern Ireland grid code settings (G99/NI)"),
+		"Czech 2023 grid code settings":                          tr("Czech 2023 grid code settings"),
+		"AS/NZS4777.2:2020 Australia A (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia A (Stand alone appendix M)"),
+		"AS/NZS4777.2:2020 Australia B (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia B (Stand alone appendix M)"),
+		"AS/NZS4777.2:2020 Australia C (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia C (Stand alone appendix M)"),
+		"AS/NZS4777.2:2020 New Zealand (Stand alone appendix M)": tr("AS/NZS4777.2:2020 New Zealand (Stand alone appendix M)"),
+		gridcode.ReactivePowerUnknownLayout:                      tr("Reactive power (its layout depends on the device's grid-info table, which could not be read)"),
 
 		// Groups.
 		"Reactive power: cos phi as a function of active power": tr("Cos Phi as function of P"),
@@ -262,7 +275,7 @@ func gridPageLabels() map[string]map[string]string {
 		"Germany, variant A (VDE-AR-N 4105, short form)": {
 			"Use auxiliary input 1 as feed-in inhibit": tr("Use AUX1 (if available) as disable FeedIn signal"),
 		},
-		"Australia/New Zealand (AS/NZS 4777.2:2020)": {
+		"Australia/New Zealand (AS/NZS 4777.2:2015, parameter set 1 and later)": {
 			"Volt-watt curve power at voltage 1": tr("Max power at V1"),
 			"Volt-watt curve power at voltage 2": tr("Max power at V2"),
 			"Volt-watt curve power at voltage 3": tr("Max power at V3"),

@@ -17,8 +17,21 @@ func TestGridLabels(t *testing.T) {
 			t.Errorf("%s: no label for %q", where, name)
 		}
 	}
-	for _, p := range gridcode.Pages() {
+	// The pages as each grid code shows them, with the reactive-power
+	// group of every layout.
+	pages := gridcode.Pages()
+	for _, ci := range gridcode.Codes() {
+		for _, m := range []gridcode.Model{{}, gridcode.TableModel(nil)} {
+			if p, _ := gridcode.PageOf(ci.Code, m); p != nil {
+				pages = append(pages, p)
+			}
+		}
+	}
+	for _, p := range pages {
 		need("page", p.Name)
+		if p.Title != "" {
+			need("page", p.Title)
+		}
 		for _, prm := range p.Params {
 			need(p.Name, prm.Name)
 			if prm.Group != "" {

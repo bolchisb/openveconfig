@@ -1,6 +1,7 @@
 package mk2
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -25,6 +26,9 @@ const (
 	// FINDINGS §12; its use is reverse-engineered (#9, see
 	// SendAccessPassword).
 	WCmdSendAccessPassword = 0x3A
+	// WCmdReadGridInfo is not in the document: reverse-engineered (#84,
+	// see ReadGridInfo).
+	WCmdReadGridInfo = 0x57
 )
 
 // Winmon replies (§7.3).
@@ -49,6 +53,7 @@ const (
 	WReplySnapshot             = 0x99
 	WReplyAccessLevelRequired  = 0x9B
 	WReplyAccessPasswordOK     = 0x9C // reverse-engineered (#9)
+	WReplyGridInfo             = 0xA3 // reverse-engineered (#84)
 )
 
 // CommandWriteViaID <flags> bits (§7.3.11).
@@ -397,6 +402,90 @@ func (c *Client) SendAccessPassword(ctx context.Context, password string) error 
 		return fmt.Errorf("%w (%w)", ErrPasswordRefused, err)
 	}
 	return err
+}
+
+// ReadGridInfo reads the target device's grid-info table, the one settings
+// files keep (rvsc.File.GridInfo), as VEConfigure reads it when it
+// connects (reverse-engineered, #84; not yet seen on hardware). The table
+// comes in blocks of 64 bytes, each in six parts: Winmon command 0x57
+// with the part (1-6) and the block number, answered with a reply code
+// and 11 bytes (9 for part 6). A one-byte reply 0xA3 to part 1 is a block
+// of 0xFF bytes; "unknown command" ends the table. A device that knows no
+// table ends it at once: ReadGridInfo returns nil then. The table starts
+// with its length L (u16); it is checked against the sum of its first L
+// bytes as u16 words, which follows them.
+func (c *Client) ReadGridInfo(ctx context.Context) ([]byte, error) {
+	var table []byte
+	for block := 0; block < 256; block++ {
+		data, end, err := c.gridInfoBlock(ctx, byte(block))
+		if err != nil {
+			return nil, err
+		}
+		table = append(table, data...)
+		if end {
+			if len(table) == 0 {
+				return nil, nil
+			}
+			return table, CheckGridInfo(table)
+		}
+	}
+	return nil, errors.New("mk2: grid-info table without an end")
+}
+
+// gridInfoBlock reads block block of the grid-info table; end is set when
+// the table ends in or before it.
+func (c *Client) gridInfoBlock(ctx context.Context, block byte) (data []byte, end bool, err error) {
+	for part := byte(1); part <= 6; part++ {
+		var p []byte
+		// As VEConfigure: up to five tries when no reply comes.
+		for try := 0; ; try++ {
+			p, err = c.Winmon(ctx, WCmdReadGridInfo, part, block)
+			if !errors.Is(err, ErrTimeout) || try == 4 {
+				break
+			}
+		}
+		var uc *UnknownCommandError
+		switch {
+		case errors.As(err, &uc):
+			return data, true, nil
+		case err != nil:
+			return nil, false, err
+		case len(p) == 12:
+			n := 11
+			if part == 6 {
+				n = 9
+			}
+			data = append(data, p[1:1+n]...)
+		case part == 1 && len(p) == 1 && p[0] == WReplyGridInfo:
+			return bytes.Repeat([]byte{0xFF}, 64), false, nil
+		default:
+			return nil, false, fmt.Errorf("mk2: grid-info block %d, part %d: unexpected reply % x", block, part, p)
+		}
+	}
+	return data, false, nil
+}
+
+// CheckGridInfo checks a grid-info table as VEConfigure does after reading
+// it from a device (ReadGridInfo): its length L, the u16 at its start,
+// leaves 2 to 12 bytes after the first L (the check sum and the padding
+// of the last part), and the u16 after them is the sum of the first L
+// bytes as u16 words (little-endian, the last byte alone if L is odd).
+func CheckGridInfo(table []byte) error {
+	if len(table) < 2 {
+		return errors.New("mk2: grid-info table too short")
+	}
+	n := int(binary.LittleEndian.Uint16(table))
+	if len(table)-2 < n || len(table)-2 >= n+11 {
+		return fmt.Errorf("mk2: grid-info table of %d bytes for a length of %d", len(table), n)
+	}
+	var sum uint16
+	for i, b := range table[:n] {
+		sum += uint16(b) << (8 * (i % 2))
+	}
+	if got := binary.LittleEndian.Uint16(table[n:]); got != sum {
+		return fmt.Errorf("mk2: grid-info table check sum %#04x, want %#04x", got, sum)
+	}
+	return nil
 }
 
 func (c *Client) ackErr(err error) error {

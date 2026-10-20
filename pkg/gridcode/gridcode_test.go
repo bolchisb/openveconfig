@@ -25,6 +25,9 @@ func fieldValues(p Param) []int {
 		}
 		return fs
 	}
+	if p.TanPhi {
+		return []int{p.Min, p.Max, int(math.Round(math.Tan(math.Acos(0.5)) * 256))}
+	}
 	if p.CosPhiMin != 0 {
 		// Fields the original writes: 1 and the lowest of either sign.
 		return []int{p.Max, int(math.Round((2 - p.CosPhiMin) * 32768)), int(math.Round(p.CosPhiMin * 32768))}
@@ -48,10 +51,14 @@ var otherBits = []uint16{0x0000, 0xFFFF, 0xA5C3, 0x5A3C}
 func testPages() []*Page {
 	pages := Pages()
 	for _, p := range reactivePages {
-		for _, compact := range []bool{false, true} {
-			ps, _ := ReactiveParams(compact, 0.9)
+		for n := range 16 {
+			l := reactiveLayout{compact: n&1 != 0, volts: n&2 != 0, filterQ: n&4 != 0, lockU: n&8 != 0, lockKnown: true, lowest: 0.9}
+			if l.compact && l.volts {
+				continue // the volt codes always have layout A
+			}
+			ps, _ := reactiveParams(l)
 			q := *p
-			q.Name += fmt.Sprintf(" with reactive power (compact %t)", compact)
+			q.Name += fmt.Sprintf(" with reactive power %+v", l)
 			q.Params = append(slices.Clone(p.Params), ps...)
 			pages = append(pages, &q)
 		}
@@ -104,6 +111,9 @@ func TestOutOfRange(t *testing.T) {
 				if p.CosPhiMin != 0 {
 					bad = []float64{-1.01, 1.01, math.NaN()}
 				}
+				if p.TanPhi {
+					bad = []float64{-0.01, 1.01, math.NaN()}
+				}
 			case Checkbox:
 				bad = []float64{-1, 0.5, 2}
 			case Choice:
@@ -126,6 +136,9 @@ func TestOutOfRange(t *testing.T) {
 // TestKnownValues checks the conversions against values from the
 // behavioural spec.
 func TestKnownValues(t *testing.T) {
+	// The Europe page as the code of a table entry with the lock-in bit
+	// shows it.
+	euLock := pageEurope.WithReactivePower(18, TableModel(withEntry(maskTable(), 18, 1)))
 	find := func(pg *Page, name string) Param {
 		t.Helper()
 		for _, p := range pg.Params {
@@ -155,8 +168,8 @@ func TestKnownValues(t *testing.T) {
 		{pageEurope, "After trip: highest frequency allowed to reconnect", 50.2, 8 << 8},
 		{pageEurope, "P(U) point 1: voltage", 90, 0xD8}, // -40
 		{pageEurope, "Over-frequency response: start delay", 3.1, 31 << 11},
-		{pageGermanyB, "Voltage threshold to enable the curve (lock-in)", 70, 0x8800}, // -120
-		{pageGermanyB, "Reactive-power response time constant", 3.0002, 4581},
+		{euLock, "Voltage threshold to enable the curve (lock-in)", 70, 0x8800}, // -120
+		{euLock, "Reactive-power response time constant", 3.0002, 4581},
 		{pageAustria, "P(U) curve: voltage span to zero power", 4.6, 18236},
 		{pageAUNZM, "P(U) point 1: charge power limit", 20, 148 << 8},
 		{pageMicrogrid, "Active power at reference frequency (P0)", -100, 1024},
@@ -235,26 +248,20 @@ func TestTables(t *testing.T) {
 }
 
 // TestNoOverlap checks that no two parameters of a page share bits of a
-// word, apart from the sharing the spec describes: Germany B's
-// reactive-power sub-pages reuse words 150-157 and its constant Q shares
-// the word of Q(U) point 1; the microgrid diagnostic points reuse the
-// words of the page's main parameters.
+// word, apart from parameters that are never shown together (they follow
+// different regulation modes).
 func TestNoOverlap(t *testing.T) {
-	type pair struct{ a, b string }
-	allowed := map[*Page][]pair{
-		pageGermanyB: {
-			{"Reactive power: cos phi as a function of active power", "Reactive power: Q as a function of voltage"},
-			{"Reactive power: cos phi as a function of active power", "Reactive power: limits for the Q set-point"},
-			{"Reactive power: Q as a function of voltage", "Reactive power: limits for the Q set-point"},
-			{"Q(U) point 1: reactive power", "Constant reactive power (fixed mode)"},
-		},
+	// modes returns the regulation modes p is shown with.
+	modes := func(p Param) (m [4]bool) {
+		for v := range 4 {
+			m[v] = p.ShowMask == 0 || p.ShowWord == 148 && p.Shown(uint16(v))
+		}
+		return m
 	}
-	ok := func(pg *Page, p, q Param) bool {
-		for _, a := range allowed[pg] {
-			if p.Group != q.Group && (a == pair{p.Group, q.Group} || a == pair{q.Group, p.Group}) {
-				return true
-			}
-			if p.Group == q.Group && (a == pair{p.Name, q.Name} || a == pair{q.Name, p.Name}) {
+	together := func(p, q Param) bool {
+		a, b := modes(p), modes(q)
+		for v := range 4 {
+			if a[v] && b[v] {
 				return true
 			}
 		}
@@ -263,9 +270,7 @@ func TestNoOverlap(t *testing.T) {
 	for _, pg := range testPages() {
 		for i, p := range pg.Params {
 			for _, q := range pg.Params[i+1:] {
-				// Never shown together: they follow different values of a field.
-				apart := p.ShowMask != 0 && p.ShowWord == q.ShowWord && p.ShowMask == q.ShowMask && p.ShowValue != q.ShowValue
-				if p.Word == q.Word && p.Mask&q.Mask != 0 && !apart && !ok(pg, p, q) {
+				if p.Word == q.Word && p.Mask&q.Mask != 0 && together(p, q) {
 					t.Errorf("%s: %q and %q share bits %#04x of word %d", pg.Name, p.Name, q.Name, p.Mask&q.Mask, p.Word)
 				}
 			}
@@ -316,24 +321,38 @@ func TestSelectableWithoutPassword(t *testing.T) {
 }
 
 func TestPageFor(t *testing.T) {
-	// Not known: which Germany variant 4 and 5 use, and the pages of 18,
-	// 19, 20, 30, 31; codes outside the list.
-	for _, c := range []Code{4, 5, 18, 19, 20, 30, 31, 33, 0xFFFF} {
-		if p, known := PageFor(c); known || p != nil {
-			t.Errorf("PageFor(%d) = %v, %v; want unknown", c, p, known)
+	// Not known: codes outside the list, the AS/NZS 4777.2:2015 codes
+	// without a version.
+	for _, c := range []Code{33, 0xFFFF, 6, 16} {
+		if p, known := PageFor(c, -1); known || p != nil {
+			t.Errorf("PageFor(%d, -1) = %v, %v; want unknown", c, p, known)
 		}
 	}
 	for _, c := range []Code{0, 1, 21} {
-		if p, known := PageFor(c); !known || p != nil {
+		if p, known := PageFor(c, -1); !known || p != nil {
 			t.Errorf("PageFor(%d) = %v, %v; want no page", c, p, known)
 		}
 	}
-	for c, want := range map[Code]*Page{
-		2: pageUK, 3: pageItaly, 6: pageAUNZ2015, 16: pageAUNZ2015, 10: pageSpain,
-		17: pageEurope, 22: pageAUNZ2020, 29: pageAUNZM, 32: pagePoland,
+	// The original's choice.
+	for _, tc := range []struct {
+		c    Code
+		v    int
+		want *Page
+	}{
+		{2, -1, pageUK}, {20, -1, pageUK}, {31, -1, pageUK}, {3, -1, pageItaly},
+		{4, -1, pageGermanyA}, {5, -1, pageGermanyB},
+		{6, 0, pageAUNZ2015}, {16, 0, pageAUNZ2015}, {7, 1, pageAUNZ2015B}, {15, 2, pageAUNZ2015B},
+		{10, -1, pageSpain}, {17, -1, pageEurope}, {18, -1, pageEurope}, {19, -1, pageEurope}, {30, -1, pageEurope},
+		{22, -1, pageAUNZM}, {25, -1, pageAUNZM}, {29, -1, pageAUNZM}, {32, -1, pagePoland},
 	} {
-		if p, known := PageFor(c); !known || p != want {
-			t.Errorf("PageFor(%d) = %v, %v; want %s", c, p, known, want.Name)
+		if p, known := PageFor(tc.c, tc.v); !known || p != tc.want {
+			t.Errorf("PageFor(%d, %d) = %v, %v; want %s", tc.c, tc.v, p, known, tc.want.Name)
+		}
+	}
+	// Every grid code's page is known once its version is.
+	for _, ci := range Codes() {
+		if _, known := PageFor(ci.Code, 0); !known {
+			t.Errorf("code %d: page not known", ci.Code)
 		}
 	}
 	// Every mapped page is listed by Pages.
@@ -390,36 +409,73 @@ func TestReactivePower(t *testing.T) {
 	has := func(p *Page, name string) bool {
 		return slices.ContainsFunc(p.Params, func(q Param) bool { return q.Name == name })
 	}
-	const limit = "Active-power threshold to enable the curve (lock-in)"
-	if p := pageRomania.WithReactivePower(14, -1); !has(p, "Reactive-power control mode") || has(p, limit) || has(pageRomania, "Reactive-power control mode") {
+	param := func(p *Page, name string) Param {
+		t.Helper()
+		i := slices.IndexFunc(p.Params, func(q Param) bool { return q.Name == name })
+		if i < 0 {
+			t.Fatalf("%s: no %q", p.Name, name)
+		}
+		return p.Params[i]
+	}
+	const (
+		mode, filter = "Reactive-power control mode", "Reactive-power response time constant"
+		limit, lockU = "Active-power threshold to enable the curve (lock-in)", "Apply voltage lock-in/lock-out"
+	)
+	none := TableModel(nil)
+	device := Model{}
+	if p := pageRomania.WithReactivePower(14, none); !has(p, mode) || has(p, limit) || has(pageRomania, mode) {
 		t.Error("Romania: want layout A on a copy of the page")
 	}
-	if p := pageEurope.WithReactivePower(17, -1); !has(p, limit) {
-		t.Error("Europe: want layout B with the limitation box")
+	if p := pageEurope.WithReactivePower(17, none); !has(p, limit) || has(p, lockU) {
+		t.Error("Europe without a table: want layout B with the limitation box, without the voltage lock-in")
 	}
-	if p := pageFrance.WithReactivePower(9, -1); has(p, "Reactive-power control mode") || !slices.Contains(p.Unsupported, ReactivePowerUnknownLayout) {
-		t.Error("France without a version: want the group listed as not supported")
+	// maskTable's code 1 has the lock-in bit in word 148's mask; any code
+	// with layout B shows the box then.
+	if p := pageEurope.WithReactivePower(18, TableModel(withEntry(maskTable(), 18, 1))); !has(p, lockU) {
+		t.Error("lock-in bit in the table: want the voltage lock-in box")
 	}
-	if p := pageAUNZ2015.WithReactivePower(6, 0); p != pageAUNZ2015 {
-		t.Error("AS/NZS 4777 (2015) has no reactive-power group")
+	if p := pageEurope.WithReactivePower(17, device); !slices.Contains(p.Unsupported, lockU) {
+		t.Error("Europe from a device: want the voltage lock-in listed as not supported")
 	}
-	ps, _ := ReactiveParams(false, lowestCosPhi(14, -1))
-	param := func(name string) Param {
-		return ps[slices.IndexFunc(ps, func(q Param) bool { return q.Name == name })]
+	if p := pageFrance.WithReactivePower(9, device); has(p, mode) || !slices.Contains(p.Unsupported, ReactivePowerUnknownLayout) {
+		t.Error("France from a device: want the group listed as not supported")
 	}
-	if v := param("Reactive-power response time constant").Unpack(4165); math.Abs(v-3.3) > 0.001 {
+	if p := pageAUNZ2015.WithReactivePower(6, none); p != pageAUNZ2015 {
+		t.Error("AS/NZS 4777.2:2015, version 0: the page has no reactive-power group")
+	}
+	// The filter time inside the Q(U) settings: Spain, France before
+	// version 2, Belgium and Austria at version 0, Germany without word 158.
+	for _, tc := range []struct {
+		c      Code
+		inside bool
+	}{{10, true}, {9, true}, {11, true}, {12, true}, {4, true}, {5, true}, {14, false}, {17, false}} {
+		p, _ := PageOf(tc.c, none)
+		if f := param(p, filter); f.Shown(0) == tc.inside || !f.Shown(3) {
+			t.Errorf("code %d: filter time inside the Q(U) settings %t, want %t", tc.c, !f.Shown(0), tc.inside)
+		}
+	}
+	// AS/NZS 4777.2:2015 from parameter set 1: Q(U) voltages in volts.
+	if p, _ := PageOf(6, TableModel(gridTable(3, []byte{0, 1}, []int{0, 0, 0, 0, 0, 0, 1}))); param(p, "Q(U) point 1: voltage").Unit != "V" {
+		t.Error("code 6, version 1: want the Q(U) voltages in volts")
+	}
+	if p, _ := PageOf(18, none); p.Title != "DK1 (Western Denmark)" || p.Name != pageEurope.Name {
+		t.Errorf("code 18: page %q titled %q", p.Name, p.Title)
+	}
+
+	p, _ := PageOf(14, none)
+	if v := param(p, filter).Unpack(4165); math.Abs(v-3.3) > 0.001 {
 		t.Errorf("filter time %g, want 3.3", v)
 	}
-	if v := param("cos-phi(P) point 2: active power").Unpack(9830); math.Abs(v-30) > 0.01 {
+	if v := param(p, "cos-phi(P) point 2: active power").Unpack(9830); math.Abs(v-30) > 0.01 {
 		t.Errorf("cos phi(P) point 2 at %g %%, want 30", v)
 	}
-	if p := param("cos-phi(P) point 2: active power"); p.Shown(0) || !p.Shown(1) || !p.Shown(0xFFF5) {
+	if q := param(p, "cos-phi(P) point 2: active power"); q.Shown(0) || !q.Shown(1) || !q.Shown(0xFFF5) {
 		t.Error("cos phi(P) points not shown with regulation 1 only")
 	}
 	// The cos phi conversion of the original: 32768 is 1.00 (the Romania
 	// file), above it a positive cos phi, below it a negative one, and a
 	// cos phi nearer to 0 than the code's lowest is written as the lowest.
-	fixed := param("Constant cos phi (fixed mode)")
+	fixed := param(p, "Constant cos phi (fixed mode)")
 	for _, c := range []struct {
 		v    float64
 		word uint16
@@ -443,6 +499,20 @@ func TestReactivePower(t *testing.T) {
 	}{{14, 0, 0.9}, {2, 0, 0.8}, {17, 0, 0.8}, {9, 1, 0.9}, {9, 2, 0.8}, {12, 0, 0.9}, {12, 1, 0.8}} {
 		if got := lowestCosPhi(c.code, c.v); got != c.want {
 			t.Errorf("code %d version %d: lowest cos phi %g, want %g", c.code, c.v, got, c.want)
+		}
+	}
+	// Min. Cos phi: tan(phi) * 256, 0xFFFF for 0.
+	eu, _ := PageOf(17, none)
+	lowest := param(eu, "Lowest cos phi allowed while following a Q set-point")
+	for _, c := range []struct {
+		v    float64
+		word uint16
+	}{{0, 0xFFFF}, {1, 0}, {0.9, 124}, {0.5, 443}} {
+		if w, err := lowest.Pack(0, c.v); err != nil || w != c.word {
+			t.Errorf("Min. Cos phi %g: Pack = %d, %v; want %d", c.v, w, err, c.word)
+		}
+		if v := lowest.Unpack(c.word); v != c.v {
+			t.Errorf("Min. Cos phi: Unpack(%d) = %g, want %g", c.word, v, c.v)
 		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/bolchisb/openveconfig/internal/rvsctest"
 	"github.com/bolchisb/openveconfig/pkg/gridcode"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 	"github.com/bolchisb/openveconfig/pkg/simulator"
 	"github.com/bolchisb/openveconfig/pkg/vebus"
 )
@@ -98,7 +99,7 @@ func TestGridCodeSelectAndSend(t *testing.T) {
 	if !d.Dirty(vebus.SettingID(gridCodeSetting)) || !marked(g.codeRow) {
 		t.Error("grid code not marked changed")
 	}
-	if p, _ := gridcode.PageFor(17); g.page == nil || g.page.Name != p.Name || len(g.rows) == 0 {
+	if p, _ := gridcode.PageFor(17, -1); g.page == nil || g.page.Name != p.Name || len(g.rows) == 0 {
 		t.Errorf("page %v with %d rows, want the Europe page", g.page, len(g.rows))
 	}
 	if !strings.Contains(labelTexts(g.params), "Not supported yet") {
@@ -113,10 +114,11 @@ func TestGridCodeSelectAndSend(t *testing.T) {
 		t.Errorf("device grid code = %d, want 0 (nothing sent)", v)
 	}
 
-	// A code whose page is not known says so.
-	selectCode(t, g, 4)
+	// A code whose page is not known says so: on a device, an AS/NZS
+	// 4777.2:2015 code, whose page follows the parameter-set version.
+	selectCode(t, g, 6)
 	if g.rows != nil || !strings.Contains(labelTexts(g.params), "not known yet") {
-		t.Errorf("code 4: %d rows, text %q", len(g.rows), labelTexts(g.params))
+		t.Errorf("code 6: %d rows, text %q", len(g.rows), labelTexts(g.params))
 	}
 }
 
@@ -499,5 +501,56 @@ func TestGridRomaniaPage(t *testing.T) {
 	}
 	if hi, _ := d.Raw(vebus.SettingID(130)); hi != uint16(5200000>>16) {
 		t.Errorf("setting 130 = %d", hi)
+	}
+}
+
+// madeUpGridTable returns a made-up grid-info table, as a device sends it:
+// format 3, grid codes 0 to 9 with version 0, except France (9) at version 2.
+func madeUpGridTable() []byte {
+	const codes = 10
+	b := []byte{0, 0, 3, codes, 8}
+	at := len(b) + 2*codes
+	entry := func(v byte) []byte {
+		e := append([]byte{v, 0, 0}, make([]byte, 16)...)
+		e[3+8], e[3+15] = 0x01, 0x80 // words 128 and 191 in the second bitmap
+		return append(e, 0)
+	}
+	var entries []byte
+	for c := range codes {
+		v := byte(0)
+		if c == 9 {
+			v = 2
+		}
+		b = append(b, byte(at+len(entries)), byte((at+len(entries))>>8))
+		entries = append(entries, entry(v)...)
+	}
+	b = append(b, entries...)
+	binary.LittleEndian.PutUint16(b, uint16(len(b)))
+	var sum uint16
+	for i, x := range b {
+		sum += uint16(x) << (8 * (i % 2))
+	}
+	return binary.LittleEndian.AppendUint16(b, sum)
+}
+
+// TestGridDeviceTable checks that the grid-info table read from a device
+// sets the page as from a file: France at version 2 gets the compact
+// reactive-power layout and the VFR 2019 caption.
+func TestGridDeviceTable(t *testing.T) {
+	for _, table := range [][]byte{madeUpGridTable(), nil} {
+		sim := simulator.New(simulator.Config{VersionInterval: -1, GridInfo: table,
+			Devices: []simulator.Device{{Address: 0, Profile: gridProfile(2699481)}}})
+		s := &session{client: mk2.NewClient(sim.Port(), nil), lock: make(chan struct{}, 1), devices: []byte{0}}
+		t.Cleanup(func() { s.close() })
+		m := readGridInfo(ctxT(t), s, 0)
+		// The read table may end with the padding of its last part.
+		if !m.Known || len(m.Table) < len(table) || !bytes.Equal(m.Table[:len(table)], table) {
+			t.Fatalf("table %x read as %+v", table, m)
+		}
+		p, _ := gridPageFor(9, m)
+		compact := slices.ContainsFunc(p.Params, func(q gridcode.Param) bool { return q.Name == "Lowest cos phi allowed while following a Q set-point" })
+		if want := table != nil; compact != want || (p.Title == "VFR 2019 grid code settings") != want {
+			t.Errorf("table %t: compact layout %t, title %q", want, compact, p.Title)
+		}
 	}
 }

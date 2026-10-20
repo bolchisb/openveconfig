@@ -140,6 +140,7 @@ type gridTabView struct {
 	params     *fyne.Container
 	paramCols  *formColumns
 	rows       []*paramRow
+	cards      []paramCard    // the cards of the rows' groups
 	page       *gridcode.Page // the page the rows show
 	pageCode   int            // the grid code the parameters were built for; -1 none
 	undo       *widget.Button
@@ -150,6 +151,13 @@ type gridTabView struct {
 	checkStatus string
 	// updating is set while controls are set from the model.
 	updating bool
+}
+
+// paramCard is the card of one group of parameters, hidden while all its
+// rows are.
+type paramCard struct {
+	card fyne.CanvasObject
+	rows []*paramRow
 }
 
 // paramRow is the row of one grid parameter.
@@ -249,7 +257,7 @@ func (g *gridTabView) load() {
 			}
 		}
 	}
-	g.checkStatus = checkWordStatus(d, g.u.settings.file)
+	g.checkStatus = checkWordStatus(d, g.u.settings.file, g.u.settings.grid)
 	has := slices.Contains(g.subTabs.Items, g.paramsItem)
 	switch {
 	case len(g.loaded) == 0 && has:
@@ -277,13 +285,24 @@ func (g *gridTabView) update(rebuild bool) {
 		r.update()
 		g.mark(r)
 		if r.p.NeedsMask != 0 {
-			r.setEnabled(g.word(r.p.NeedsWord)&r.p.NeedsMask != 0)
+			r.setEnabled((g.word(r.p.NeedsWord)&r.p.NeedsMask != 0) != r.p.NeedsClear)
 		}
 		if show := r.p.Shown(g.word(r.p.ShowWord)); show != r.root.Visible() {
 			if show {
 				r.root.Show()
 			} else {
 				r.root.Hide()
+			}
+			relayout = true
+		}
+	}
+	for _, c := range g.cards {
+		show := slices.ContainsFunc(c.rows, func(r *paramRow) bool { return r.root.Visible() })
+		if show != c.card.Visible() {
+			if show {
+				c.card.Show()
+			} else {
+				c.card.Hide()
 			}
 			relayout = true
 		}
@@ -398,7 +417,7 @@ func gridCodeItem(c gridcode.Code, firmware uint32) codeItem {
 // buildParams rebuilds the parameter controls for grid code code (-1: none
 // known).
 func (g *gridTabView) buildParams(code int) {
-	g.pageCode, g.rows, g.page = code, nil, nil
+	g.pageCode, g.rows, g.cards, g.page = code, nil, nil, nil
 	d := g.u.settings.dev
 	var objs []fyne.CanvasObject
 	note := func(text string) {
@@ -412,10 +431,13 @@ func (g *gridTabView) buildParams(code int) {
 			note(g.checkStatus)
 		}
 	}
-	p, known := gridPageFor(code, g.u.settings.file)
+	p, known := gridPageFor(code, g.u.settings.grid)
 	// The tab is named after the page, as in the original.
 	title := tr("Grid parameters")
-	if p != nil {
+	switch {
+	case p != nil && p.Title != "":
+		title = gridText(p, p.Title)
+	case p != nil:
 		title = gridText(p, p.Name)
 	}
 	if g.paramsItem.Text != title {
@@ -450,29 +472,20 @@ func (g *gridTabView) buildParams(code int) {
 	g.params.Refresh()
 }
 
-// gridPageFor returns the parameter page of grid code code with its
-// reactive-power group, whose layout follows the parameter-set version of
-// file (not known for a device: file nil).
-func gridPageFor(code int, file *settingsFile) (*gridcode.Page, bool) {
-	p, known := gridcode.PageFor(gridcode.Code(code))
-	v := -1
-	if file != nil {
-		if table, err := file.f.GridInfo(); err == nil {
-			if pv, err := gridcode.ParamSetVersion(table, gridcode.Code(code)); err == nil {
-				v = int(pv)
-			}
-		}
-	}
-	return p.WithReactivePower(gridcode.Code(code), v), known
+// gridPageFor returns the parameter page of grid code code as the original
+// shows it with the grid-info table of m.
+func gridPageFor(code int, m gridcode.Model) (*gridcode.Page, bool) {
+	return gridcode.PageOf(gridcode.Code(code), m)
 }
 
 // checkWordStatus describes whether the checker words of d, a model just
 // loaded from file (nil: read from a device), fit its grid code, in the
 // form the original checks when it shows settings (gridcode.Pair.CheckShown).
 // The parameter-set version comes from the file's grid-info table (0
-// without one); it is not read from a device, so for a device only the
-// rest is checked. It returns "" when d has no checker words.
-func checkWordStatus(d *vebus.Device, file *settingsFile) string {
+// without one) or from the device's (grid); when the device's is not
+// known, only the rest is checked. It returns "" when d has no checker
+// words.
+func checkWordStatus(d *vebus.Device, file *settingsFile, grid gridcode.Model) string {
 	if d == nil {
 		return ""
 	}
@@ -483,8 +496,13 @@ func checkWordStatus(d *vebus.Device, file *settingsFile) string {
 		return ""
 	}
 	var v uint8
-	if file != nil {
-		table, err := file.f.GridInfo()
+	versionKnown := file != nil || grid.Known
+	if versionKnown {
+		table := grid.Table
+		var err error
+		if file != nil {
+			table, err = file.f.GridInfo()
+		}
 		if err == nil {
 			v, err = gridcode.ParamSetVersion(table, gridcode.Code(code))
 		}
@@ -494,7 +512,7 @@ func checkWordStatus(d *vebus.Device, file *settingsFile) string {
 	}
 	header, version := gridcode.Pair{A: a, B: b}.CheckShown(gridcode.Code(code), v)
 	switch {
-	case !header || file != nil && !version:
+	case !header || versionKnown && !version:
 		return tr("The check words (settings 128 and 191) do not fit the grid code: the device may refuse the grid parameters.")
 	}
 	return "" // they fit: nothing to say, as in the original
@@ -505,6 +523,7 @@ func checkWordStatus(d *vebus.Device, file *settingsFile) string {
 func (g *gridTabView) paramCards(d *vebus.Device, p *gridcode.Page) []fyne.CanvasObject {
 	var missing, groups, names []string
 	rows := map[string][]fyne.CanvasObject{}
+	paramRows := map[string][]*paramRow{}
 	var params []gridcode.Param
 	for _, prm := range p.Params {
 		lost := false
@@ -530,6 +549,7 @@ func (g *gridTabView) paramCards(d *vebus.Device, p *gridcode.Page) []fyne.Canva
 		r := g.newParamRow(prm)
 		g.rows = append(g.rows, r)
 		rows[prm.Group] = append(rows[prm.Group], r.root)
+		paramRows[prm.Group] = append(paramRows[prm.Group], r)
 	}
 	var cards []fyne.CanvasObject
 	for _, grp := range groups {
@@ -538,7 +558,9 @@ func (g *gridTabView) paramCards(d *vebus.Device, p *gridcode.Page) []fyne.Canva
 		if grp != "" {
 			head = cardTitle(gridText(p, grp))
 		}
-		cards = append(cards, newFormCard(head, rows[grp]...))
+		card := newFormCard(head, rows[grp]...)
+		cards = append(cards, card)
+		g.cards = append(g.cards, paramCard{card, paramRows[grp]})
 	}
 	if len(missing) > 0 {
 		l := widget.NewLabel(tr("The device does not report settings {{.Settings}}, so the parameters stored in them are not shown.",

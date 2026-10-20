@@ -91,17 +91,14 @@ func SelectableWithoutPassword(c Code, firmware uint32) bool {
 }
 
 // pageOf maps grid codes to their parameter page, nil for codes without
-// one. Codes missing here use a page that is not known: 4 and 5 use one of
-// the two Germany pages, 18 and 19 probably the Europe page, and nothing
-// is known for 20, 30 and 31.
-//
-// Reverse-engineered, INFERRED: the original's rule for choosing the page
-// is not known; this mapping follows the names of the codes and pages.
+// one. The AS/NZS 4777.2:2015 codes (6, 7, 15, 16) are not here: their
+// page follows the parameter-set version (PageFor). Reverse-engineered
+// from the original's page choice.
 var pageOf = map[Code]*Page{
 	0: nil, 1: nil, 21: nil,
-	2: pageUK,
+	2: pageUK, 20: pageUK, 31: pageUK,
 	3: pageItaly,
-	6: pageAUNZ2015, 7: pageAUNZ2015, 15: pageAUNZ2015, 16: pageAUNZ2015,
+	4: pageGermanyA, 5: pageGermanyB,
 	8:  pageSouthAfrica,
 	9:  pageFrance,
 	10: pageSpain,
@@ -109,16 +106,28 @@ var pageOf = map[Code]*Page{
 	12: pageAustria,
 	13: pageChile,
 	14: pageRomania,
-	17: pageEurope,
-	22: pageAUNZ2020, 23: pageAUNZ2020, 24: pageAUNZ2020, 25: pageAUNZ2020,
+	17: pageEurope, 18: pageEurope, 19: pageEurope, 30: pageEurope,
+	22: pageAUNZM, 23: pageAUNZM, 24: pageAUNZM, 25: pageAUNZM,
 	26: pageAUNZM, 27: pageAUNZM, 28: pageAUNZM, 29: pageAUNZM,
 	32: pagePoland,
 }
 
-// PageFor returns the parameter page of grid code c. known is false when
-// the page is not known (including codes not in Codes); p is nil for a
-// code without parameters (0, 1, 21) and when the page is not known.
-func PageFor(c Code) (p *Page, known bool) {
+// PageFor returns the parameter page of grid code c with parameter-set
+// version v (negative: not known). known is false when the page is not
+// known: for a code not in Codes, and for the AS/NZS 4777.2:2015 codes
+// without a version. p is nil for a code without parameters (0, 1, 21)
+// and when the page is not known.
+func PageFor(c Code, v int) (p *Page, known bool) {
+	switch c {
+	case 6, 7, 15, 16:
+		switch {
+		case v < 0:
+			return nil, false
+		case v == 0:
+			return pageAUNZ2015, true
+		}
+		return pageAUNZ2015B, true
+	}
 	p, known = pageOf[c]
 	return p, known
 }

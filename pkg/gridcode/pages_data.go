@@ -138,57 +138,14 @@ var pageGermanyA = &Page{
 	Params: germanyCommon(),
 }
 
-// pageGermanyB: the reactive-power sub-pages reuse words 150-157 for
-// different parameters; which sub-page applies follows the control mode
-// (word 148, bits 0-1), but the exact link is not known.
+// pageGermanyB. Its reactive-power group is added by WithReactivePower,
+// as on the other pages that have one.
 var pageGermanyB = &Page{
 	Name: "Germany, variant B (VDE-AR-N 4105, full form)",
 	Params: params(
 		group("", overVoltage(5060000, 5290000, 5060000)),
 		germanyCommon(),
-		group("Reactive power: cos phi as a function of active power",
-			num("cos-phi(P) point 1: active power", 150, 0xFFFF, 0.0030517578125, 0, "% of Pemax", 3277, 32768, 6554),
-			num("cos-phi(P) point 2: active power", 152, 0xFFFF, 0.0030517578125, 0, "% of Pemax", 3277, 32768, 9830),
-			num("cos-phi(P) point 3: active power", 154, 0xFFFF, 0.0030517578125, 0, "% of Pemax", 3277, 32768, 16384),
-			num("cos-phi(P) point 4: active power", 156, 0xFFFF, 0.0030517578125, 0, "% of Pemax", 3277, 32768, 32768),
-			num("Voltage threshold to enable the curve (lock-in)", 157, 0xFF00, 0.25, 400, "% of Un", -120, 120, none).signed(),
-			num("Voltage threshold to disable the curve (lock-out)", 157, 0xFF, 0.25, 400, "% of Un", -120, 120, none).signed(),
-			check("Apply voltage lock-in/lock-out", 148, 0x20, none).inverted(),
-		),
-		group("Reactive power: Q as a function of voltage",
-			num("Q(U) point 1: voltage", 150, 0xFFFF, 0.0030517578125, 0, "% of Un", 22938, 42598, 30474),
-			num("Q(U) point 2: voltage", 152, 0xFFFF, 0.0030517578125, 0, "% of Un", 22938, 42598, 31785),
-			num("Q(U) point 2: reactive power", 153, 0xFFFF, 0.0030517578125, -32768, "% of Sr", 13107, 52429, 32768),
-			num("Q(U) point 3: voltage", 154, 0xFFFF, 0.0030517578125, 0, "% of Un", 22938, 42598, 33751),
-			num("Q(U) point 3: reactive power", 155, 0xFFFF, 0.0030517578125, -32768, "% of Sr", 13107, 52429, 32768),
-			num("Q(U) point 4: voltage", 156, 0xFFFF, 0.0030517578125, 0, "% of Un", 22938, 42598, 35062),
-			num("Q(U) point 4: reactive power", 157, 0xFFFF, 0.0030517578125, -32768, "% of Sr", 13107, 52429, 18481),
-			num("Q(U) point 1: reactive power", 151, 0xFFFF, 0.0030517578125, -32768, "% of Sr", 13107, 52429, 47055),
-			// Same word as Q(U) point 1: reactive power.
-			num("Constant reactive power (fixed mode)", 151, 0xFFFF, 0.0030517578125, -32768, "% of Sr", 13107, 52429, 47055),
-		),
-		group("Reactive power: limits for the Q set-point",
-			num("Lowest cos phi allowed while following a Q set-point", 156, 0xFFFF, 0.01, 0, "", 0, 100, 0),
-			num("Active-power threshold to enable the curve (lock-in)", 157, 0xFF00, 0.5, 0, "% of Pemax", 0, 200, 0),
-			num("Active-power threshold to disable the curve (lock-out)", 157, 0xFF, 0.5, 0, "% of Pemax", 0, 200, 0),
-		),
-		group("Reactive power: common",
-			num("Reactive-power response time constant", 149, 0xFFFF, 7.276008090921e-05, 0, "s", 13744, 229, 4581).reciprocal(),
-			// Values are the list positions (INFERRED).
-			choice("Reactive-power control mode", 148, 0x3, none, map[int]string{
-				0: "constant cos phi", 1: "cos phi follows active power", 2: "constant Q", 3: "Q follows grid voltage",
-			}),
-		),
 	),
-	Unsupported: []string{
-		// The original's range is -1 to 1 in a 16-bit field without a
-		// sign bit; how negative values are stored is not known.
-		"cos-phi(P) point 1: cos phi",
-		"cos-phi(P) point 2: cos phi",
-		"cos-phi(P) point 3: cos phi",
-		"cos-phi(P) point 4: cos phi",
-		"Constant cos phi (fixed mode)",
-	},
 }
 
 var pageAUNZ2015 = &Page{
@@ -211,8 +168,10 @@ var pageAUNZ2015 = &Page{
 	},
 }
 
-var pageAUNZ2020 = &Page{
-	Name: "Australia/New Zealand (AS/NZS 4777.2:2020)",
+// pageAUNZ2015B is the page of the AS/NZS 4777.2:2015 codes from
+// parameter-set version 1 (the original's second AS/NZS 4777 page).
+var pageAUNZ2015B = &Page{
+	Name: "Australia/New Zealand (AS/NZS 4777.2:2015, parameter set 1 and later)",
 	Params: params(
 		group("",
 			overVoltage(4880000, 5160000, 5100000),

@@ -2,7 +2,9 @@ package simulator
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"sync"
@@ -357,4 +359,46 @@ func TestAccessPassword(t *testing.T) {
 	}
 	check(t, "SendAccessPassword", c.SendAccessPassword(ctx, "TEST1"))
 	check(t, "WriteViaID after the password", c.WriteViaID(ctx, mk2.ViaIDSetting, 13, 1))
+}
+
+// madeUpGridInfo returns a made-up grid-info table of n bytes before its
+// check sum, as mk2.CheckGridInfo expects one.
+func madeUpGridInfo(n int) []byte {
+	b := make([]byte, n, n+2)
+	binary.LittleEndian.PutUint16(b, uint16(n))
+	var sum uint16
+	for i := range b {
+		if i >= 2 {
+			b[i] = byte(i * 7)
+		}
+		sum += uint16(b[i]) << (8 * (i % 2))
+	}
+	return binary.LittleEndian.AppendUint16(b, sum)
+}
+
+// TestGridInfo checks that mk2.ReadGridInfo reads the simulated table back
+// across blocks and parts, and gets nil from a device without one.
+func TestGridInfo(t *testing.T) {
+	ctx := context.Background()
+	for _, n := range []int{300, 62, 1787} {
+		table := madeUpGridInfo(n)
+		_, c := start(t, Config{GridInfo: table}, nil)
+		check(t, "SetAddress", c.SetAddress(ctx, 0))
+		got, err := c.ReadGridInfo(ctx)
+		if err != nil || len(got) < len(table) || !bytes.Equal(got[:len(table)], table) {
+			t.Errorf("%d bytes: read %d bytes, %v", n, len(got), err)
+		}
+	}
+	_, c := start(t, Config{}, nil)
+	check(t, "SetAddress", c.SetAddress(ctx, 0))
+	if got, err := c.ReadGridInfo(ctx); got != nil || err != nil {
+		t.Errorf("no table: %x, %v", got, err)
+	}
+	bad := madeUpGridInfo(100)
+	bad[50]++
+	_, c = start(t, Config{GridInfo: bad}, nil)
+	check(t, "SetAddress", c.SetAddress(ctx, 0))
+	if _, err := c.ReadGridInfo(ctx); err == nil {
+		t.Error("wrong check sum: no error")
+	}
 }

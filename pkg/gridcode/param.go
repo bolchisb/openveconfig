@@ -24,7 +24,10 @@ const (
 // Page is a grid parameter page.
 type Page struct {
 	// Name is this project's own name of the page.
-	Name   string
+	Name string
+	// Title, if not "", is the original's caption of the page for the grid
+	// code it is shown for, where that differs from the page's own.
+	Title  string
 	Params []Param
 	// Unsupported names parameters of the page that are left out of Params
 	// because how they map to the words is not known (values spread over
@@ -39,7 +42,7 @@ type Page struct {
 func Pages() []*Page {
 	return []*Page{
 		pageUK, pageItaly, pageGermanyA, pageGermanyB, pageAUNZ2015,
-		pageAUNZ2020, pageSouthAfrica, pageFrance, pageSpain, pageBelgium,
+		pageAUNZ2015B, pageSouthAfrica, pageFrance, pageSpain, pageBelgium,
 		pageAustria, pageChile, pageRomania, pageEurope, pageAUNZM,
 		pagePoland, pageMicrogrid,
 	}
@@ -70,8 +73,10 @@ type Param struct {
 	// High (77 << 16 | 59728 = 5106000) show as the original's 255.3 V.
 	High uint16
 	// NeedsWord and NeedsMask, if NeedsMask is not 0, are a field that
-	// switches p on: the original greys p's control while that field is 0.
+	// switches p on: the original greys p's control while that field is 0,
+	// or, with NeedsClear, while it is not 0.
 	NeedsWord, NeedsMask uint16
+	NeedsClear           bool
 	// ShowWord and ShowMask, if ShowMask is not 0, are a field that
 	// selects p: the original shows p only while that field is ShowValue.
 	ShowWord, ShowMask uint16
@@ -102,6 +107,11 @@ type Param struct {
 	// CosPhiMin is written as CosPhiMin with its sign (0 as +CosPhiMin), -1
 	// as 1. Min and Max are the fields shown as -1 and 1. Reverse-engineered.
 	CosPhiMin float64
+	// TanPhi marks a cos phi from 0 to 1 that the original stores as
+	// tan(phi) * 256 (in steps of 0.01 of the cos phi); a word with bit 15
+	// set is 0 (no limit), and 0 is written as 0xFFFF. Min and Max are the
+	// fields shown as 0 and 1. Reverse-engineered.
+	TanPhi bool
 
 	// Default is the field value of the default, if HasDefault. A default
 	// the original gives outside the parameter's own range is treated as
@@ -135,6 +145,12 @@ func (p Param) Field(word uint16) int {
 func (p Param) Value(field int) float64 {
 	switch p.Kind {
 	case Number:
+		if p.TanPhi {
+			if field&0x8000 != 0 {
+				return 0
+			}
+			return math.Round(math.Cos(math.Atan(float64(field)/256))*100) / 100
+		}
 		if p.CosPhiMin != 0 {
 			c := -float64(field) / 32768
 			if field >= 32768 {
@@ -229,6 +245,16 @@ func (p Param) field(v float64) (int, error) {
 			return 0, fmt.Errorf("gridcode: %s: %g is not one of its choices", p.Name, v)
 		}
 		return int(v), nil
+	}
+	if p.TanPhi {
+		if !(v >= 0 && v <= 1) { // also catches NaN
+			return 0, fmt.Errorf("gridcode: %s: %g is outside 0 to 1", p.Name, v)
+		}
+		c := math.Round(v*100) / 100
+		if c == 0 {
+			return 0xFFFF, nil
+		}
+		return int(math.Round(math.Tan(math.Acos(c)) * 256)), nil
 	}
 	if p.CosPhiMin != 0 {
 		if !(v >= -1 && v <= 1) { // also catches NaN
