@@ -123,7 +123,8 @@ func TestAssistantsCard(t *testing.T) {
 	test.Tap(findButton(t, card, "Read from unit"))
 	waitFor(t, "the unit's assistants", func() bool {
 		text := dialogTexts(card) // a label's text is in it twice
-		return strings.Contains(text, "Unit at address 0. Running: 5 (ESS).") && strings.Count(text, "Assistant 0x2423") == 2
+		return strings.Contains(text, "Unit at address 0. Running: 5 (ESS).") && strings.Count(text, "Assistant 0x2423") == 2 &&
+			u.win.Canvas().Overlays().Top() == nil // the progress dialog has closed
 	})
 
 	test.Tap(findButton(t, card, "Copy into the file"))

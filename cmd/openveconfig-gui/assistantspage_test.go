@@ -9,6 +9,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/openveconfig/pkg/assistant"
@@ -110,9 +111,10 @@ func helperImage(t *testing.T, dir string) []byte {
 	return im.Bytes
 }
 
-// TestAssistantsPageInstalled: the page lists the file's assistants by
-// title, or by ID without their package, with the bytes used, and says
-// that they are kept when only settings are sent.
+// TestAssistantsPageInstalled: Assistant Setup lists the file's
+// assistants by title, or by ID without their package, with the bytes
+// used, and the unit's card says that they are kept when only settings
+// are sent.
 func TestAssistantsPageInstalled(t *testing.T) {
 	dir := writePackages(t)
 	img := helperImage(t, dir)
@@ -122,73 +124,179 @@ func TestAssistantsPageInstalled(t *testing.T) {
 	}
 	loadSettingsFile(u, assistantFile(t, img))
 	text := dialogTexts(pg.view)
-	for _, want := range []string{"Installed assistants", "Test helper/synthetic", "0x0190", "keeps its assistants when only its settings are sent"} {
+	for _, want := range []string{"Assistant Setup", "Add assistant", "Test helper/synthetic", "0x0190",
+		"Used assistants: (15 bytes used, 2,797 bytes free)", "In the unit", "keeps its assistants when only its settings are sent"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("page does not show %q:\n%s", want, text)
 		}
+	}
+	if it := u.assistants.tabs.Items; len(it) != 2 || it[0].Text != "Assistant Configuration" || it[1].Text != "Assistant Tools" {
+		t.Errorf("tabs %v", it)
+	}
+	if ap := u.assistants; ap.empty.Visible() || len(ap.installed) != 1 {
+		t.Errorf("list of %v, empty text shown %v", ap.installed, ap.empty.Visible())
 	}
 	bars := findObjects(pg.view, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.ProgressBar); return ok })
 	if len(bars) != 1 {
 		t.Fatalf("%d usage bars", len(bars))
 	}
 	l, _ := assistant.ParseLayout(img)
-	if b := bars[0].(*widget.ProgressBar); b.Value != float64(l.Used) || b.Max != assistant.Budget ||
-		b.TextFormatter() != "15 of 2,812 bytes used · 2,797 free" {
-		t.Errorf("bar %v of %v: %q", b.Value, b.Max, b.TextFormatter())
+	if b := bars[0].(*widget.ProgressBar); b.Value != float64(l.Used) || b.Max != assistant.Budget {
+		t.Errorf("bar %v of %v", b.Value, b.Max)
 	}
 
 	// Without the packages, the ID names the assistant.
 	u2, pg2 := assistantsUI(t, filepath.Join(dir, "missing"))
 	loadSettingsFile(u2, assistantFile(t, img))
-	if text := dialogTexts(pg2.view); !strings.Contains(text, "Assistant 0x0190") || !strings.Contains(text, "No assistant folder") {
+	if text := dialogTexts(pg2.view); !strings.Contains(text, "Assistant 0x0190") {
 		t.Errorf("without packages the page shows:\n%s", text)
 	}
 	loadSettingsFile(u2, assistantFile(t, simulator.ErasedArea()))
-	if !strings.Contains(dialogTexts(pg2.view), "No assistants") {
-		t.Error("an empty area is not shown as such")
+	if ap := u2.assistants; !ap.empty.Visible() || ap.empty.Text != "No assistants" || len(ap.installed) != 0 {
+		t.Errorf("an empty area shows %q (shown %v)", ap.empty.Text, ap.empty.Visible())
 	}
 }
 
-// TestAssistantsPageAvailable: the folder's user assistants are listed by
-// title in their newest version, without the system assistants, and the
-// files that are not packages are counted.
+// TestAssistantSetupButtons: the buttons that would change the file's
+// assistants are off; Start assistant and Summary act on the selected
+// one, with the file's values.
+func TestAssistantSetupButtons(t *testing.T) {
+	dir := writePackages(t)
+	u, pg := assistantsUI(t, dir)
+	loadSettingsFile(u, assistantFile(t, helperImage(t, dir)))
+	for _, label := range []string{"Save assistant", "Delete assistant", "Load assistant"} {
+		if !findButton(t, pg.view, label).Disabled() {
+			t.Errorf("%s is enabled", label)
+		}
+	}
+	arrows := findObjects(pg.view, func(o fyne.CanvasObject) bool {
+		b, ok := o.(*widget.Button)
+		return ok && b.Text == "" && (b.Icon == theme.MoveUpIcon() || b.Icon == theme.MoveDownIcon())
+	})
+	if len(arrows) != 2 || !arrows[0].(*widget.Button).Disabled() || !arrows[1].(*widget.Button).Disabled() {
+		t.Errorf("%d arrows, or one is enabled", len(arrows))
+	}
+	start, summary := findButton(t, pg.view, "Start assistant"), findButton(t, pg.view, "Summary")
+	if !start.Disabled() || !summary.Disabled() {
+		t.Error("Start assistant or Summary is enabled with nothing selected")
+	}
+	u.assistants.list.Select(0)
+	if start.Disabled() || summary.Disabled() {
+		t.Fatal("Start assistant or Summary is off with an assistant selected")
+	}
+
+	test.Tap(summary)
+	var dlg fyne.CanvasObject
+	waitFor(t, "the summary", func() bool {
+		dlg = u.win.Canvas().Overlays().Top()
+		return dlg != nil && strings.Contains(dialogTexts(dlg), "Level")
+	})
+	if text := dialogTexts(dlg); !strings.Contains(text, "Test helper/synthetic") || !strings.Contains(text, "Battery") ||
+		!strings.Contains(text, "Choice 2") || !strings.Contains(text, "48.00 V") || strings.Contains(text, "Confirm") {
+		t.Errorf("summary shows:\n%s", text)
+	}
+	test.Tap(findButton(t, dlg, "Close"))
+
+	test.Tap(start)
+	waitFor(t, "the assistant", func() bool {
+		dlg = u.win.Canvas().Overlays().Top()
+		return dlg != nil && strings.Contains(dialogTexts(dlg), "Step 1 · Battery")
+	})
+	if r := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.RadioGroup); return ok }); len(r) != 1 ||
+		r[0].(*widget.RadioGroup).Selected != "Choice 2" {
+		t.Error("the step does not offer the file's value")
+	}
+}
+
+// openAdd opens the dialog Add assistant and returns it.
+func openAdd(t *testing.T, u *ui, pg *page) fyne.CanvasObject {
+	t.Helper()
+	test.Tap(findButton(t, pg.view, "Add assistant"))
+	dlg := u.win.Canvas().Overlays().Top()
+	if dlg == nil || !strings.Contains(dialogTexts(dlg), "Preview walks through") {
+		t.Fatal("no Add assistant dialog")
+	}
+	return dlg
+}
+
+// TestAssistantsPageAvailable: Add assistant lists the folder's user
+// assistants by title in their newest version, without the system
+// assistants, and counts the files that are not packages.
 func TestAssistantsPageAvailable(t *testing.T) {
-	_, pg := assistantsUI(t, writePackages(t))
-	text := dialogTexts(pg.view)
-	for _, want := range []string{"Available assistants", "never ships them", "Test helper/synthetic", "ID 0x0190 · 2 versions in the folder",
+	u, pg := assistantsUI(t, writePackages(t))
+	add := openAdd(t, u, pg)
+	text := dialogTexts(add)
+	for _, want := range []string{"Test helper/synthetic", "ID 0x0190 · 2 versions in the folder",
 		"Stopper", "ID 0x0200 · 1 version in the folder", "1 file in this folder is not an assistant package"} {
 		if !strings.Contains(text, want) {
-			t.Errorf("page does not show %q:\n%s", want, text)
+			t.Errorf("Add assistant does not show %q:\n%s", want, text)
 		}
 	}
 	for _, not := range []string{"asfStart", "asfStop", "Old helper"} {
 		if strings.Contains(text, not) {
-			t.Errorf("page shows %q", not)
+			t.Errorf("Add assistant shows %q", not)
 		}
 	}
-	if n := len(findObjects(pg.view, func(o fyne.CanvasObject) bool { b, ok := o.(*widget.Button); return ok && b.Text == "Preview…" })); n != 3 {
-		t.Errorf("%d preview buttons", n)
+	p := u.assistants.picker
+	if len(p.shown) != 3 || p.selected != 0 || findButton(t, add, "Preview…").Disabled() || !findButton(t, add, "Add").Disabled() {
+		t.Errorf("%d assistants, %d selected; Preview or Add in the wrong state", len(p.shown), p.selected)
+	}
+	if !strings.Contains(text, "3 assistants") {
+		t.Errorf("no count:\n%s", text)
 	}
 }
 
-// previewOf opens the preview of the assistant whose row shows title and
-// returns the dialog.
+// TestAssistantPickerSearch narrows the list by name and by ID, and says
+// when nothing matches.
+func TestAssistantPickerSearch(t *testing.T) {
+	u, pg := assistantsUI(t, writePackages(t))
+	add := openAdd(t, u, pg)
+	p := u.assistants.picker
+	for q, want := range map[string]string{"early": "Early stop", "0x0200": "Stopper", "HELPER": "Test helper/synthetic"} {
+		p.search.SetText(q)
+		if len(p.shown) != 1 || p.shown[0].title != want || p.selected != 0 {
+			t.Errorf("search %q shows %v", q, p.shown)
+		}
+		if !strings.Contains(dialogTexts(add), "1 of 3 assistants") {
+			t.Errorf("search %q: no count", q)
+		}
+	}
+	p.search.SetText("zzz")
+	if text := dialogTexts(add); len(p.shown) != 0 || !strings.Contains(text, "No assistant matches “zzz”") || !findButton(t, add, "Preview…").Disabled() {
+		t.Errorf("no match shows:\n%s", text)
+	}
+	p.search.SetText("")
+	if len(p.shown) != 3 {
+		t.Errorf("an empty search shows %d", len(p.shown))
+	}
+}
+
+// previewOf opens the preview of the assistant whose row in Add assistant
+// shows title and returns the dialog.
 func previewOf(t *testing.T, u *ui, pg *page, title string) fyne.CanvasObject {
 	t.Helper()
-	rows := findObjects(pg.view, func(o fyne.CanvasObject) bool {
-		c, ok := o.(*fyne.Container)
-		return ok && len(findButtons(c, "Preview…")) == 1 && strings.Contains(dialogTexts(c), title)
-	})
-	if len(rows) == 0 {
-		t.Fatalf("no row of %s", title)
-	}
-	test.Tap(findButtons(rows[len(rows)-1], "Preview…")[0])
+	tapPreview(t, u, pg, title)
 	var dlg fyne.CanvasObject
 	waitFor(t, "the preview", func() bool {
 		dlg = u.win.Canvas().Overlays().Top()
 		return dlg != nil && strings.Contains(dialogTexts(dlg), "Step 1")
 	})
 	return dlg
+}
+
+// tapPreview opens Add assistant and taps Preview on the row of title.
+func tapPreview(t *testing.T, u *ui, pg *page, title string) {
+	t.Helper()
+	add := openAdd(t, u, pg)
+	p := u.assistants.picker
+	for i, a := range p.shown {
+		if a.title == title {
+			p.list.Select(i)
+			test.Tap(findButton(t, add, "Preview…"))
+			return
+		}
+	}
+	t.Fatalf("no row of %s", title)
 }
 
 // TestAssistantWizard walks the helper's steps forwards and back, through
@@ -265,8 +373,8 @@ func TestAssistantWizard(t *testing.T) {
 	test.Tap(next)
 	want("Summary")
 	test.Tap(findButton(t, dlg, "Close"))
-	if top := u.win.Canvas().Overlays().Top(); top != nil {
-		t.Error("the dialog is still open")
+	if top := u.win.Canvas().Overlays().Top(); top == nil || !strings.Contains(dialogTexts(top), "Preview walks through") {
+		t.Error("closing the preview does not return to Add assistant")
 	}
 	if got, _ := sf.unit.AssistantImage(); !bytes.Equal(got, img) || countChanges(u.settings.dev).total() != 0 {
 		t.Error("the preview changed the file")
@@ -300,14 +408,7 @@ func TestAssistantWizardStop(t *testing.T) {
 // step says so, names itself, and offers neither Back nor Next.
 func TestAssistantWizardEarlyStop(t *testing.T) {
 	u, pg := assistantsUI(t, writePackages(t))
-	rows := findObjects(pg.view, func(o fyne.CanvasObject) bool {
-		c, ok := o.(*fyne.Container)
-		return ok && len(findButtons(c, "Preview…")) == 1 && strings.Contains(dialogTexts(c), "Early stop")
-	})
-	if len(rows) == 0 {
-		t.Fatal("no row of Early stop")
-	}
-	test.Tap(findButtons(rows[len(rows)-1], "Preview…")[0])
+	tapPreview(t, u, pg, "Early stop")
 	var dlg fyne.CanvasObject
 	waitFor(t, "the preview", func() bool {
 		dlg = u.win.Canvas().Overlays().Top()

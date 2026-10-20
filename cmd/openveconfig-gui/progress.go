@@ -26,8 +26,10 @@ func runWithProgress(u *ui, title string, op func(ctx context.Context, progress 
 	})
 	d.SetButtons([]fyne.CanvasObject{stop})
 	overlays := u.win.Canvas().Overlays()
-	below := len(overlays.List())
 	d.Show()
+	// The overlay of d, found again when it closes: dialogs under it may
+	// close first and move it down the stack.
+	own := overlays.Top()
 
 	progress := func(done, total int) {
 		fyne.Do(func() {
@@ -45,8 +47,8 @@ func runWithProgress(u *ui, title string, op func(ctx context.Context, progress 
 			// The overlay stack removes the overlays above d with it, such
 			// as a dialog that op showed: put them back.
 			var above []fyne.CanvasObject
-			if l := overlays.List(); len(l) > below+1 {
-				above = slices.Clone(l[below+1:])
+			if l := overlays.List(); slices.Contains(l, own) {
+				above = slices.Clone(l[slices.Index(l, own)+1:])
 			}
 			d.Hide()
 			for _, o := range above {
