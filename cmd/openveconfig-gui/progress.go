@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"slices"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
@@ -24,6 +25,8 @@ func runWithProgress(u *ui, title string, op func(ctx context.Context, progress 
 		cancel()
 	})
 	d.SetButtons([]fyne.CanvasObject{stop})
+	overlays := u.win.Canvas().Overlays()
+	below := len(overlays.List())
 	d.Show()
 
 	progress := func(done, total int) {
@@ -39,7 +42,16 @@ func runWithProgress(u *ui, title string, op func(ctx context.Context, progress 
 		cancelled := ctx.Err() != nil
 		cancel()
 		fyne.Do(func() {
+			// The overlay stack removes the overlays above d with it, such
+			// as a dialog that op showed: put them back.
+			var above []fyne.CanvasObject
+			if l := overlays.List(); len(l) > below+1 {
+				above = slices.Clone(l[below+1:])
+			}
 			d.Hide()
+			for _, o := range above {
+				overlays.Add(o)
+			}
 			if err != nil && !cancelled {
 				showError(u, err)
 			}
