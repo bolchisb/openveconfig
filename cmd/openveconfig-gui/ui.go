@@ -30,6 +30,7 @@ type ui struct {
 	// the area that shows it.
 	pages             []*page
 	overview, general *page
+	assistants        *assistantsPage
 	current           *page
 	pageArea          *fyne.Container
 	sidebar           *widget.List
@@ -52,7 +53,7 @@ func newUI(a fyne.App) *ui {
 		theme.HomeIcon(), vebus.TabNone, overviewContent(u))
 	sp := settingsPages(u)
 	u.general = sp[0]
-	u.pages = append([]*page{u.overview, sp[0], gridPage(u)}, sp[1:]...)
+	u.pages = append(append([]*page{u.overview, sp[0], gridPage(u)}, sp[1:]...), assistantsPageOf(u))
 	u.header = newHeader(u)
 	u.changes = newChangesBar(u)
 	u.pageArea = container.NewStack()

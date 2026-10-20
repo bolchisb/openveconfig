@@ -4,8 +4,8 @@ package main
 // have assistants, reading a unit's assistant area into the file (the
 // backup), and writing a file's area to its unit when the file is sent
 // (the restore). The area is copied as it is (pkg/assistant/transfer);
-// nothing here edits assistants. The Assistants tab of #33 can host
-// assistantsCard.
+// nothing here edits assistants. The card is on the Assistants page
+// (assistantspage.go).
 
 import (
 	"context"
@@ -124,14 +124,14 @@ func locateUnit(ctx context.Context, c *mk2.Client, longID uint32) (transfer.Uni
 	return transfer.Unit{Address: a, LongID: longID}, nil
 }
 
-// assistantsCard shows whether the open settings file and the connected
-// unit have assistants, and reads a unit's assistants, on its own or into
-// the file.
-func assistantsCard(u *ui) fyne.CanvasObject {
-	fileText, unitText := widget.NewLabel(""), widget.NewLabel("")
-	fileText.Wrapping, unitText.Wrapping = fyne.TextWrapWord, fyne.TextWrapWord
+// assistantsCard shows the assistants of the open settings file and of the
+// connected unit, titled from the packages of ap, and reads a unit's
+// assistants, on their own or into the file.
+func assistantsCard(u *ui, ap *assistantsPage) fyne.CanvasObject {
+	fileArea, unitArea := container.NewStack(), container.NewStack()
 	hint := mutedText("")
-	var unitRead string // what the last read found, for the session it was read on
+	var unitImg []byte // what the last read found, for the session it was read on
+	var unitRead string
 	var readOn *session
 	var update func()
 	read := widget.NewButtonWithIcon(tr("Read from unit"), theme.DownloadIcon(), func() {
@@ -147,8 +147,8 @@ func assistantsCard(u *ui) fyne.CanvasObject {
 				return &uiError{err: err, msg: tr("The assistants cannot be read: {{.Err}}", args{"Err": err})}
 			}
 			fyne.Do(func() {
-				unitRead, readOn = tr("Unit at address {{.Address}}: {{.Area}}. Running: {{.Running}}.",
-					args{"Address": addr, "Area": areaSummary(a.Image), "Running": runningText(a.Running)}), s
+				unitImg, readOn = a.Image, s
+				unitRead = tr("Unit at address {{.Address}}. Running: {{.Running}}.", args{"Address": addr, "Running": runningText(a.Running)})
 				update()
 			})
 			return nil
@@ -157,25 +157,35 @@ func assistantsCard(u *ui) fyne.CanvasObject {
 	copyIn := widget.NewButtonWithIcon(tr("Copy into the file"), theme.DocumentSaveIcon(), func() {
 		copyAreaIntoFile(u, func() { update() })
 	})
+	text := func(t string) fyne.CanvasObject {
+		l := widget.NewLabel(t)
+		l.Wrapping = fyne.TextWrapWord
+		return l
+	}
 	update = func() {
 		s, sf := u.sess, u.settings.file
+		fileArea.Objects = []fyne.CanvasObject{text(tr("No settings file is open."))}
 		if sf != nil {
-			fileText.SetText(fileAreaSummary(sf.unit))
-		} else {
-			fileText.SetText(tr("No settings file is open."))
+			if img, err := sf.unit.AssistantImage(); err != nil {
+				fileArea.Objects[0] = text(fileAreaSummary(sf.unit))
+			} else {
+				fileArea.Objects[0] = installedView(img, ap.title)
+			}
 		}
 		why := ""
 		switch {
 		case s == nil:
-			unitText.SetText(tr("Not connected."))
+			unitArea.Objects = []fyne.CanvasObject{text(tr("Not connected."))}
 		case assistantsUnavailable(s, false) != "":
 			why = assistantsUnavailable(s, false)
-			unitText.SetText(tr("Not available on real devices yet."))
+			unitArea.Objects = []fyne.CanvasObject{text(tr("Not available on real devices yet."))}
 		case readOn == s:
-			unitText.SetText(unitRead)
+			unitArea.Objects = []fyne.CanvasObject{container.NewVBox(text(unitRead), installedView(unitImg, ap.title))}
 		default:
-			unitText.SetText(tr("Not read yet."))
+			unitArea.Objects = []fyne.CanvasObject{text(tr("Not read yet."))}
 		}
+		fileArea.Refresh()
+		unitArea.Refresh()
 		read.Disable()
 		copyIn.Disable()
 		if s != nil && why == "" {
@@ -193,11 +203,14 @@ func assistantsCard(u *ui) fyne.CanvasObject {
 	}
 	u.onSession(func(*session) { update() })
 	u.settings.onChange(func(bool) { update() })
+	ap.onScan = append(ap.onScan, func() { update() })
 	update()
 	rows := container.New(layout.NewFormLayout(),
-		widget.NewLabelWithStyle(tr("In the file"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), fileText,
-		widget.NewLabelWithStyle(tr("In the unit"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), unitText)
-	return widget.NewCard("", tr("Assistants"), container.NewVBox(rows, container.NewHBox(read, copyIn), hint))
+		widget.NewLabelWithStyle(tr("In the file"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), fileArea,
+		widget.NewLabelWithStyle(tr("In the unit"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), unitArea)
+	kept := callout(theme.InfoIcon(), tr("A unit keeps its assistants when only its settings are sent: "+
+		"they are written only when you send a file and choose to write the file's assistants."))
+	return newFormCard(cardTitle(tr("Installed assistants")), rows, container.NewHBox(read, copyIn), hint, kept)
 }
 
 // copyAreaIntoFile reads the assistant area of the open file's unit, found
