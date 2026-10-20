@@ -109,6 +109,12 @@ type Options struct {
 	// Community reports say acks for high setting IDs are often missing.
 	// Read the value back to confirm the write.
 	IgnoreMissingWriteAck bool
+	// RawTimeout is the reply timeout of the system requests that expect
+	// a reply, Identify and ReadSystemConfig (default DefaultRawTimeout).
+	RawTimeout time.Duration
+	// AcceptIdentify11 makes Identify accept identify replies whose flag
+	// is IdentifyFlagAlt. They are rejected by default; see IdentifyFlagAlt.
+	AcceptIdentify11 bool
 	// Unsolicited, if set, receives every frame that is not a reply to the
 	// current request, such as the periodic 'V' frames (§3.4) or forwarded
 	// panel frames (§5.1). It runs on the goroutine of the request in
@@ -129,14 +135,21 @@ type Client struct {
 	readErr   error // set before frames is closed
 
 	// received counts the bytes read from rw. readLoop drops every byte
-	// before stream offset discardTo; see discardReceived.
+	// before stream offset discardTo; see discardReceived. consumed is the
+	// stream offset of the scanner's first buffered byte; skipped counts
+	// the bytes the scanner skipped because they did not form a frame.
 	received  atomic.Int64
 	discardTo atomic.Int64
+	consumed  atomic.Int64
+	skipped   atomic.Int64
 
 	mu   sync.Mutex // held for each request
 	mode WinmonMode
 	dest byte
 	tag  int
+	// linkReady is set by PrepareSystemLink and cleared by Reset; raw
+	// frames are sent only while it is set.
+	linkReady bool
 }
 
 // NewClient starts a Client on rw. A background goroutine reads rw until it
@@ -155,6 +168,9 @@ func NewClient(rw io.ReadWriter, opts *Options) *Client {
 	}
 	if c.opts.SlowTimeout <= 0 {
 		c.opts.SlowTimeout = DefaultSlowTimeout
+	}
+	if c.opts.RawTimeout <= 0 {
+		c.opts.RawTimeout = DefaultRawTimeout
 	}
 	if c.opts.SettingInfoCommand == 0 {
 		c.opts.SettingInfoCommand = WCmdGetSettingInfo
@@ -195,21 +211,23 @@ func (c *Client) WinmonMode() WinmonMode {
 }
 
 func (c *Client) readLoop() {
-	var consumed int64 // stream offset of the scanner's first buffered byte
 	sc := bufio.NewScanner(readerFunc(func(p []byte) (int, error) {
 		n, err := c.rw.Read(p)
 		c.received.Add(int64(n))
 		return n, err
 	}))
 	sc.Split(func(data []byte, atEOF bool) (int, []byte, error) {
-		if skip := c.discardTo.Load() - consumed; skip > 0 && len(data) > 0 {
-			n := int(min(skip, int64(len(data))))
-			consumed += int64(n)
-			return n, nil, nil
+		// Drop discarded bytes and scan the rest in the same call: after a
+		// call without a token the Scanner waits for more input, which
+		// would hold back a frame that is already buffered.
+		skip := 0
+		if d := c.discardTo.Load() - c.consumed.Load(); d > 0 {
+			skip = int(min(d, int64(len(data))))
 		}
-		n, tok, err := ScanFrames(data, atEOF)
-		consumed += int64(n)
-		return n, tok, err
+		n, tok, err := ScanFrames(data[skip:], atEOF)
+		c.consumed.Add(int64(skip + n))
+		c.skipped.Add(int64(n - len(tok)))
+		return skip + n, tok, err
 	})
 	for sc.Scan() {
 		f, err := Decode(sc.Bytes())
@@ -258,15 +276,24 @@ type handler func(f Frame) (mine, done bool, err error)
 // reports done. c.mu must be held. Frames that were already queued before
 // req was sent are stale and go to the Unsolicited callback.
 func (c *Client) exchange(ctx context.Context, req *Frame, timeout time.Duration, h handler) error {
+	var b []byte
+	if req != nil {
+		var err error
+		if b, err = req.Encode(); err != nil {
+			return err
+		}
+	}
+	return c.exchangeBytes(ctx, b, timeout, h)
+}
+
+// exchangeBytes is exchange for a request that is already encoded; a nil
+// req sends nothing.
+func (c *Client) exchangeBytes(ctx context.Context, req []byte, timeout time.Duration, h handler) error {
 	if err := c.drain(); err != nil {
 		return err
 	}
 	if req != nil {
-		b, err := req.Encode()
-		if err != nil {
-			return err
-		}
-		if _, err := c.rw.Write(b); err != nil {
+		if _, err := c.rw.Write(req); err != nil {
 			return fmt.Errorf("mk2: write: %w", err)
 		}
 	}

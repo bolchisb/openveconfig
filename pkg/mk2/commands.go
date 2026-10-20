@@ -149,6 +149,12 @@ type State struct {
 type StateExt struct {
 	FlagsExt0   byte
 	EEPROMFlags byte
+	// OmitEEPROMFlags sends <Reserved> <FlagsExt0> without <EEPROMFlags>
+	// (7 data bytes); EEPROMFlags is then ignored. Victron's mk2-dbus sends
+	// this form (victronenergy/venus wiki, page "mk2-dbus-readme", serial
+	// trace), and so does PrepareSystemLink, so that the MK's non-volatile
+	// flags stay as they are.
+	OmitEEPROMFlags bool
 }
 
 // Frame returns the 'S' request frame.
@@ -159,7 +165,10 @@ func (s State) Frame() Frame {
 	}
 	d := []byte{byte(s.Switch), lo, hi, 0x01, s.Flags}
 	if s.Ext != nil {
-		d = append(d, 0, s.Ext.FlagsExt0, s.Ext.EEPROMFlags)
+		d = append(d, 0, s.Ext.FlagsExt0)
+		if !s.Ext.OmitEEPROMFlags {
+			d = append(d, s.Ext.EEPROMFlags)
+		}
 	}
 	return Frame{Command: CmdState, Data: d}
 }
@@ -250,9 +259,11 @@ func (c *Client) Discover(ctx context.Context) ([]byte, error) {
 	return found, nil
 }
 
-// Reset resets the MK2 (§3.6). There is no reply.
+// Reset resets the MK2 (§3.6). There is no reply. Afterwards system frames
+// need PrepareSystemLink again.
 func (c *Client) Reset(ctx context.Context) error {
 	return c.do(func() error {
+		c.linkReady = false
 		return c.exchange(ctx, &Frame{Command: CmdReset}, 0, nil)
 	})
 }
