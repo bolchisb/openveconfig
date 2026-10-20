@@ -4,6 +4,14 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 
 ## 2026-10-20
 
+### M4: Assistants, phase 2 (compiler, in progress)
+
+- **`pkg/assistant/vap`** (#32): reads the user's assistant packages (`.vap`/`.dvap`: a zlib stream whose words sum to 0, then the member files); `List`/`Latest` list a folder; `DefaultDir` is where VEConfigure downloads them on Windows. No package is shipped.
+- **`pkg/assistant/asm`** (#32): the multi-pass macro assembler and calculator of the assistant sources: labels, string functions, macros, conditionals, loops, `.ASSEMBLE`, `.SOURCE`/`.INSERT` with label spaces, forward references.
+- **`pkg/assistant/wizard`** (#32): the assistant directives (`.AID`, `.AUE`, `.ALD`, …), the read-back functions, and `Session`, the step model the GUI (#33) drives: Start, Current, Next, Back, Answers, Summary. `ReadBack` recovers step values from an image.
+- **Composer** (#32): `assistant.Composer` sources asfStart, the user's assistants and asfStop, and lays out the image: program, 0xFF fill, the tail of assistant ids, the checksum; used and free bytes; `ErrTooBig` before an image is made. `ParseLayout` reads an image's tail and program length.
+- **Not yet byte-identical with VEConfigure.** `TestRealESS`/`TestRealReadBack` (`ASSISTANT_PACKAGES`, `ASSISTANT_RVSC`) compile ESS against a real backup; the run stops on environment labels whose values the spec does not give (device, firmware and setting labels) and on calculator details it leaves open. Tests otherwise use synthetic sources.
+
 ### M4: Assistants, phase 1 (preserve)
 
 - **Plan.** Phase 1 keeps a unit's assistants through a backup and restore: #77 (transfer spec), #78 (area image), #79 (block read and write), #80 (whole-area read and write with verify and rollback), #81 (CLI and GUI). Phase 2, editing assistants (#32, #33), stays deferred until the package format and its licensing are settled (#8).

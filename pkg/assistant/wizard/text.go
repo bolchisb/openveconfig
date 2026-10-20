@@ -13,14 +13,14 @@ import (
 type Text map[string]string
 
 // ParseText splits a text file into its sections. Lines before the first
-// tag are dropped.
+// tag and empty lines at the end of a section are dropped.
 func ParseText(b []byte) Text {
 	t := Text{}
 	tag := ""
 	var body []string
 	flush := func() {
 		if tag != "" {
-			t[strings.ToLower(tag)] = strings.Join(body, "\n")
+			t[strings.ToLower(tag)] = strings.TrimRight(strings.Join(body, "\n"), "\n")
 		}
 	}
 	for _, l := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {

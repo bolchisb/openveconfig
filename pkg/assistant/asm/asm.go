@@ -8,6 +8,9 @@
 //
 //	[label[(params)][:]] [mnemonic [operand, operand…]] [; comment]
 //
+// A label with parameters is a function: "f(a, b) .EQU 'a*b'" makes
+// f(2, 3) evaluate the text a*b with a = 2 and b = 3.
+//
 // A line that starts with a character other than a space or a tab starts
 // with a label (inferred from the composer's " .SOURCE file" lines, which
 // start with a space). A mnemonic is a directive (.EQU, .MACRO, DATA, …), a
@@ -88,6 +91,7 @@ type Result struct {
 	Code     []byte
 	Passes   int
 	Messages []string // from .MESSG and .ERROR, in the last pass
+	Errors   []error  // every error of the last pass; Assemble returns the first
 	labels   *Assembler
 }
 
@@ -200,7 +204,7 @@ func (a *Assembler) Assemble(name string, src []byte) (*Result, error) {
 		}
 		a.last = a.code
 	}
-	res := &Result{Code: a.code, Passes: min(a.pass, MaxPasses), Messages: a.msgs, labels: a}
+	res := &Result{Code: a.code, Passes: min(a.pass, MaxPasses), Messages: a.msgs, Errors: a.errs, labels: a}
 	switch {
 	case len(a.errs) > 0:
 		return res, a.errs[0]
@@ -557,8 +561,8 @@ func (a *Assembler) define(f *frame, name string, v Value, err error, stale, fix
 }
 
 // equ handles "name .EQU expr" and "name .SET expr[, width, signed]", and
-// "name(p1, …) .EQU expr" for a function. Without a label the name may be
-// the first operand.
+// "name(p1, …) .EQU 'expr'" for a function. Without a label the name may
+// be the first operand.
 func (a *Assembler) equ(c *Ctx, lbl, ops string, fixed bool) error {
 	if lbl == "" {
 		parts := splitOps(ops)
@@ -572,9 +576,18 @@ func (a *Assembler) equ(c *Ctx, lbl, ops string, fixed bool) error {
 		return err
 	}
 	if params != nil {
+		// A string function: the operand is a string whose text is the
+		// expression a call evaluates (reverse-engineered, #8).
+		v, err := c.eval(ops)
+		if err != nil {
+			return err
+		}
+		if v.K != Str {
+			return fmt.Errorf("%w: function %s needs a string", ErrType, name)
+		}
 		l := a.target(c.f, nil, name)
-		a.set(l, StrVal(ops), nil, fixed)
-		l.fn = &function{params: params, body: ops}
+		a.set(l, v, nil, fixed)
+		l.fn = &function{params: params, body: v.S}
 		return nil
 	}
 	parts := []string{ops}

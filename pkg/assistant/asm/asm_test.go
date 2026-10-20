@@ -34,7 +34,7 @@ func TestParseLine(t *testing.T) {
 		{"start: DATA 1", "start", "DATA", "1"},
 		{"start DATA 1", "start", "DATA", "1"},
 		{"start:", "start", "", ""},
-		{"f(a, b) .EQU a+b", "f(a, b)", ".EQU", "a+b"},
+		{"f(a, b) .EQU 'a+b'", "f(a, b)", ".EQU", "'a+b'"},
 		{".IF x", "", ".IF", "x"},
 		{"\tDATA ';', 2", "", "DATA", "';', 2"},
 	}
@@ -112,17 +112,19 @@ func TestUnset(t *testing.T) {
 
 func TestFunctionLabels(t *testing.T) {
 	got := assemble(t, &Assembler{Labels: map[string]Value{"hwDC": IntVal(48)}}, `
-Bat(v) .EQU hwDC*v/12
-MMD(lo, hi, def) .EQU '2B '+str(Bat(lo))+' '+str(Bat(hi))+' '+str(Bat(def))
-MAX(a, b) .EQU copy(str(a), 1, 0) + ''
+Bat(v) .EQU 'hwDC*v/12'
+MMD(lo, hi, def) .EQU '''2B ''+str(Bat(lo))+'' ''+str(Bat(hi))+'' ''+str(Bat(def))'
 acc .SET 0
-ADDTO(x) .EQU acc := acc + x
+ADDTO(x) .EQU 'acc := acc + ' + 'x'
  DATA Bat(1300), Bat(1300) >> 8
  DATA MMD(1200, 1300, 1250)
  DATA ADDTO(5), ADDTO(7), acc
 `)
 	want := append([]byte{0x50, 0x14}, "2B 4800 5200 5000"...)
 	wantCode(t, got, append(want, 5, 12, 12)...)
+	if _, err := (&Assembler{}).Assemble("t", []byte("F(x) .EQU 1+1")); !errors.Is(err, ErrType) {
+		t.Error("function without a string accepted")
+	}
 }
 
 func TestConditionals(t *testing.T) {

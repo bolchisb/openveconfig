@@ -13,7 +13,7 @@ import (
 // a step that only some choices reach, two voltages read back from the
 // code they compile to, and a confirmation.
 const synthSource = `
-Bat(v) .EQU hwDC*v/12
+Bat(v) .EQU 'hwDC*v/12'
 Battery .AID Battery, RL, 3, 1
 Capacity .AID Capacity, EL, '0N 10 9999 200'
 Volts .AID Volts, E, '2B '+str(Bat(1000))+' '+str(Bat(1500))+' '+str(Bat(1250)), '2B 4000 6000 4800'
