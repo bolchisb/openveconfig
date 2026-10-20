@@ -368,9 +368,10 @@ func (c *Client) WriteViaID(ctx context.Context, flags, id byte, value uint16) e
 	return c.ackErr(err)
 }
 
-// SendAccessPassword hands an access password to the target device, which
-// checks it (reverse-engineered, #9): Winmon command 0x3A followed by the
-// password's characters; a reply starting with 0x9C means accepted. Any
+// SendAccessPassword hands an access password to the target device
+// (reverse-engineered, #9): Winmon command 0x3A followed by the
+// password's characters; a reply starting with 0x9C means accepted. That
+// the device checks the password is inferred, not yet seen on hardware. Any
 // other reply returns ErrPasswordRefused; which code a device sends for a
 // wrong password is not known. Only printable ASCII is accepted. The
 // password is never checked or kept here.

@@ -3,10 +3,13 @@ package main
 // Access passwords. A device writes a setting whose access byte asks for a
 // password (and most grid codes) only after it has accepted an access
 // password, which the program hands it before writing
-// (mk2.Client.SendAccessPassword, reverse-engineered, #9). The user types
-// the passwords and the device checks them. This program never checks,
-// derives, keeps or saves a password: they live in the session and are
-// gone when it closes (docs/CLEAN-ROOM.md, Access control).
+// (mk2.Client.SendAccessPassword, reverse-engineered, #9). The original
+// tool also checks the password itself when it is entered; this program
+// does not (docs/CLEAN-ROOM.md, Access control): it never checks, derives,
+// keeps or saves a password. The passwords live in the session and are
+// gone when it closes. That the device itself refuses a wrong password is
+// inferred from the original's replies and not yet checked on hardware
+// (#3, #52).
 
 import (
 	"context"
@@ -39,8 +42,8 @@ func passwordsEnabled(s *session) bool { return s != nil && (s.demo || accessPas
 func askAccessPasswords(u *ui, s *session, done func(ok bool)) {
 	entry := widget.NewPasswordEntry()
 	prompt := widget.NewLabel(tr("Enter access password(s) (comma separated)."))
-	note := widget.NewLabel(tr("The device checks the password when the settings are sent. " +
-		"This program does not check, keep or save it; it is forgotten when you disconnect."))
+	note := widget.NewLabel(tr("This program does not check the password: it hands it to the device when the settings are sent, " +
+		"and the device decides whether to accept the changes. The password is not kept or saved; it is forgotten when you disconnect."))
 	note.Wrapping = fyne.TextWrapWord
 	content := container.NewVBox(prompt, entry, note)
 	if s.demo {

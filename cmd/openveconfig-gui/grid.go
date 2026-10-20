@@ -175,9 +175,10 @@ func newGridTab(u *ui) *gridTabView {
 			showError(u, err)
 		}
 		u.settings.changed()
-		// A code that needs a password asks for one, as in the original; the
-		// device checks it when the settings are sent. Without one the
-		// choice is undone.
+		// A code that needs a password asks for one, as in the original,
+		// which also checks it here; this program only hands it to the
+		// device when the settings are sent (accesspassword.go). Without
+		// one the choice is undone.
 		s := u.sess
 		if !passwordsEnabled(s) || len(s.passwords) > 0 || gridcode.SelectableWithoutPassword(gridcode.Code(g.codeValues[i]), d.Firmware) {
 			return
