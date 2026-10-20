@@ -1,6 +1,7 @@
-// Package assistant handles a VE.Bus unit's assistant area as data: the
-// image the unit stores, and the compact form in which .rvsc/.rvms files
-// keep it. It does not interpret the content (#8).
+// Package assistant handles a VE.Bus unit's assistant area: the image the
+// unit stores, the compact form in which .rvsc/.rvms files keep it, and
+// the composer that builds an image from assistant sources (compose.go,
+// #32; the sources are assembled by package asm and package wizard).
 //
 // The compact form is a sequence of runs (reverse-engineered, #7; restated
 // in our own words):
