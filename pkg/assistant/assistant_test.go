@@ -63,7 +63,7 @@ func TestRoundTrip(t *testing.T) {
 	if c := Compact(cat([]byte{1}, same(9, 6))); !bytes.Equal(c, []byte{1, 0, 1, 9, 6, 0}) {
 		t.Errorf("six equal: % X", c)
 	}
-	if c := Compact(cat([]byte{1}, same(9, 5))); !bytes.Equal(c, []byte{6, 0, 1, 9, 9, 9, 9, 9, 0xFF, 0, 0}) {
+	if c := Compact(cat([]byte{1}, same(9, 5))); !bytes.Equal(c, []byte{6, 0, 1, 9, 9, 9, 9, 9, 0x00, 0, 0}) {
 		t.Errorf("five equal: % X", c)
 	}
 }

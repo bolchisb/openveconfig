@@ -57,9 +57,10 @@ func Expand(b []byte) ([]byte, error) {
 
 // Compact returns the compact form of img: each stretch of at least
 // minFill equal bytes becomes the fill of a run, the bytes before it its
-// literal; bytes after the last such stretch end in a run with no fill
-// (ours: count 0, fill 0xFF). A stretch longer than a u16 count is split.
-// Compact(Expand(b)) gives b back for the areas the original writes.
+// literal; bytes after the last such stretch end in a run with no fill:
+// count 0 and fill 0x00, as in a file the original saved (observed). A
+// stretch longer than a u16 count is split. Compact(Expand(b)) gives b
+// back for the areas seen in files from a device and from the original.
 func Compact(img []byte) []byte {
 	var out []byte
 	run := func(lit []byte, fill byte, count int) {
@@ -90,7 +91,7 @@ func Compact(img []byte) []byte {
 			run(img[start:start+0xFFFF], 0xFF, 0)
 			start += 0xFFFF
 		}
-		run(img[start:], 0xFF, 0)
+		run(img[start:], 0x00, 0)
 	}
 	return out
 }

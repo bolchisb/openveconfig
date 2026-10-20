@@ -178,9 +178,9 @@ func TestAssistantImage(t *testing.T) {
 }
 
 // TestRealAssistantAreas expands the assistant area of every unit of the
-// files in $RVSC_TESTDATA, if set (files are not committed, #2). A
-// device-form area must compact back to the same bytes. It logs no
-// identifiers.
+// files in $RVSC_TESTDATA, if set (files are not committed, #2). Every
+// area, in device and upload form, must compact back to the same bytes.
+// It logs no identifiers.
 func TestRealAssistantAreas(t *testing.T) {
 	dir := os.Getenv("RVSC_TESTDATA")
 	if dir == "" {
@@ -208,8 +208,8 @@ func TestRealAssistantAreas(t *testing.T) {
 			if len(img) != assistant.ImageSize {
 				t.Logf("%s unit %d: image of %d bytes", filepath.Base(p), i, len(img))
 			}
-			if !u.UploadForm && !bytes.Equal(assistant.Compact(img), u.AssistantArea()) {
-				t.Errorf("%s unit %d: the device-form area does not compact back to its bytes", filepath.Base(p), i)
+			if !bytes.Equal(assistant.Compact(img), u.AssistantArea()) {
+				t.Errorf("%s unit %d (upload form %v): the area does not compact back to its bytes", filepath.Base(p), i, u.UploadForm)
 			}
 		}
 		return nil
