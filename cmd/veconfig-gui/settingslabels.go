@@ -62,6 +62,7 @@ func settingLabels() map[vebus.ID]string {
 		s(75): tr("Battery current that ends absorption"),
 		f(4):  tr("Stop bulk charging after its safety time"),
 		f(14): tr("Accept a distorted AC input"),
+		f(40): tr("Ignore the battery voltage sense input"),
 		s(86): tr("Block charging below temperature"),
 		s(87): tr("Temperature compensation"),
 
@@ -163,6 +164,7 @@ func settingHelp() map[vebus.ID]string {
 		s(7):  tr("A short absorption, repeated at the interval below while floating."),
 		s(75): tr("Absorption also ends when the battery current falls below this."),
 		f(14): tr("Lets the charger run on a distorted supply, such as a small generator."),
+		f(40): tr("For fault finding only: the voltage measured on the sense wires is not used. Leave it off in normal use."),
 		s(87): tr("How much the charge voltages drop per degree the battery warms up."),
 		s(88): tr("The charger keeps the battery at least at this voltage."),
 	}
