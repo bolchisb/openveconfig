@@ -208,6 +208,47 @@ func valueSwitchHint(n uint16) string {
 	return tr("Enter the restart level to turn the shutdown on.")
 }
 
+// The Charger page hides lithiumHidden while the lithium flag (36) is on, and
+// shows lithiumOnly only then; with lithium the charge algorithm offers no
+// gradual-absorption variant (3). Reverse-engineered (#6).
+var (
+	lithiumHidden = []vebus.ID{vebus.FlagID(11), vebus.FlagID(29), vebus.SettingID(87)}
+	lithiumOnly   = []vebus.ID{vebus.SettingID(86), vebus.FlagID(39)}
+)
+
+// lithiumOn reports whether d's lithium flag is set.
+func lithiumOn(d *vebus.Device) bool {
+	on, err := d.Flag(36)
+	return err == nil && on
+}
+
+// lithiumChanged makes the changes that switching the lithium flag implies
+// (reverse-engineered, #6). On: storage mode and the traction curve are
+// cleared, and the adaptive algorithm with gradual absorption becomes the
+// fixed one. Off: the low-temperature charge block is turned off (raw 0)
+// and the VE.Bus BMS flag is cleared.
+func lithiumChanged(d *vebus.Device, on bool) error {
+	var errs []error
+	clear := func(n uint16) {
+		if d.Supported(vebus.FlagID(n)) {
+			errs = append(errs, d.SetFlag(n, false))
+		}
+	}
+	if on {
+		clear(11)
+		clear(29)
+		if raw, err := d.Raw(vebus.SettingID(10)); err == nil && raw == 3 {
+			errs = append(errs, d.SetRaw(vebus.SettingID(10), 1))
+		}
+	} else {
+		if d.Supported(vebus.SettingID(86)) {
+			errs = append(errs, d.SetRaw(vebus.SettingID(86), 0))
+		}
+		clear(39)
+	}
+	return errors.Join(errs...)
+}
+
 // batteryMonitorOff makes the changes that turning the battery monitor off
 // implies (reverse-engineered, #6): the state-of-charge shutdown is turned
 // off, and bulk charging is no longer stopped after its safety time, as both

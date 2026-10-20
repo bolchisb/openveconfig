@@ -325,11 +325,32 @@ func (p *settingsPage) update() {
 			enabled[id] = on
 		}
 	}
+	_, lithiumErr := d.Flag(36)
+	lithium := lithiumOn(d)
 	for _, r := range p.rows {
 		r.update()
 		p.mark(r)
 		on, ok := enabled[r.e.ID()]
 		r.setEnabled(!ok || on)
+		if lithiumErr == nil {
+			switch id := r.e.ID(); {
+			case slices.Contains(lithiumHidden, id):
+				setShown(r.root, !lithium)
+			case slices.Contains(lithiumOnly, id):
+				setShown(r.root, lithium)
+			}
+		}
+	}
+}
+
+// setShown shows or hides o.
+func setShown(o fyne.CanvasObject, shown bool) {
+	if o.Visible() != shown {
+		if shown {
+			o.Show()
+		} else {
+			o.Hide()
+		}
 	}
 }
 
@@ -435,7 +456,12 @@ func (p *settingsPage) newRow(e vebus.Entry, label, title string) *settingRow {
 		}
 		changed := func(v bool) {
 			if !p.updating {
-				set(d.SetFlag(e.Num, v != invertedFlags[e.Num]))
+				on := v != invertedFlags[e.Num]
+				err := d.SetFlag(e.Num, on)
+				if err == nil && e.Num == 36 {
+					err = lithiumChanged(d, on)
+				}
+				set(err)
 			}
 		}
 		if title != "" { // a card's master flag: a switch
@@ -593,7 +619,7 @@ func choiceOptions(d *vebus.Device, e vebus.Entry) ([]uint16, []string) {
 	cur, _ := d.Raw(e.ID())
 	var values []uint16
 	for v := range e.Choices {
-		if v >= info.Min && v <= info.Max {
+		if v >= info.Min && v <= info.Max && !(e.Num == 10 && v == 3 && lithiumOn(d)) {
 			values = append(values, v)
 		}
 	}

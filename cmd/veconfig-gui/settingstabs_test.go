@@ -757,6 +757,58 @@ func TestBatteryMonitorSwitch(t *testing.T) {
 	}
 }
 
+// TestLithiumRules checks what the lithium flag hides and shows on the
+// Charger page, the charge algorithms it allows, and what switching it on
+// and off changes.
+func TestLithiumRules(t *testing.T) {
+	u := newTestUI(t)
+	charger := newSettingsPage(u, vebus.TabCharger)
+	d := vebus.NewDevice(nil)
+	d.AddSetting(0, mk2.SettingInfo{Sc: 1, Max: 1 << 11}, 1<<11)            // flag 11 (storage) on
+	d.AddSetting(1, mk2.SettingInfo{Sc: 1, Max: 1 << 13}, 0)                // flag 29
+	d.AddSetting(60, mk2.SettingInfo{Sc: 1, Max: 1<<4 | 1<<7}, 0)           // flags 36 (lithium), 39 (BMS)
+	d.AddSetting(10, mk2.SettingInfo{Sc: 1, Default: 3, Min: 1, Max: 3}, 3) // adaptive with gradual absorption
+	d.AddSetting(86, mk2.SettingInfo{Sc: -2, Offset: -41, Max: 137}, 20)
+	d.AddSetting(87, mk2.SettingInfo{Sc: -100, Max: 12000}, 3240)
+	u.settings.load(d, nil)
+
+	shown := func(ids ...vebus.ID) (s []bool) {
+		for _, id := range ids {
+			s = append(s, rowOf(t, charger, id).root.Visible())
+		}
+		return s
+	}
+	algorithms := func() []string { return rowOf(t, charger, vebus.SettingID(10)).control.(*widget.RadioGroup).Options }
+	hidden, only := []vebus.ID{vebus.FlagID(11), vebus.FlagID(29), vebus.SettingID(87)}, []vebus.ID{vebus.SettingID(86), vebus.FlagID(39)}
+
+	if !slices.Equal(shown(hidden...), []bool{true, true, true}) || !slices.Equal(shown(only...), []bool{false, false}) || len(algorithms()) != 3 {
+		t.Errorf("lithium off: shown %v / %v, algorithms %v", shown(hidden...), shown(only...), algorithms())
+	}
+
+	test.Tap(rowOf(t, charger, vebus.FlagID(36)).control.(*widget.Check))
+	if !slices.Equal(shown(hidden...), []bool{false, false, false}) || !slices.Equal(shown(only...), []bool{true, true}) || len(algorithms()) != 2 {
+		t.Errorf("lithium on: shown %v / %v, algorithms %v", shown(hidden...), shown(only...), algorithms())
+	}
+	if on, _ := d.Flag(11); on {
+		t.Error("lithium on left storage mode on")
+	}
+	if raw, _ := d.Raw(vebus.SettingID(10)); raw != 1 {
+		t.Errorf("lithium on: algorithm %d, want 1 (fixed)", raw)
+	}
+
+	if err := d.SetFlag(39, true); err != nil {
+		t.Fatal(err)
+	}
+	u.settings.changed()
+	test.Tap(rowOf(t, charger, vebus.FlagID(36)).control.(*widget.Check))
+	if raw, _ := d.Raw(vebus.SettingID(86)); raw != 0 {
+		t.Errorf("lithium off: low-temperature block raw %d, want 0 (off)", raw)
+	}
+	if on, _ := d.Flag(39); on {
+		t.Error("lithium off left the VE.Bus BMS flag on")
+	}
+}
+
 // TestToggleSwitch checks that the switch flips on tap and on Space, and
 // not while disabled.
 func TestToggleSwitch(t *testing.T) {
