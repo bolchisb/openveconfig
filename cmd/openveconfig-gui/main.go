@@ -3,6 +3,8 @@ package main
 
 import (
 	_ "embed"
+	"os"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -24,7 +26,16 @@ const iconFile = "Icon.png"
 var appIcon []byte
 
 func main() {
-	a := app.NewWithID(appID)
+	var a fyne.App = app.NewWithID(appID)
+	prefs := newPrefStore(prefsPath(), a.Preferences())
+	a = &prefsApp{App: a, prefs: prefs}
+	fyne.SetCurrentApp(a) // Fyne's dialogs keep their preferences here too
+	a.Lifecycle().SetOnStopped(func() {
+		prefs.flush(2 * time.Second)
+		// Fyne then rewrites its own, unused store; that write could hang
+		// as well, so the app ends here.
+		os.Exit(0)
+	})
 	a.SetIcon(fyne.NewStaticResource(iconFile, appIcon))
 	setLanguage(a.Preferences().String(prefLanguage))
 	newUI(a).win.ShowAndRun()

@@ -381,7 +381,10 @@ func (w fixedWidth) MinSize(objs []fyne.CanvasObject) fyne.Size {
 
 // newFormCard returns a card with a title (or a header row) above rows.
 func newFormCard(head fyne.CanvasObject, rows ...fyne.CanvasObject) fyne.CanvasObject {
-	body := container.NewVBox(append([]fyne.CanvasObject{head}, rows...)...)
+	if head != nil {
+		rows = append([]fyne.CanvasObject{head}, rows...)
+	}
+	body := container.NewVBox(rows...)
 	return container.NewStack(newThemeRect(colorNameSurface, theme.ColorNameSeparator, -1, fyne.Size{}),
 		container.New(layout.NewCustomPaddedLayout(8, 12, 12, 12), body))
 }

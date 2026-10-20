@@ -14,24 +14,40 @@ import "github.com/bolchisb/openveconfig/pkg/gridcode"
 func gridLabels() map[string]string {
 	return map[string]string{
 		// Pages.
-		"United Kingdom (G83/G59 family)":                tr("UK grid code settings (G83/2, G59/3-1)"),
-		"Italy (CEI 0-21)":                               tr("CEI grid code settings (CEI 0-21)"),
-		"Germany, variant A (VDE-AR-N 4105, short form)": tr("VDE grid code settings (VDE-AR-N 4105, variant A)"),
-		"Germany, variant B (VDE-AR-N 4105, full form)":  tr("VDE grid code settings (VDE-AR-N 4105, variant B)"),
-		"Australia/New Zealand (AS/NZS 4777.2:2015)":     tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2015)"),
-		"Australia/New Zealand (AS/NZS 4777.2:2020)":     tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2020)"),
-		"South Africa (NRS 097-2-1)":                     tr("NRS097 grid code settings (NRS 097-2-1)"),
-		"France (UTE C15-712-1)":                         tr("UTE C15 grid code settings (UTE C15-712-1)"),
-		"Spain (RD 1699/2011)":                           tr("RD1699 grid code settings (RD 1699/2011)"),
-		"Belgium (C10/11)":                               tr("C10/11 grid code settings"),
-		"Austria (TOR-D4)":                               tr("TOR-D4 grid code settings"),
-		"Chile (NTG-BT)":                                 tr("NTG-BT grid code settings"),
-		"Romania (TOR-D4 derivative)":                    tr("Romania grid code settings (TOR-D4 derivative)"),
-		"Europe (EN 50549-1)":                            tr("European grid code settings (EN 50549-1)"),
-		// The original's caption of this page is set at run time and not known.
+		"United Kingdom (G83/G59 family)":                                       tr("UK grid code settings (G83/2, G59/3-1)"),
+		"Italy (CEI 0-21)":                                                      tr("CEI grid code settings (CEI 0-21)"),
+		"Germany, variant A (VDE-AR-N 4105, short form)":                        tr("VDE grid code settings (VDE-AR-N 4105, variant A)"),
+		"Germany, variant B (VDE-AR-N 4105, full form)":                         tr("VDE grid code settings (VDE-AR-N 4105, variant B)"),
+		"Australia/New Zealand (AS/NZS 4777.2:2015)":                            tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2015)"),
+		"Australia/New Zealand (AS/NZS 4777.2:2015, parameter set 1 and later)": tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2015)"),
+		"South Africa (NRS 097-2-1)":                                            tr("NRS097 grid code settings (NRS 097-2-1)"),
+		"France (UTE C15-712-1)":                                                tr("UTE C15 grid code settings (UTE C15-712-1)"),
+		"Spain (RD 1699/2011)":                                                  tr("RD1699 grid code settings (RD 1699/2011)"),
+		"Belgium (C10/11)":                                                      tr("C10/11 grid code settings"),
+		"Austria (TOR-D4)":                                                      tr("TOR-D4 grid code settings"),
+		"Chile (NTG-BT)":                                                        tr("NTG-BT grid code settings"),
+		"Romania (TOR-D4 derivative)":                                           tr("Romania grid code settings (TOR-D4 derivative)"),
+		"Europe (EN 50549-1)":                                                   tr("European grid code settings (EN 50549-1)"),
+		// The original sets this page's caption by grid code (Page.Title).
 		"Australia/New Zealand, stand-alone (AS/NZS 4777.2:2020 appendix M)": tr("Australia/New Zealand, stand-alone (AS/NZS 4777.2:2020 appendix M)"),
 		"Poland":    tr("Polish grid code settings (EU 2016/631)"),
 		"Microgrid": tr("Microgrid related settings"),
+
+		// Captions the original gives a page for some grid codes.
+		"VFR 2019 grid code settings":                            tr("VFR 2019 grid code settings (VDE V 0126-1-1 VFR 2019)"),
+		"TOR Erzeuger Typ A grid code settings":                  tr("TOR Erzeuger Typ A grid code settings"),
+		"DK1 (Western Denmark)":                                  tr("DK1 (Western Denmark)"),
+		"DK2 (Eastern Denmark)":                                  tr("DK2 (Eastern Denmark)"),
+		"C10/11 grid code settings":                              tr("C10/11 grid code settings"),
+		"Northern Ireland grid code settings":                    tr("Northern Ireland grid code settings (G99/NI)"),
+		"UK G99 grid code settings":                              tr("UK G99 grid code settings"),
+		"UK G98 grid code settings":                              tr("UK G98 grid code settings"),
+		"Czech 2023 grid code settings":                          tr("Czech 2023 grid code settings"),
+		"AS/NZS4777.2:2020 Australia A (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia A (Stand alone appendix M)"),
+		"AS/NZS4777.2:2020 Australia B (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia B (Stand alone appendix M)"),
+		"AS/NZS4777.2:2020 Australia C (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia C (Stand alone appendix M)"),
+		"AS/NZS4777.2:2020 New Zealand (Stand alone appendix M)": tr("AS/NZS4777.2:2020 New Zealand (Stand alone appendix M)"),
+		gridcode.ReactivePowerUnknownLayout:                      tr("Reactive power (its layout depends on the device's grid-info table, which could not be read)"),
 
 		// Groups.
 		"Reactive power: cos phi as a function of active power": tr("Cos Phi as function of P"),
@@ -47,7 +63,6 @@ func gridLabels() map[string]string {
 		"Power-versus-frequency response":                       tr("P(f) functionality"),
 		"Interface (grid) protection, stage 1":                  tr("IP protection, stage 1"),
 		"Interface (grid) protection, stage 2":                  tr("IP protection, stage 2"),
-		"Hidden diagnostic curve points":                        tr("Hidden diagnostic curve points"),
 
 		// Parameters.
 		"Over-voltage trip on 10-minute running average":                                    tr("Over voltage U> (10 min. running mean)"),
@@ -66,7 +81,7 @@ func gridLabels() map[string]string {
 		"Network-support mode: lower activation frequency":                                  tr("Start network service LF threshold"),
 		"Droop paired with power limit PSMax":                                               tr("Droop for PSMax"),
 		"AC current cap for charging and feed-in":                                           tr("Max AC current"),
-		"Use auxiliary input 2 as 4.2 kW charge-power cap signal (German EnWG section 14a)": tr("Use AUX2 as 4.2 kW charge limit signal (§14a)"),
+		"Use auxiliary input 2 as 4.2 kW charge-power cap signal (German EnWG section 14a)": tr("Use AUX2 as 4.2kW charge limit signal (§14a)"),
 		"cos-phi(P) point 1: active power":                                                  tr("Cos phi curve point 1"),
 		"cos-phi(P) point 2: active power":                                                  tr("Cos phi curve point 2"),
 		"cos-phi(P) point 3: active power":                                                  tr("Cos phi curve point 3"),
@@ -75,7 +90,7 @@ func gridLabels() map[string]string {
 		"cos-phi(P) point 2: cos phi":                                                       tr("Cos phi at point 2"),
 		"cos-phi(P) point 3: cos phi":                                                       tr("Cos phi at point 3"),
 		"cos-phi(P) point 4: cos phi":                                                       tr("Cos phi at point 4"),
-		"Constant cos phi (fixed mode)":                                                     tr("Cos phi"),
+		"Constant cos phi (fixed mode)":                                                     tr("Cos phi is"),
 		"Voltage threshold to enable the curve (lock-in)":                                   tr("U Lock-in"),
 		"Voltage threshold to disable the curve (lock-out)":                                 tr("U Lock-out"),
 		"Apply voltage lock-in/lock-out":                                                    tr("Use lock-in/out"),
@@ -87,7 +102,7 @@ func gridLabels() map[string]string {
 		"Q(U) point 2: reactive power":                                                      tr("Q at point 2"),
 		"Q(U) point 3: reactive power":                                                      tr("Q at point 3"),
 		"Q(U) point 4: reactive power":                                                      tr("Q at point 4"),
-		"Constant reactive power (fixed mode)":                                              tr("Q"),
+		"Constant reactive power (fixed mode)":                                              tr("Q is"),
 		"Lowest cos phi allowed while following a Q set-point":                              tr("Min. Cos phi"),
 		"Active-power threshold to enable the curve (lock-in)":                              tr("P Lock-in"),
 		"Active-power threshold to disable the curve (lock-out)":                            tr("P Lock-out"),
@@ -160,8 +175,8 @@ func gridLabels() map[string]string {
 		"Cap on generated apparent power":                                                   tr("Limit generated apparent power to"),
 		"Stage 1 under-voltage: trip delay":                                                 tr("Trip delay U<"),
 		"Stage 1 over-voltage: trip delay":                                                  tr("Trip delay U>"),
-		"Stage 1 under-frequency: trip delay":                                               tr("Under frequency stage 1 delay"),
-		"Stage 1 over-frequency: trip delay":                                                tr("Over frequency stage 1 delay"),
+		"Stage 1 under-frequency: trip delay":                                               tr("Trip delay f<"),
+		"Stage 1 over-frequency: trip delay":                                                tr("Trip delay f>"),
 		"Stage 1 under-voltage: trip level":                                                 tr("U<"),
 		"Stage 1 over-voltage: trip level":                                                  tr("U>"),
 		"Stage 1 over-frequency: trip level":                                                tr("f>"),
@@ -192,26 +207,6 @@ func gridLabels() map[string]string {
 		"Run as microgrid":                                                                  tr("Enable microgrid operation"),
 		"Droop: frequency versus active power":                                              tr("Frequency droop"),
 		"Droop: voltage versus reactive power":                                              tr("Voltage droop"),
-		"Diagnostic curve point, word 130 (frequency)":                                      tr("Diagnostic curve point, word 130 (frequency)"),
-		"Diagnostic curve point, word 131 (power)":                                          tr("Diagnostic curve point, word 131 (power)"),
-		"Diagnostic curve point, word 132 (frequency)":                                      tr("Diagnostic curve point, word 132 (frequency)"),
-		"Diagnostic curve point, word 133 (power)":                                          tr("Diagnostic curve point, word 133 (power)"),
-		"Diagnostic curve point, word 134 (frequency)":                                      tr("Diagnostic curve point, word 134 (frequency)"),
-		"Diagnostic curve point, word 135 (power)":                                          tr("Diagnostic curve point, word 135 (power)"),
-		"Diagnostic curve point, word 136 (frequency)":                                      tr("Diagnostic curve point, word 136 (frequency)"),
-		"Diagnostic curve point, word 137 (power)":                                          tr("Diagnostic curve point, word 137 (power)"),
-		"Diagnostic curve point, word 138 (frequency)":                                      tr("Diagnostic curve point, word 138 (frequency)"),
-		"Diagnostic curve point, word 139 (power)":                                          tr("Diagnostic curve point, word 139 (power)"),
-		"Diagnostic curve point, word 140 (voltage)":                                        tr("Diagnostic curve point, word 140 (voltage)"),
-		"Diagnostic curve point, word 141 (power)":                                          tr("Diagnostic curve point, word 141 (power)"),
-		"Diagnostic curve point, word 142 (voltage)":                                        tr("Diagnostic curve point, word 142 (voltage)"),
-		"Diagnostic curve point, word 143 (power)":                                          tr("Diagnostic curve point, word 143 (power)"),
-		"Diagnostic curve point, word 144 (voltage)":                                        tr("Diagnostic curve point, word 144 (voltage)"),
-		"Diagnostic curve point, word 145 (power)":                                          tr("Diagnostic curve point, word 145 (power)"),
-		"Diagnostic curve point, word 146 (voltage)":                                        tr("Diagnostic curve point, word 146 (voltage)"),
-		"Diagnostic curve point, word 147 (power)":                                          tr("Diagnostic curve point, word 147 (power)"),
-		"Diagnostic curve point, word 148 (voltage)":                                        tr("Diagnostic curve point, word 148 (voltage)"),
-		"Diagnostic curve point, word 149 (power)":                                          tr("Diagnostic curve point, word 149 (power)"),
 
 		// Choices.
 		"inverting (feed-in)":              tr("Invert"),
@@ -230,9 +225,24 @@ func gridLabels() map[string]string {
 		"fixed delay":                              tr("Use specified retry delay"),
 		"random delay":                             tr("Use random retry delay"),
 
+		// The cells of the fixed protection tables (gridcode.Page.Table)
+		// that are words.
+		"Protection function": tr("Protection function"),
+		"Trip setting":        tr("Trip setting"),
+		"Trip delay":          tr("Trip delay"),
+		"LOM detection":       tr("LOM detection"),
+		"see LOM setting":     tr("see LOM setting"),
+		"Reconnection time":   tr("Reconnection time"),
+		"under voltage":       tr("under voltage"),
+		"over voltage":        tr("over voltage"),
+		"under freq.":         tr("under freq."),
+		"over freq.":          tr("over freq."),
+
 		// Units with words.
+		"seconds":              tr("seconds"),
 		"% of nominal current": tr("% of INom"),
 		"% of Un":              tr("% Un"),
+		"% of nominal voltage": tr("% of Un"),
 		"% of Pemax":           tr("% of Pemax"),
 		"% of Sr":              tr("% of Sr"),
 		"% of rated power":     tr("% of rated power"),
@@ -283,7 +293,7 @@ func gridPageLabels() map[string]map[string]string {
 		"Germany, variant A (VDE-AR-N 4105, short form)": {
 			"Use auxiliary input 1 as feed-in inhibit": tr("Use AUX1 (if available) as disable FeedIn signal"),
 		},
-		"Australia/New Zealand (AS/NZS 4777.2:2020)": {
+		"Australia/New Zealand (AS/NZS 4777.2:2015, parameter set 1 and later)": {
 			"Volt-watt curve power at voltage 1": tr("Max power at V1"),
 			"Volt-watt curve power at voltage 2": tr("Max power at V2"),
 			"Volt-watt curve power at voltage 3": tr("Max power at V3"),
@@ -292,9 +302,17 @@ func gridPageLabels() map[string]map[string]string {
 		"Romania (TOR-D4 derivative)": {
 			"reduce relative to nominal power": tr("(a) reduce from Pnominal"),
 			"reduce relative to present power": tr("(b) reduce from Pactual"),
+			"P(U) curve: knee voltage":         tr("UKnick"),
+			"P(U) curve: limit voltage":        tr("UGrenz"),
 		},
 		"Europe (EN 50549-1)": {
 			"P(U) reduction method": tr("P(U) response"),
+		},
+		// The Europe page as Austria from version 1 shows it.
+		"TOR Erzeuger Typ A grid code settings": {
+			"P(U) reduction method":                    tr("P(U) response"),
+			"reduce feed-in relative to nominal power": tr("Feed In reduced from Pnominal (= typ a)"),
+			"reduce feed-in relative to present power": tr("Feed In reduced from Pactual (= typ b)"),
 		},
 	}
 }
@@ -304,6 +322,11 @@ func gridPageLabels() map[string]map[string]string {
 // it is.
 func gridText(p *gridcode.Page, name string) string {
 	if p != nil {
+		// A page shown under the caption of a grid code may word things
+		// differently there.
+		if l, ok := gridPageLabels()[p.Title][name]; ok && p.Title != "" {
+			return l
+		}
 		if l, ok := gridPageLabels()[p.Name][name]; ok {
 			return l
 		}

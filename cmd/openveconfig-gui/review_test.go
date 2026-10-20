@@ -273,7 +273,7 @@ func TestSendResult(t *testing.T) {
 		t.Errorf("refused row %+v", r)
 	}
 
-	showSendResult(u, d, before, rep, err, nil)
+	showSendResult(u, d, before, rep, err, nil, nil)
 	text := dialogTexts(u.win.Canvas().Overlays().Top())
 	for _, want := range []string{"3 sent · 1 refused · 1 not sent", "Verified", "Refused", "Not sent", "password has been entered",
 		"1 change takes effect only after the device is reset.", "sending stopped before this setting"} {
@@ -317,7 +317,7 @@ func TestFileApplyDialog(t *testing.T) {
 	fileDev, _ := sf.device()
 	set(t, fileDev, 2, "14.6")
 	dev := read()
-	confirmFileSend(u, s, fileDev, dev, vebus.MatchRVSC(sf.info, sf.unit, dev), false)
+	confirmFileSend(u, s, fileDev, dev, vebus.MatchRVSC(sf.info, sf.unit, dev), false, nil)
 	dlg := u.win.Canvas().Overlays().Top()
 	text := dialogTexts(dlg)
 	for _, want := range []string{"The file fits the device at address 0.", "1 setting differs", "On device", "From file",
@@ -334,7 +334,7 @@ func TestFileApplyDialog(t *testing.T) {
 	// An invalid value in the file blocks sending.
 	set(t, fileDev, 3, "15")
 	dev = read()
-	confirmFileSend(u, s, fileDev, dev, vebus.MatchRVSC(sf.info, sf.unit, dev), false)
+	confirmFileSend(u, s, fileDev, dev, vebus.MatchRVSC(sf.info, sf.unit, dev), false, nil)
 	dlg = u.win.Canvas().Overlays().Top()
 	if !findButton(t, dlg, "Send").Disabled() || !strings.Contains(dialogTexts(dlg), "not valid") {
 		t.Error("an invalid value in the file does not block sending")
@@ -348,7 +348,7 @@ func TestFileApplyDialog(t *testing.T) {
 		t.Fatal(err)
 	}
 	otherDev, _ := other.device()
-	confirmFileSend(u, s, otherDev, dev, vebus.MatchRVSC(other.info, other.unit, dev), false)
+	confirmFileSend(u, s, otherDev, dev, vebus.MatchRVSC(other.info, other.unit, dev), false, nil)
 	dlg = u.win.Canvas().Overlays().Top()
 	if !strings.Contains(dialogTexts(dlg), "does not fit") || !strings.Contains(dialogTexts(dlg), "Firmware version") {
 		t.Errorf("mismatch dialog shows %q", dialogTexts(dlg))

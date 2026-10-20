@@ -16,6 +16,8 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"github.com/bolchisb/openveconfig/pkg/assistant/transfer"
+	"github.com/bolchisb/openveconfig/pkg/gridcode"
 	"github.com/bolchisb/openveconfig/pkg/mk2"
 	"github.com/bolchisb/openveconfig/pkg/vebus"
 )
@@ -250,8 +252,9 @@ func getSettings(u *ui) {
 			if err != nil {
 				return err
 			}
+			grid := readGridInfo(ctx, s, addr)
 			fyne.Do(func() {
-				u.settings.load(d, nil)
+				u.settings.loadFromDevice(d, grid)
 				if len(rep.Failed) > 0 {
 					showMessage(u, tr("Get settings"), trn("{{.Count}} setting could not be read and is not shown.",
 						"{{.Count}} settings could not be read and are not shown.", len(rep.Failed)))
@@ -309,6 +312,26 @@ func readSettings(ctx context.Context, s *session, addr byte, ids []uint16, prog
 		return nil, nil, s.deviceFailure(ctx, err)
 	}
 	return d, rep, nil
+}
+
+// readGridInfo reads the grid-info table of the device at addr through s,
+// as the original does when it connects (mk2.Client.ReadGridInfo). When
+// that fails the table is not known, and the grid pages leave out what
+// depends on it.
+func readGridInfo(ctx context.Context, s *session, addr byte) gridcode.Model {
+	var table []byte
+	err := s.Do(ctx, func(ctx context.Context, c *mk2.Client) error {
+		if err := c.SetAddress(ctx, addr); err != nil {
+			return err
+		}
+		var err error
+		table, err = c.ReadGridInfo(ctx)
+		return err
+	})
+	if err != nil {
+		return gridcode.Model{}
+	}
+	return gridcode.TableModel(table)
 }
 
 // writeSettings writes the changed settings of d (all with all, except the
@@ -397,6 +420,8 @@ func sendSettings(u *ui) {
 	what.Horizontal = true
 	options := container.NewVBox(what, explain)
 	var target *widget.Select
+	var assist *widget.RadioGroup // keep or write the file's assistants
+	keep, write := tr("Keep the unit's assistants"), tr("Write the file's assistants")
 	if m.file != nil {
 		if len(s.devices) == 1 {
 			options.Add(widget.NewLabel(tr("The file's settings are sent to the unit at address {{.Address}}.", args{"Address": s.devices[0]})))
@@ -410,6 +435,23 @@ func sendSettings(u *ui) {
 			options.Add(container.NewBorder(nil, nil, widget.NewLabel(tr("Send where?")), nil, target))
 		}
 		options.Add(mutedText(tr("The device is read first. You see how its settings differ from the file before anything is sent.")))
+		assistNote := mutedText("")
+		assist = widget.NewRadioGroup([]string{keep, write}, func(sel string) {
+			text := tr("The unit keeps the assistants it has; the file's assistant area is not written.")
+			if sel == write {
+				text = tr("After the settings, the file's assistant area replaces the unit's, and every unit restarts.")
+				if why := assistantsUnavailable(s, true); why != "" {
+					text += " " + why
+				}
+			}
+			assistNote.Segments[0].(*widget.TextSegment).Text = text
+			assistNote.Refresh()
+		})
+		assist.Required = true
+		assist.Horizontal = true
+		assist.SetSelected(keep)
+		options.Add(container.NewBorder(nil, nil, widget.NewLabel(tr("Assistants:")), nil, assist))
+		options.Add(assistNote)
 	} else {
 		options.Add(widget.NewLabel(tr("The settings are sent to the device at address {{.Address}}, which they were read from.", args{"Address": d.Address})))
 	}
@@ -472,9 +514,9 @@ func sendSettings(u *ui) {
 		case m.file == nil:
 			withPasswords(u, s, d, func() { sendToDevice(u, s, d, sendAll) })
 		case target == nil:
-			sendFile(u, s, d, m.file, s.devices[0], sendAll)
+			sendFile(u, s, d, m.file, s.devices[0], sendAll, assist.Selected == write)
 		case target.SelectedIndex() >= 0:
-			sendFile(u, s, d, m.file, s.devices[target.SelectedIndex()], sendAll)
+			sendFile(u, s, d, m.file, s.devices[target.SelectedIndex()], sendAll, assist.Selected == write)
 		}
 	})
 }
@@ -494,7 +536,7 @@ func sendToDevice(u *ui, s *session, d *vebus.Device, all bool) {
 		}
 		fyne.Do(func() {
 			u.settings.changed()
-			showSendResult(u, d, before, rep, err, askAndResend(u, s, func() { sendToDevice(u, s, d, all) }))
+			showSendResult(u, d, before, rep, err, askAndResend(u, s, func() { sendToDevice(u, s, d, all) }), nil)
 		})
 		return nil
 	})
@@ -503,8 +545,10 @@ func sendToDevice(u *ui, s *session, d *vebus.Device, all bool) {
 // sendFile writes the values of fileDev, the model of a file's unit, to the
 // device at addr: it reads the device, refuses unless the file fits it
 // (vebus.MatchRVSC), shows the differences, and on confirmation writes
-// them. Grid-code settings are neither read nor written.
-func sendFile(u *ui, s *session, fileDev *vebus.Device, file *settingsFile, addr byte, all bool) {
+// them. Grid-code settings are neither read nor written. With
+// writeAssistants it also checks, and after the settings writes, the
+// file's assistant area (planAssistants).
+func sendFile(u *ui, s *session, fileDev *vebus.Device, file *settingsFile, addr byte, all, writeAssistants bool) {
 	var ids []uint16
 	for id := range file.unit.NumSettings() {
 		if !vebus.GridCodeSetting(uint16(id)) {
@@ -520,14 +564,19 @@ func sendFile(u *ui, s *session, fileDev *vebus.Device, file *settingsFile, addr
 		// The user chose one unit of the file and one device, so the
 		// unit count need not match (vebus.Match.CheckUnitCount).
 		match.CheckUnitCount(len(file.units), len(s.devices), true)
-		fyne.Do(func() { confirmFileSend(u, s, fileDev, t, match, all) })
+		var plan *assistPlan
+		if writeAssistants && match.OK() {
+			plan = planAssistants(ctx, s, file, addr)
+		}
+		fyne.Do(func() { confirmFileSend(u, s, fileDev, t, match, all, plan) })
 		return nil
 	})
 }
 
 // confirmFileSend shows whether the file fits the device model t and how
-// they differ and, if the user agrees, writes the file's values.
-func confirmFileSend(u *ui, s *session, fileDev, t *vebus.Device, match *vebus.Match, all bool) {
+// they differ and, if the user agrees, writes the file's values, then the
+// file's assistant area when plan (nil: keep the unit's assistants) allows.
+func confirmFileSend(u *ui, s *session, fileDev, t *vebus.Device, match *vebus.Match, all bool, plan *assistPlan) {
 	if !match.OK() {
 		list := matchList(match)
 		for _, n := range match.NotCompared {
@@ -556,7 +605,7 @@ func confirmFileSend(u *ui, s *session, fileDev, t *vebus.Device, match *vebus.M
 		return
 	}
 	issues := validationErrors(t)
-	if len(diffs) == 0 && !all && len(issues) == 0 {
+	if len(diffs) == 0 && !all && len(issues) == 0 && (plan == nil || plan.blocked == "" && !plan.writes()) {
 		showMessage(u, tr("Send settings"), tr("The device already holds the file's settings; there is nothing to send."))
 		return
 	}
@@ -575,8 +624,16 @@ func confirmFileSend(u *ui, s *session, fileDev, t *vebus.Device, match *vebus.M
 		primary.Disable()
 		setMutedText(reason, trn("{{.Count}} value is not valid; correct it before sending.", "{{.Count}} values are not valid; correct them before sending.", len(issues)))
 	}
+	var foot fyne.CanvasObject = reason
+	if plan != nil {
+		foot = container.NewVBox(plan.view(), reason)
+		if plan.blocked != "" {
+			primary.Disable()
+			setMutedText(reason, tr("The file's assistants cannot be written. Send again and keep the unit's assistants to send only the settings."))
+		}
+	}
 	table := newChangeTable(tableColumns{old: tr("On device"), new: tr("From file"), notes: tr("Notes")}, rows, tr("No setting differs."))
-	content := container.NewBorder(head, reason, nil, nil, table)
+	content := container.NewBorder(head, foot, nil, nil, table)
 	showTableDialog(u, tr("Send settings"), content, tableDialogSize, tr("Cancel"), primary, func() {
 		if u.sess != s {
 			return
@@ -589,7 +646,14 @@ func confirmFileSend(u *ui, s *session, fileDev, t *vebus.Device, match *vebus.M
 				if rep == nil {
 					return err
 				}
-				fyne.Do(func() { showSendResult(u, t, before, rep, err, askAndResend(u, s, send)) })
+				var arep *transfer.Report
+				var aerr error
+				if plan != nil && plan.writes() && err == nil {
+					arep, aerr = writeAssistants(ctx, s, plan, progress)
+				}
+				fyne.Do(func() {
+					showSendResult(u, t, before, rep, err, askAndResend(u, s, send), assistantSteps(plan, err == nil, arep, aerr))
+				})
 				return nil
 			})
 		}
@@ -716,8 +780,9 @@ func showIssues(u *ui, d *vebus.Device, issues []vebus.Issue) {
 // showSendResult shows the outcome of each setting of a send of d, whose
 // values before the send before holds (lastRead), with what to do next.
 // When the device refused settings for want of an access password and
-// resend is not nil, it offers to enter one and send again.
-func showSendResult(u *ui, d, before *vebus.Device, rep *vebus.WriteReport, err error, resend func()) {
+// resend is not nil, it offers to enter one and send again. assist, if not
+// nil, reports the assistants of a file's send (assistantSteps).
+func showSendResult(u *ui, d, before *vebus.Device, rep *vebus.WriteReport, err error, resend func(), assist fyne.CanvasObject) {
 	var sent, refused, failed, skipped int
 	for _, r := range rep.Results {
 		switch r.Status {
@@ -775,6 +840,9 @@ func showSendResult(u *ui, d, before *vebus.Device, rep *vebus.WriteReport, err 
 			again = widget.NewButtonWithIcon(tr("Enter access password…"), theme.AccountIcon(), nil)
 			again.Importance = widget.HighImportance
 		}
+	}
+	if assist != nil {
+		head.Add(assist)
 	}
 	table := newChangeTable(tableColumns{old: tr("Before"), new: tr("New value"), notes: tr("Result")}, resultRows(u, d, before, rep), tr("Nothing needed to be sent."))
 	showTableDialog(u, tr("Send result"), container.NewBorder(head, nil, nil, nil, table), tableDialogSize, tr("Close"), again, resend)
@@ -896,7 +964,7 @@ func openSettingsFile(u *ui) {
 }
 
 func chooseSettingsFile(u *ui) {
-	dlg := dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
+	showFileOpen(u.win, rvscFilter, func(r fyne.URIReadCloser, err error) {
 		if err != nil {
 			showError(u, err)
 			return
@@ -904,9 +972,7 @@ func chooseSettingsFile(u *ui) {
 		if r != nil {
 			readSettingsFile(u, r)
 		}
-	}, u.win)
-	dlg.SetFilter(rvscFilter)
-	dlg.Show()
+	})
 }
 
 // openRecentFile opens the settings file at uri, as openSettingsFile does
@@ -988,7 +1054,7 @@ func saveSettingsFile(u *ui) {
 		return
 	}
 	d, sf := m.dev, m.file
-	dlg := dialog.NewFileSave(func(w fyne.URIWriteCloser, err error) {
+	showFileSave(u.win, "", rvscFilter, sf.name, func(w fyne.URIWriteCloser, err error) {
 		if err != nil {
 			showError(u, err)
 			return
@@ -1010,8 +1076,5 @@ func saveSettingsFile(u *ui) {
 		sf.name = w.URI().Name()
 		addRecent(u, w.URI())
 		loadSettingsFile(u, sf)
-	}, u.win)
-	dlg.SetFilter(rvscFilter)
-	dlg.SetFileName(sf.name)
-	dlg.Show()
+	})
 }

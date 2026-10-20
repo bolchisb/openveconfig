@@ -52,9 +52,19 @@ type transport interface {
 // newSimulator returns the simulator used in demo mode. Tests replace it.
 var newSimulator = func() *simulator.Simulator {
 	return simulator.New(simulator.Config{HighSpeed: true, Devices: []simulator.Device{
-		{Address: 0, Profile: simulator.Synthetic12V230()},
+		demoAssistantUnit(),
 		{Address: 1, Profile: simulator.Synthetic48V120()},
 	}, AccessPasswords: []string{demoPassword}})
+}
+
+// demoAssistantUnit is device 0 of the demo: a system unit with the
+// factory record (configured for assistants), long ID 0x10000001, and an
+// assistant area with a made-up program and an ESS RAM record, all
+// synthetic.
+func demoAssistantUnit() simulator.Device {
+	d := simulator.SystemDevice(simulator.SystemUnit{LongID: 0x10000001})
+	d.Assistants = &simulator.AssistantMemory{Image: simulator.ProgramArea(900), RAM: []uint16{0x0052, 0, 0}}
+	return d
 }
 
 // newSystemSimulator returns the simulator of the VE.Bus system demo: three

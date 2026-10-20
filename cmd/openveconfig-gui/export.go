@@ -18,7 +18,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -68,12 +67,12 @@ func settingsReport(u *ui) []reportPage {
 			value := entryValueText(d, e.ID())
 			if e.ID() == vebus.SettingID(gridCodeSetting) {
 				raw, _ := d.Raw(e.ID())
-				value = gridCodeLabel(gridcode.Code(raw), d.Firmware)
+				value = gridCodeLabel(gridcode.Code(raw), u.settings.grid, d.Firmware)
 			}
 			rp.groups[i].rows = append(rp.groups[i].rows, [2]string{settingName(d, e.ID()), value})
 		}
 		if p.tab == vebus.TabGrid {
-			rp.groups = append(rp.groups, gridReport(d)...)
+			rp.groups = append(rp.groups, gridReport(d, u.settings.grid)...)
 		}
 		if len(rp.groups) > 0 {
 			pages = append(pages, rp)
@@ -83,22 +82,31 @@ func settingsReport(u *ui) []reportPage {
 }
 
 // gridReport returns the grid parameters of d's grid code, by group.
-func gridReport(d *vebus.Device) []reportGroup {
+func gridReport(d *vebus.Device, grid gridcode.Model) []reportGroup {
 	code, err := d.Raw(vebus.SettingID(gridCodeSetting))
 	if err != nil {
 		return nil
 	}
-	p, _ := gridcode.PageFor(gridcode.Code(code))
+	p, _ := gridPageFor(int(code), grid)
 	if p == nil {
 		return nil
 	}
 	var groups []reportGroup
 	index := map[string]int{}
+params:
 	for _, prm := range p.Params {
-		word, err := d.Raw(vebus.SettingID(prm.Word))
-		if err != nil {
+		for w := range prm.Words() {
+			if _, err := d.Raw(vebus.SettingID(w)); err != nil {
+				continue params
+			}
+		}
+		if show, _ := d.Raw(vebus.SettingID(prm.ShowWord)); !prm.Shown(show) {
 			continue
 		}
+		f := prm.FieldIn(func(w uint16) uint16 {
+			raw, _ := d.Raw(vebus.SettingID(w))
+			return raw
+		})
 		i, ok := index[prm.Group]
 		if !ok {
 			i = len(groups)
@@ -106,6 +114,9 @@ func gridReport(d *vebus.Device) []reportGroup {
 			title := gridText(p, prm.Group)
 			if prm.Group == "" {
 				title = gridText(p, p.Name)
+				if p.Title != "" {
+					title = gridText(p, p.Title)
+				}
 			}
 			groups = append(groups, reportGroup{title: title})
 		}
@@ -113,17 +124,16 @@ func gridReport(d *vebus.Device) []reportGroup {
 		switch prm.Kind {
 		case gridcode.Checkbox:
 			value = tr("off")
-			if prm.Unpack(word) == 1 {
+			if prm.Value(f) == 1 {
 				value = tr("on")
 			}
 		case gridcode.Choice:
-			f := prm.Field(word)
 			value = gridText(p, prm.Choices[f])
 			if value == "" {
 				value = tr("Value {{.Value}}", args{"Value": strconv.Itoa(f)})
 			}
 		default:
-			value = paramText(prm, prm.Unpack(word))
+			value = paramText(prm, prm.Value(f))
 		}
 		groups[i].rows = append(groups[i].rows, [2]string{gridText(p, prm.Name), value})
 	}
@@ -192,7 +202,7 @@ func exportSettings(u *ui) {
 		u.app.Clipboard().SetContent(text)
 	})
 	save := widget.NewButtonWithIcon(tr("Save…"), theme.DocumentSaveIcon(), func() {
-		dlg := dialog.NewFileSave(func(w fyne.URIWriteCloser, err error) {
+		showFileSave(u.win, tr("Select file to save exported settings"), storage.NewExtensionFileFilter([]string{".txt"}), "settings.txt", func(w fyne.URIWriteCloser, err error) {
 			if err == nil && w != nil {
 				_, err = w.Write([]byte(text))
 				err = errors.Join(err, w.Close())
@@ -200,11 +210,7 @@ func exportSettings(u *ui) {
 			if err != nil {
 				showError(u, err)
 			}
-		}, u.win)
-		dlg.SetTitleText(tr("Select file to save exported settings"))
-		dlg.SetFilter(storage.NewExtensionFileFilter([]string{".txt"}))
-		dlg.SetFileName("settings.txt")
-		dlg.Show()
+		})
 	})
 	content := container.NewBorder(nil, container.NewHBox(copyText, save), nil, nil, container.NewScroll(list))
 	showTableDialog(u, tr("Export"), content, tableDialogSize, tr("Close"), nil, nil)

@@ -24,6 +24,10 @@
 //	system write       write a .vms layout to the units (dry run without --yes)
 //	system reset       restart every unit of the system (needs --yes)
 //	system standalone  make the one unit switched on standalone (needs --yes)
+//	assistants read    read a unit's assistant area, optionally into a copy of a .rvsc/.rvms backup
+//	assistants write   write a backup's assistant area to its unit (dry run without --yes)
+//	assistants clear   write the empty assistant area (dry run without --yes)
+//	assistants probe   read-only probe of the assistant block read request (hardware check)
 //
 // Run "openveconfig-cli <command> --help" for the flags of a command. Every
 // command that talks to a device takes --simulator to use the built-in
@@ -96,6 +100,8 @@ type options struct {
 	yes, raw   bool // write-setting
 	maxSetting uint // dump
 	maxRAM     uint // dump
+	probeArg   uint // assistants probe
+	probeCount uint // assistants probe
 	rvsc       rvscOptions
 	apply      applyOptions
 	system     systemOptions
@@ -105,7 +111,7 @@ type options struct {
 var errUsage = errors.New("usage error")
 
 var commands = []*command{portsCmd, versionCmd, readSettingCmd, readRAMCmd, writeSettingCmd, dumpCmd,
-	rvscShowCmd, rvscDiffCmd, rvscSetCmd, rvscApplyCmd, rvscSystemCmd, applyCmd, systemCmd, firmwareCmd}
+	rvscShowCmd, rvscDiffCmd, rvscSetCmd, rvscApplyCmd, rvscSystemCmd, applyCmd, systemCmd, firmwareCmd, assistantsCmd}
 
 // run is main without the process: it returns the exit code.
 func run(args []string, stdout, stderr io.Writer) int {
@@ -289,9 +295,19 @@ type transport interface {
 // newSimulator returns the simulator used by --simulator. Tests replace it.
 var newSimulator = func() *simulator.Simulator {
 	return simulator.New(simulator.Config{HighSpeed: true, Devices: []simulator.Device{
-		{Address: 0, Profile: simulator.Synthetic12V230()},
+		demoAssistantUnit(),
 		{Address: 1, Profile: simulator.Synthetic48V120()},
 	}})
+}
+
+// demoAssistantUnit is device 0 of the simulator: a system unit with the
+// factory record (configured for assistants), long ID 0x10000001, and an
+// assistant area with a made-up program and an ESS RAM record, all
+// synthetic.
+func demoAssistantUnit() simulator.Device {
+	d := simulator.SystemDevice(simulator.SystemUnit{LongID: 0x10000001})
+	d.Assistants = &simulator.AssistantMemory{Image: simulator.ProgramArea(900), RAM: []uint16{0x0052, 0, 0}}
+	return d
 }
 
 // open opens the serial port or simulator chosen by the flags, wrapped in a

@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"bytes"
 	"encoding/binary"
 	"slices"
 
@@ -56,6 +57,17 @@ func (s *Simulator) cmdWinmon(_ *Line, f mk2.Frame) {
 		} else {
 			reply([]byte{mk2.WReplyAccessLevelRequired, 0, 0})
 		}
+
+	case mk2.WCmdReadGridInfo: // reverse-engineered (#84); see Config.GridInfo
+		part, block := int(info[0]), int(info[1])
+		at := 64*block + 11*(part-1)
+		if part < 1 || part > 6 || at >= len(s.gridInfo) {
+			unknown(0)
+			return
+		}
+		p := append([]byte{mk2.WReplyGridInfo}, bytes.Repeat([]byte{0xFF}, 11)...)
+		copy(p[1:], s.gridInfo[at:min(at+11, len(s.gridInfo))])
+		reply(p)
 
 	case mk2.WCmdSendSoftwareVersionPart0, mk2.WCmdSendSoftwareVersionPart1: // §7.3.1
 		v := d.p.Version
@@ -217,6 +229,17 @@ func (s *Simulator) cmdWinmon(_ *Line, f mk2.Frame) {
 			d.hasSnapshot = false
 		}
 		reply(p)
+
+	case WCmdBlockRead, WCmdBlockWrite: // the simulator's own codec (assistants.go)
+		if unsupported {
+			unknown(0)
+			return
+		}
+		if p := d.area.block(r.Cmd, r.Info); p != nil {
+			reply(p)
+			return
+		}
+		unknown(0)
 
 	default:
 		unknown(0)

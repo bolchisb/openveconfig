@@ -51,6 +51,12 @@ type Config struct {
 	// refused above the host's access level too, as CommandWriteViaID
 	// always is. Never put a real password here.
 	AccessPasswords []string
+	// GridInfo is the grid-info table the devices send for
+	// mk2.WCmdReadGridInfo (0x57, reverse-engineered, #84), nil for none
+	// (the command is unknown then). A part that starts past the table's
+	// end is unknown, which ends the table; the rest of the last part is
+	// 0xFF. Use made-up tables only.
+	GridInfo []byte
 	// HighSpeed makes the simulator an MK3 that accepts the baud-rate change
 	// 'N' (mk2.CmdBaudRate). This command is not in the MK2 document; its
 	// behaviour here follows the community reports cited at
@@ -81,6 +87,9 @@ type Device struct {
 	// answers the raw system frames. Several system units may share an
 	// address (see SystemUnit).
 	System *SystemUnit
+	// Assistants, if set, gives the device an assistant area (see
+	// AssistantMemory).
+	Assistants *AssistantMemory
 }
 
 // Handler handles one MK2 command frame from the host. It runs with the
@@ -122,6 +131,7 @@ type Simulator struct {
 	version   uint32
 	access    byte
 	passwords []string
+	gridInfo  []byte
 	nineBit   bool
 	resetDur  time.Duration
 	handlers  map[byte]Handler
@@ -146,6 +156,7 @@ func New(cfg Config) *Simulator {
 		version:   cfg.Version,
 		access:    cfg.AccessLevel,
 		passwords: cfg.AccessPasswords,
+		gridInfo:  cfg.GridInfo,
 		nineBit:   cfg.NineBit,
 		resetDur:  cfg.ResetDuration,
 		interval:  cfg.VersionInterval,

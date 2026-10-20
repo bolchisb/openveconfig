@@ -14,6 +14,7 @@ import (
 
 	"github.com/bolchisb/openveconfig/internal/rvsctest"
 	"github.com/bolchisb/openveconfig/pkg/gridcode"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 	"github.com/bolchisb/openveconfig/pkg/simulator"
 	"github.com/bolchisb/openveconfig/pkg/vebus"
 )
@@ -98,7 +99,7 @@ func TestGridCodeSelectAndSend(t *testing.T) {
 	if !d.Dirty(vebus.SettingID(gridCodeSetting)) || !marked(g.codeRow) {
 		t.Error("grid code not marked changed")
 	}
-	if p, _ := gridcode.PageFor(17); g.page != p || len(g.rows) == 0 {
+	if p, _ := gridcode.PageFor(17, -1); g.page == nil || g.page.Name != p.Name || len(g.rows) == 0 {
 		t.Errorf("page %v with %d rows, want the Europe page", g.page, len(g.rows))
 	}
 	if !strings.Contains(labelTexts(g.params), "Not supported yet") {
@@ -113,10 +114,11 @@ func TestGridCodeSelectAndSend(t *testing.T) {
 		t.Errorf("device grid code = %d, want 0 (nothing sent)", v)
 	}
 
-	// A code whose page is not known says so.
-	selectCode(t, g, 4)
+	// A code whose page is not known says so: on a device, an AS/NZS
+	// 4777.2:2015 code, whose page follows the parameter-set version.
+	selectCode(t, g, 6)
 	if g.rows != nil || !strings.Contains(labelTexts(g.params), "not known yet") {
-		t.Errorf("code 4: %d rows, text %q", len(g.rows), labelTexts(g.params))
+		t.Errorf("code 6: %d rows, text %q", len(g.rows), labelTexts(g.params))
 	}
 }
 
@@ -307,8 +309,8 @@ func TestGridSaveFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadSettingsFile(u, sf)
-	if text := labelTexts(g.params); !strings.Contains(text, "fit the grid code.") {
-		t.Errorf("check word status not shown as consistent: %q", text)
+	if text := labelTexts(g.params); strings.Contains(text, "check words") {
+		t.Errorf("consistent check words get a note: %q", text)
 	}
 	save := func(what string, want rvsctest.File) {
 		t.Helper()
@@ -327,8 +329,8 @@ func TestGridSaveFile(t *testing.T) {
 	spec.Units[0].Settings[gridCodeSetting] = 17
 	spec.Units[0].Settings[128], spec.Units[0].Settings[191] = 0x0411, 0x0413
 	save("grid code changed", spec)
-	if text := labelTexts(g.params); !strings.Contains(text, "fit the grid code.") {
-		t.Errorf("after saving, check word status %q", text)
+	if text := labelTexts(g.params); strings.Contains(text, "check words") {
+		t.Errorf("after saving, check word note %q", text)
 	}
 
 	// A parameter word: generation 5, same code.
@@ -361,12 +363,106 @@ func TestGridSaveFile(t *testing.T) {
 	save("grid code changed after an interrupted write", spec)
 }
 
+// defaultsTailTable returns a made-up grid-info table (format 3) for codes
+// 0-17: code 17 (version 1) uses words 128, 129, 150 and 191, with the
+// defaults 0x1234 for 129 and 0x0042 for 150; every other code has an
+// empty entry.
+func defaultsTailTable() []byte {
+	const codes = 18
+	b := []byte{0, 0, 3, codes, 8}
+	empty := len(b) + 2*codes
+	for c := range codes {
+		off := empty
+		if c == 17 {
+			off = empty + 3 + 16
+		}
+		b = binary.LittleEndian.AppendUint16(b, uint16(off))
+	}
+	b = append(b, make([]byte, 3+16)...) // empty entry: version, u16, two bitmaps
+	e := append([]byte{1, 0, 0}, make([]byte, 16)...)
+	for _, w := range []int{128, 129, 150, 191} {
+		e[3+8+(w-128)/8] |= 1 << ((w - 128) % 8)
+	}
+	e = binary.LittleEndian.AppendUint16(e, 0x1234) // word 129
+	e = binary.LittleEndian.AppendUint16(e, 0x0042) // word 150
+	b = append(append(b, e...), 0)                  // no masks
+	binary.LittleEndian.PutUint16(b, uint16(len(b)-5))
+	return b
+}
+
+// TestGridCodeDefaults: choosing a grid code in a file loads the defaults
+// its grid-info table gives the code, as the original does, and 0xFFFF in
+// the words without one; the checker words are left to be stamped. The
+// same code chosen again, or a model without a known table, changes no
+// word.
+func TestGridCodeDefaults(t *testing.T) {
+	u := newTestUI(t)
+	g := newGridTab(u)
+	spec := gridFile(0x0300, 0x0300)
+	table := defaultsTailTable()
+	tail := append([]byte{0x50, 0, 0, 0}, bytes.Repeat([]byte{0x81}, 192)...)
+	tail = binary.LittleEndian.AppendUint16(tail, uint16(len(table)))
+	spec.InfoTail = append(tail, table...)
+	sf, err := parseSettingsFile("grid.rvsc", spec.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadSettingsFile(u, sf)
+	d := u.settings.dev
+	if !u.settings.grid.Known {
+		t.Fatal("the file's grid-info table is not known")
+	}
+	word := func(w uint16) uint16 {
+		v, _ := d.Raw(vebus.SettingID(w))
+		return v
+	}
+
+	selectCode(t, g, 17)
+	for w := uint16(128); w <= 191; w++ {
+		want := uint16(0xFFFF)
+		switch w {
+		case 128, 191:
+			want = 0x0300 // stamped when saved
+		case 129:
+			want = 0x1234
+		case 150:
+			want = 0x0042
+		}
+		if got := word(w); got != want {
+			t.Errorf("code 17: word %d = %#04x, want %#04x", w, got, want)
+		}
+	}
+	if !paramRowOf(t, g, "Over-voltage trip on 10-minute running average").changed {
+		t.Error("a word changed by the defaults is not marked as changed")
+	}
+
+	// The same code again: nothing is loaded.
+	if err := d.SetRaw(vebus.SettingID(150), 7); err != nil {
+		t.Fatal(err)
+	}
+	g.code.onChanged(g.code.SelectedIndex())
+	if word(150) != 7 {
+		t.Errorf("code 17 chosen again: word 150 = %#04x, want it kept", word(150))
+	}
+
+	// A code with an empty entry: every word 0xFFFF.
+	selectCode(t, g, 3)
+	if word(129) != 0xFFFF || word(150) != 0xFFFF {
+		t.Errorf("code 3: words 129, 150 = %#04x, %#04x; want 0xFFFF", word(129), word(150))
+	}
+
+	// No known table: the words stay.
+	if before, err := loadCodeDefaults(d, gridcode.Model{}, 17); before != nil || err != nil || word(129) != 0xFFFF {
+		t.Errorf("no table: %v, %v, word 129 = %#04x", before, err, word(129))
+	}
+}
+
 // TestGridCheckStatusDevice: for a device the parameter-set version is
 // not known, so only the rest of the check is made.
 func TestGridCheckStatusDevice(t *testing.T) {
 	_, _, g, _ := gridSetup(t, 2699481)
-	if text := labelTexts(g.params); !strings.Contains(text, "fit the grid code. Their parameter-set version is not checked") {
-		t.Errorf("check word status %q", text)
+	if text := labelTexts(g.params); strings.Contains(text, "check words") {
+		t.Errorf("consistent check words get a note: %q", text)
 	}
 	if text := labelTexts(g.params); !strings.Contains(text, "saved to a settings file") {
 		t.Errorf("grid page notes %q", text)
@@ -423,5 +519,244 @@ func TestGridCodePicker(t *testing.T) {
 	}
 	if g.code.button.Text != "14 · Romania" {
 		t.Errorf("button %q after the choice", g.code.button.Text)
+	}
+}
+
+// TestGridRomaniaPage checks the Romania page against VEConfigure's, with
+// the grid words of a real file: the tab named after the page, the
+// over-voltage value from two words, the trip delays, the P(U) voltages
+// greyed while the curve is not used, the reactive-power rows of the
+// regulation, and no technical captions.
+func TestGridRomaniaPage(t *testing.T) {
+	u, _, g, d := gridSetup(t, 2699481)
+	for id, v := range map[uint16]uint16{gridCodeSetting: 14, 129: 59728, 130: 77, 131: 25300, 132: 25760,
+		133: 64650, 134: 3, 135: 3, 147: 42993, 148: 0, 149: 4165, 151: 32768} {
+		if err := d.SetRaw(vebus.SettingID(id), v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u.settings.load(d, nil)
+	if want := "Romania grid code settings (TOR-D4 derivative)"; g.paramsItem.Text != want {
+		t.Errorf("tab %q, want %q", g.paramsItem.Text, want)
+	}
+	shown := func() []string {
+		var names []string
+		for _, r := range g.rows {
+			if r.root.Visible() {
+				names = append(names, r.label.Text)
+			}
+		}
+		return names
+	}
+	// Reactive power regulation 0: a fixed cos phi.
+	if want := []string{"High frequency reconnect value", "Trip delay U<", "Trip delay U>>", "Over voltage U> (10 min. running mean)",
+		"Reconnection time", "P(U) curve", "UKnick", "UGrenz", "Reactive power regulation", "Filter time reactive power (1T)", "Cos phi is"}; !slices.Equal(shown(), want) {
+		t.Errorf("rows %q, want %q", shown(), want)
+	}
+	// The values VEConfigure shows for this file.
+	for name, want := range map[string]string{
+		"Under-voltage trip delay":              "0.0",
+		"Fast over-voltage trip delay":          "0.0",
+		"Reactive-power response time constant": "3.3",
+		"Constant cos phi (fixed mode)":         "1.00",
+	} {
+		if got := paramRowOf(t, g, name).control.(*numberEntry).Text; got != want {
+			t.Errorf("%s shows %q, want %q", name, got, want)
+		}
+	}
+	// Regulation 3: the Q(U) points.
+	if err := d.SetRaw(vebus.SettingID(148), 3); err != nil {
+		t.Fatal(err)
+	}
+	g.update(false)
+	if want := []string{"Q at point 1", "Reactive power curve point 1", "Q at point 2", "Reactive power curve point 2",
+		"Q at point 3", "Reactive power curve point 3", "Q at point 4", "Reactive power curve point 4"}; !slices.Equal(shown()[10:], want) {
+		t.Errorf("rows %q with Q(U), want %q after the first 10", shown(), want)
+	}
+	if err := d.SetRaw(vebus.SettingID(148), 0); err != nil {
+		t.Fatal(err)
+	}
+	g.update(false)
+	// Choosing a fixed Q sets it to 0, as the original does.
+	if err := d.SetRaw(vebus.SettingID(151), 40000); err != nil {
+		t.Fatal(err)
+	}
+	paramRowOf(t, g, "Reactive-power control mode").control.(*widget.Select).SetSelectedIndex(2)
+	if w, _ := d.Raw(vebus.SettingID(151)); w != 32768 {
+		t.Errorf("fixed Q stored as %d after choosing it, want 32768 (0 %%)", w)
+	}
+	if err := d.SetRaw(vebus.SettingID(148), 0); err != nil {
+		t.Fatal(err)
+	}
+	g.update(false)
+	ov := paramRowOf(t, g, "Over-voltage trip on 10-minute running average")
+	if got := ov.control.(*numberEntry).Text; got != "255.3" {
+		t.Errorf("over voltage shows %q, want 255.3", got)
+	}
+	knee := paramRowOf(t, g, "P(U) curve: knee voltage")
+	if !knee.control.(*numberEntry).Disabled() {
+		t.Error("U Knick is enabled while the P(U) curve is not used")
+	}
+	if strings.Contains(labelTexts(g.params), "bits 0x") {
+		t.Error("technical captions are shown")
+	}
+	// Editing the over-voltage writes both words.
+	ov.control.(*numberEntry).commit("260")
+	if lo, _ := d.Raw(vebus.SettingID(129)); lo != uint16(5200000&0xFFFF) {
+		t.Errorf("setting 129 = %d", lo)
+	}
+	if hi, _ := d.Raw(vebus.SettingID(130)); hi != uint16(5200000>>16) {
+		t.Errorf("setting 130 = %d", hi)
+	}
+}
+
+// TestGridPolandPage checks the Poland page: the start frequency in the
+// high byte of its word with three decimals, written to both bytes, and
+// the LFSM-O box that switches it off (0xFFFF) and greys it and the droop.
+func TestGridPolandPage(t *testing.T) {
+	u, _, g, d := gridSetup(t, 2699481)
+	for id, v := range map[uint16]uint16{gridCodeSetting: 32, 142: 0x0E0E, 144: 60, 148: 0} {
+		if err := d.SetRaw(vebus.SettingID(id), v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u.settings.load(d, nil)
+	if want := "Polish grid code settings (EU 2016/631)"; g.paramsItem.Text != want {
+		t.Errorf("tab %q, want %q", g.paramsItem.Text, want)
+	}
+	start := paramRowOf(t, g, "Over-frequency power reduction: start frequency")
+	droop := paramRowOf(t, g, "Over-frequency power reduction: droop")
+	box := paramRowOf(t, g, "Limited frequency-sensitive mode (over-frequency) enabled").control.(*widget.Check)
+	if got := start.control.(*numberEntry).Text; got != "50.350" || !box.Checked {
+		t.Errorf("start frequency %q, LFSM-O ticked %t; want 50.350, ticked", got, box.Checked)
+	}
+	start.control.(*numberEntry).commit("50.2")
+	if w, _ := d.Raw(vebus.SettingID(142)); w != 0x0808 {
+		t.Errorf("setting 142 = %#04x, want 0x0808", w)
+	}
+	box.SetChecked(false)
+	if w, _ := d.Raw(vebus.SettingID(142)); w != 0xFFFF || !start.control.(*numberEntry).Disabled() || !droop.control.(*numberEntry).Disabled() {
+		t.Errorf("LFSM-O off: setting 142 = %#04x, start frequency and droop greyed %t, %t", w,
+			start.control.(*numberEntry).Disabled(), droop.control.(*numberEntry).Disabled())
+	}
+	box.SetChecked(true)
+	if w, _ := d.Raw(vebus.SettingID(142)); w != 0x0808 || start.control.(*numberEntry).Disabled() {
+		t.Errorf("LFSM-O on: setting 142 = %#04x, start frequency greyed %t", w, start.control.(*numberEntry).Disabled())
+	}
+}
+
+// madeUpGridTable returns a made-up grid-info table, as a device sends it:
+// format 3, grid codes 0 to 9 with version 0, except France (9) at version 2.
+func madeUpGridTable() []byte {
+	const codes = 10
+	b := []byte{0, 0, 3, codes, 8}
+	at := len(b) + 2*codes
+	entry := func(v byte) []byte {
+		e := append([]byte{v, 0, 0}, make([]byte, 16)...)
+		e[3+8], e[3+15] = 0x01, 0x80 // words 128 and 191 in the second bitmap
+		return append(e, 0)
+	}
+	var entries []byte
+	for c := range codes {
+		v := byte(0)
+		if c == 9 {
+			v = 2
+		}
+		b = append(b, byte(at+len(entries)), byte((at+len(entries))>>8))
+		entries = append(entries, entry(v)...)
+	}
+	b = append(b, entries...)
+	binary.LittleEndian.PutUint16(b, uint16(len(b)))
+	var sum uint16
+	for i, x := range b {
+		sum += uint16(x) << (8 * (i % 2))
+	}
+	return binary.LittleEndian.AppendUint16(b, sum)
+}
+
+// TestGridDeviceTable checks that the grid-info table read from a device
+// sets the page as from a file: France at version 2 gets the compact
+// reactive-power layout and the VFR 2019 caption, and its entry of the
+// grid code list the VFR 2019 standard.
+func TestGridDeviceTable(t *testing.T) {
+	for _, table := range [][]byte{madeUpGridTable(), nil} {
+		sim := simulator.New(simulator.Config{VersionInterval: -1, GridInfo: table,
+			Devices: []simulator.Device{{Address: 0, Profile: gridProfile(2699481)}}})
+		s := &session{client: mk2.NewClient(sim.Port(), nil), lock: make(chan struct{}, 1), devices: []byte{0}}
+		t.Cleanup(func() { s.close() })
+		m := readGridInfo(ctxT(t), s, 0)
+		// The read table may end with the padding of its last part.
+		if !m.Known || len(m.Table) < len(table) || !bytes.Equal(m.Table[:len(table)], table) {
+			t.Fatalf("table %x read as %+v", table, m)
+		}
+		p, _ := gridPageFor(9, m)
+		compact := slices.ContainsFunc(p.Params, func(q gridcode.Param) bool { return q.Name == "Lowest cos phi allowed while following a Q set-point" })
+		if want := table != nil; compact != want || (p.Title == "VFR 2019 grid code settings") != want {
+			t.Errorf("table %t: compact layout %t, title %q", want, compact, p.Title)
+		}
+		want := "UTE C15-712-1:2013-07"
+		if table != nil {
+			want = "VDE V 0126-1-1 VFR 2019"
+		}
+		if it := gridCodeItem(9, m, 2699481); it.subtitle != want || !strings.HasSuffix(it.label, want+" (needs password)") {
+			t.Errorf("table %t: list entry %q, %q; want the standard %q", table != nil, it.subtitle, it.label, want)
+		}
+	}
+}
+
+// TestGridNSProtection chooses the Germany codes for a file of a device
+// with and without built-in interface protection: the question offers the
+// other code, and Cancel keeps the code as it was.
+func TestGridNSProtection(t *testing.T) {
+	u := newTestUI(t)
+	g := newGridTab(u)
+	sf, err := parseSettingsFile("grid.rvsc", gridFile(0x0300, 0x0300).Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadSettingsFile(u, sf)
+	code := func() uint16 {
+		v, _ := u.settings.dev.Raw(vebus.SettingID(gridCodeSetting))
+		return v
+	}
+	answer := func(button string) {
+		t.Helper()
+		dlg := u.win.Canvas().Overlays().Top()
+		if dlg == nil {
+			t.Fatal("no question")
+		}
+		bs := findObjects(dlg, func(o fyne.CanvasObject) bool { b, ok := o.(*widget.Button); return ok && b.Text == button })
+		if len(bs) != 1 {
+			t.Fatalf("no %q button in %q", button, labelTexts(dlg))
+		}
+		test.Tap(bs[0].(*widget.Button))
+	}
+	sf.unit.VersionExtra = []byte{0x08, 0x04}
+	for _, tc := range []struct {
+		button string
+		want   uint16
+	}{{"Cancel", 0}, {"Yes", 5}, {"No", 4}} {
+		selectCode(t, g, 4)
+		answer(tc.button)
+		if c := code(); c != tc.want {
+			t.Errorf("code 4 with internal protection, %s: code %d, want %d", tc.button, c, tc.want)
+		}
+	}
+	selectCode(t, g, 5) // fits: no question
+	if c := code(); c != 5 || u.win.Canvas().Overlays().Top() != nil {
+		t.Errorf("code 5 with internal protection: code %d", c)
+	}
+
+	sf.unit.VersionExtra = nil
+	selectCode(t, g, 4)
+	for _, tc := range []struct {
+		button string
+		want   uint16
+	}{{"Cancel", 4}, {"OK", 4}} {
+		selectCode(t, g, 5)
+		answer(tc.button)
+		if c := code(); c != tc.want {
+			t.Errorf("code 5 without internal protection, %s: code %d, want %d", tc.button, c, tc.want)
+		}
 	}
 }

@@ -21,6 +21,9 @@ type settingsModel struct {
 	dev *vebus.Device
 	// file is the settings file dev was loaded from, or nil.
 	file *settingsFile
+	// grid is the grid-info table of file or of the device dev was read
+	// from (not known when it was not read).
+	grid gridcode.Model
 
 	listeners []func(loaded bool)
 	// navigators show the control of an entry; see onFind.
@@ -36,7 +39,23 @@ func (m *settingsModel) onChange(f func(loaded bool)) { m.listeners = append(m.l
 // load makes d, loaded from file (nil for a device), the model and tells
 // the listeners.
 func (m *settingsModel) load(d *vebus.Device, file *settingsFile) {
-	m.dev, m.file = d, file
+	var grid gridcode.Model
+	if file != nil {
+		if table, err := file.f.GridInfo(); err == nil {
+			grid = gridcode.TableModel(table)
+		}
+	}
+	m.loadGrid(d, file, grid)
+}
+
+// loadFromDevice makes d, read from a device whose grid-info table is
+// grid, the model and tells the listeners.
+func (m *settingsModel) loadFromDevice(d *vebus.Device, grid gridcode.Model) {
+	m.loadGrid(d, nil, grid)
+}
+
+func (m *settingsModel) loadGrid(d *vebus.Device, file *settingsFile, grid gridcode.Model) {
+	m.dev, m.file, m.grid = d, file, grid
 	m.notify(true)
 }
 

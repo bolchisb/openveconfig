@@ -727,7 +727,7 @@ func (c *sysConfig) showSetup() {
 // openFile loads a .vms file. Units found on the bus take the file's place
 // for the same long ID, so the check uses what the units report.
 func (c *sysConfig) openFile() {
-	dlg := dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
+	showFileOpen(c.win, vmsFilter, func(r fyne.URIReadCloser, err error) {
 		if err != nil {
 			showMessageOn(c.win, tr("Error"), err.Error())
 			return
@@ -743,9 +743,7 @@ func (c *sysConfig) openFile() {
 		if err != nil {
 			showMessageOn(c.win, tr("Error"), tr("Cannot open {{.File}}: {{.Err}}", args{"File": r.URI().Name(), "Err": err}))
 		}
-	}, c.win)
-	dlg.SetFilter(vmsFilter)
-	dlg.Show()
+	})
 }
 
 // loadFile shows the layout of the .vms file data.
@@ -774,7 +772,11 @@ func (c *sysConfig) saveFile() {
 		showMessageOn(c.win, tr("Error"), err.Error())
 		return
 	}
-	dlg := dialog.NewFileSave(func(w fyne.URIWriteCloser, err error) {
+	name := c.file
+	if name == "" {
+		name = "system.vms"
+	}
+	showFileSave(c.win, "", vmsFilter, name, func(w fyne.URIWriteCloser, err error) {
 		if err != nil {
 			showMessageOn(c.win, tr("Error"), err.Error())
 			return
@@ -791,14 +793,7 @@ func (c *sysConfig) saveFile() {
 			return
 		}
 		c.file = w.URI().Name()
-	}, c.win)
-	dlg.SetFilter(vmsFilter)
-	name := c.file
-	if name == "" {
-		name = "system.vms"
-	}
-	dlg.SetFileName(name)
-	dlg.Show()
+	})
 }
 
 // updatedBackup returns the .rvsc/.rvms backup data with the layout's
@@ -821,7 +816,7 @@ func (c *sysConfig) updatedBackup(data []byte) ([]byte, error) {
 // device's VE.Bus backup), puts the layout into it and saves the result as
 // a new file. The backup itself is never overwritten.
 func (c *sysConfig) updateBackup() {
-	dlg := dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
+	showFileOpen(c.win, rvscFilter, func(r fyne.URIReadCloser, err error) {
 		if err != nil || r == nil {
 			if err != nil {
 				showMessageOn(c.win, tr("Error"), err.Error())
@@ -847,14 +842,13 @@ func (c *sysConfig) updateBackup() {
 		d.SetConfirmText(tr("Save copy…"))
 		d.SetDismissText(tr("Cancel"))
 		d.Show()
-	}, c.win)
-	dlg.SetFilter(rvscFilter)
-	dlg.Show()
+	})
 }
 
 // saveBackup saves data as a new file, never over src.
 func (c *sysConfig) saveBackup(src fyne.URI, data []byte) {
-	dlg := dialog.NewFileSave(func(w fyne.URIWriteCloser, err error) {
+	name := src.Name()
+	showFileSave(c.win, "", rvscFilter, strings.TrimSuffix(name, src.Extension())+"-system"+src.Extension(), func(w fyne.URIWriteCloser, err error) {
 		if err != nil || w == nil {
 			if err != nil {
 				showMessageOn(c.win, tr("Error"), err.Error())
@@ -873,9 +867,5 @@ func (c *sysConfig) saveBackup(src fyne.URI, data []byte) {
 		if err != nil {
 			showMessageOn(c.win, tr("Error"), err.Error())
 		}
-	}, c.win)
-	dlg.SetFilter(rvscFilter)
-	name := src.Name()
-	dlg.SetFileName(strings.TrimSuffix(name, src.Extension()) + "-system" + src.Extension())
-	dlg.Show()
+	})
 }

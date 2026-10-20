@@ -27,6 +27,8 @@ var (
 	bundle    = loadTranslations()
 	localizer *i18n.Localizer
 	printer   *message.Printer
+	// uiLanguage is the language asked for in setLanguage.
+	uiLanguage language.Tag
 )
 
 func init() { setLanguage("en") }
@@ -60,7 +62,8 @@ func setLanguage(pref string) {
 		pref = lang.SystemLocale().LanguageString()
 	}
 	localizer = i18n.NewLocalizer(bundle, pref)
-	printer = message.NewPrinter(language.Make(pref))
+	uiLanguage = language.Make(pref)
+	printer = message.NewPrinter(uiLanguage)
 }
 
 // languages returns the languages that have a catalog.

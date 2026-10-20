@@ -24,6 +24,7 @@ type rvscOptions struct {
 	force         bool   // rvsc-set
 	allowGridCode bool   // rvsc-set, rvsc-apply
 	single        bool   // rvsc-apply
+	assistants    string // rvsc-apply: keep or write
 }
 
 const unitFlagHelp = "the unit to use, by serial number or long ID (decimal or 0x hex); required when the file has more than one"

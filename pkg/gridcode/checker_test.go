@@ -132,6 +132,113 @@ func gridTable(format byte, versions []byte, codes []int) []byte {
 	return b
 }
 
+// maskTable builds a format-3 grid-info table with three entries: code 0
+// empty, code 1 using words 128, 148, 149, 190 and 191 with masks for 148
+// (0x3F) and 190, code 2 using 128, 148 and 191 without masks.
+func maskTable() []byte {
+	bitmap := func(words ...uint16) []byte {
+		b := make([]byte, 8)
+		for _, w := range words {
+			b[(w-128)/8] |= 1 << ((w - 128) % 8)
+		}
+		return b
+	}
+	entry := func(used []uint16, triples ...[3]byte) []byte {
+		e := append([]byte{0, 0, 0}, bitmap(129, 130)...) // version, u16, first bitmap
+		e = append(e, bitmap(used...)...)
+		if len(used) > 0 {
+			e = append(e, make([]byte, 2*(len(used)-2))...) // defaults
+		}
+		for _, t := range triples {
+			e = append(e, t[:]...)
+		}
+		return append(e, 0)
+	}
+	entries := [][]byte{
+		entry(nil),
+		entry([]uint16{128, 148, 149, 190, 191}, [3]byte{20, 0x3F, 0}, [3]byte{62, 0x0F, 0}),
+		entry([]uint16{128, 148, 191}),
+	}
+	b := []byte{0, 0, 3, byte(len(entries)), 8}
+	at := len(b) + 2*len(entries)
+	for _, e := range entries {
+		b = append(b, byte(at), byte(at>>8))
+		at += len(e)
+	}
+	for _, e := range entries {
+		b = append(b, e...)
+	}
+	return b
+}
+
+// withEntry returns table with room for grid code g, whose entry is that
+// of code from (the codes in between get entry 0).
+func withEntry(table []byte, g, from Code) []byte {
+	n := int(table[tableOffCount])
+	offsets := make([]byte, 2*(int(g)+1))
+	for c := range int(g) + 1 {
+		src := 0
+		switch {
+		case c < n:
+			src = c
+		case Code(c) == g:
+			src = int(from)
+		}
+		off := int(table[tableOffOffsets+2*src]) | int(table[tableOffOffsets+2*src+1])<<8
+		off += len(offsets) - 2*n
+		offsets[2*c], offsets[2*c+1] = byte(off), byte(off>>8)
+	}
+	b := append([]byte{table[0], table[1], table[2], byte(g + 1), table[4]}, offsets...)
+	return append(b, table[tableOffOffsets+2*n:]...)
+}
+
+func TestEditMask(t *testing.T) {
+	table := maskTable()
+	for _, tc := range []struct {
+		g    Code
+		w    uint16
+		mask uint16
+		ok   bool
+	}{
+		{0, 148, 0, true},      // empty entry
+		{1, 148, 0x3F, true},   // listed mask
+		{1, 190, 0x0F, true},   // listed mask
+		{1, 149, 0xFFFF, true}, // used, no mask listed
+		{1, 150, 0, true},      // not used
+		{2, 148, 0xFFFF, true},
+		{3, 148, 0, false}, // outside the table
+	} {
+		if m, ok, err := EditMask(table, tc.g, tc.w); err != nil || m != tc.mask || ok != tc.ok {
+			t.Errorf("code %d word %d: %#04x, %t, %v; want %#04x, %t", tc.g, tc.w, m, ok, err, tc.mask, tc.ok)
+		}
+	}
+	if m, ok, err := EditMask(withEntry(table, 18, 1), 18, 148); m != 0x3F || !ok || err != nil {
+		t.Errorf("code 18 with code 1's entry: %#04x, %t, %v", m, ok, err)
+	}
+	if d, err := Defaults(table, 1); err != nil || len(d) != 3 || d[148] != 0 || d[149] != 0 || d[190] != 0 {
+		t.Errorf("Defaults of code 1: %v, %v", d, err)
+	}
+	// An empty entry and a code outside the table have no defaults (every
+	// word 0xFFFF in the original); a table without defaults gives nil.
+	for _, g := range []Code{0, 3} {
+		if d, err := Defaults(table, g); err != nil || d == nil || len(d) != 0 {
+			t.Errorf("Defaults of code %d: %v, %v; want an empty map", g, d, err)
+		}
+	}
+	if d, err := Defaults(gridTable(1, []byte{0}, []int{0}), 0); err != nil || d != nil {
+		t.Errorf("Defaults of a format 1 table: %v, %v; want nil", d, err)
+	}
+	if d, err := Defaults(nil, 0); err != nil || d != nil {
+		t.Errorf("Defaults without a table: %v, %v; want nil", d, err)
+	}
+	if _, ok, err := EditMask(nil, 1, 148); ok || err != nil {
+		t.Error("no table: want not ok")
+	}
+	if _, _, err := EditMask(table[:len(table)-1], 2, 148); err == nil {
+		t.Error("cut-off table: no error")
+	}
+}
+
 func TestParamSetVersion(t *testing.T) {
 	table := gridTable(3, []byte{0, 1, 2}, []int{0, 1, 2, 1, 0})
 	for g, want := range []uint8{0, 1, 2, 1, 0} {
@@ -182,5 +289,27 @@ func TestCheckDeviceWrite(t *testing.T) {
 	}
 	if err := CheckDeviceWrite([]uint16{44, 81, 150}); err == nil || !strings.Contains(err.Error(), "settings 81, 150") {
 		t.Errorf("error %v does not name settings 81 and 150", err)
+	}
+}
+
+func TestCheckTable(t *testing.T) {
+	if err := CheckTable(nil); err != nil {
+		t.Errorf("no table: %v", err)
+	}
+	// Code 0 at version 2, 6 and 7 at 1, 9 at 2: the highest known.
+	if err := CheckTable(gridTable(3, []byte{0, 1, 2}, []int{2, 0, 0, 0, 0, 0, 1, 1, 0, 2})); err != nil {
+		t.Errorf("known versions: %v", err)
+	}
+	for name, table := range map[string][]byte{
+		"version above the highest": gridTable(3, []byte{0, 1}, []int{0, 1}),
+		"format 4":                  gridTable(4, []byte{0}, []int{0}),
+		"34 codes":                  gridTable(3, []byte{0}, make([]int, 34)),
+	} {
+		if err := CheckTable(table); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+		if TableModel(table).Known {
+			t.Errorf("%s: the model is known", name)
+		}
 	}
 }
