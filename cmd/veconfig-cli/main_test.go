@@ -284,6 +284,32 @@ func TestFrameLogSplitsFrames(t *testing.T) {
 	}
 }
 
+func TestFrameLogSystemFrames(t *testing.T) {
+	// A system frame is logged as sent; the unit's reply, a VE.Bus frame,
+	// is logged as one RX frame.
+	var buf bytes.Buffer
+	reply, _ := mk2.SystemConfig{LongID: 0x12345678, ResponseChar: 0x02}.Frame().Encode()
+	l := newFrameLog(&chunks{reply[:5], reply[5:]}, &buf)
+	req, err := mk2.EncodeRaw(mk2.SystemPayload(0x12345678, mk2.SysReadConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Write(req); err != nil {
+		t.Fatal(err)
+	}
+	b := make([]byte, 32)
+	for {
+		if _, err := l.Read(b); err != nil {
+			break
+		}
+	}
+	l.Close()
+	want := regexp.MustCompile(`^\S+ TX 06 21 78 56 34 12 05 28\n\S+ RX 10 20 78 56 34 12 02 00( 00){9} [0-9A-F]{2}\n$`)
+	if !want.MatchString(buf.String()) {
+		t.Errorf("log:\n%s", buf.String())
+	}
+}
+
 func TestBaud115200(t *testing.T) {
 	// An interface that ignores 'N' stays at 2400: forced 115200 fails.
 	withSimulator(t, func(s *simulator.Simulator) {

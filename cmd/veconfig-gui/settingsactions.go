@@ -53,20 +53,20 @@ func modelStatus(m *settingsModel) string {
 	if n := c.invalid; n > 0 {
 		text += " " + trn("{{.Count}} value is not valid; correct it before sending.", "{{.Count}} values are not valid; correct them before sending.", n)
 	}
-	if n := c.gridWords; n > 0 {
-		text += " " + trn("{{.Count}} grid parameter word was changed; it cannot be sent or saved yet (see the Grid page).",
-			"{{.Count}} grid parameter words were changed; they cannot be sent or saved yet (see the Grid page).", n)
+	if m.file == nil && (c.gridWords > 0 || c.gridCode) {
+		text += " " + tr("The grid code or grid parameters were changed; these changes cannot be sent straight to a device (see the Grid page).")
 	}
 	return text
 }
 
 // changeCounts counts the unsent changes of a model.
 type changeCounts struct {
-	changed   int // changed entries on the settings pages and the grid page
-	reset     int // of which need a device reset
-	password  int // of which need a password
-	invalid   int // values that block sending (validationErrors)
-	gridWords int // changed grid parameter words (changedGridWords)
+	changed   int  // changed entries on the settings pages and the grid page
+	reset     int  // of which need a device reset
+	password  int  // of which need a password
+	invalid   int  // values that block sending (validationErrors)
+	gridWords int  // changed grid parameter words (changedGridWords)
+	gridCode  bool // the grid code was changed
 }
 
 // total is the number of unsent changes, grid words included.
@@ -89,6 +89,7 @@ func countChanges(d *vebus.Device) changeCounts {
 	}
 	c.invalid = len(validationErrors(d))
 	c.gridWords = len(changedGridWords(d))
+	c.gridCode = d.Dirty(vebus.SettingID(gridCodeSetting))
 	return c
 }
 
@@ -306,9 +307,10 @@ func readSettings(ctx context.Context, s *session, addr byte, ids []uint16, prog
 }
 
 // writeSettings writes the changed settings of d (all with all, except the
-// grid words and an unchanged grid code: writeAllButGrid) to the device at
-// d.Address through s. It writes nothing when grid parameters were changed
-// (gridWriteCheck). d must not be touched by others until it returns.
+// grid code and the grid words: writeAllButGrid) to the device at
+// d.Address through s. It writes nothing when the grid code or grid
+// parameters were changed (gridWriteCheck). d must not be touched by
+// others until it returns.
 func writeSettings(ctx context.Context, s *session, d *vebus.Device, all bool, progress func(done, total int)) (*vebus.WriteReport, error) {
 	if err := gridWriteCheck(d); err != nil {
 		return nil, err
@@ -383,8 +385,7 @@ func sendSettings(u *ui) {
 	what.OnChanged = func(sel string) {
 		if sel == all {
 			explain.Segments[0].(*widget.TextSegment).Text = tr("Every setting is written to the device again, also the ones you did not change. " +
-				"The grid code is written only if you changed it. The grid parameters are left as the device has them, " +
-				"because their check words cannot be computed yet.")
+				"The grid code and the grid parameters are left as the device has them.")
 		} else if m.file != nil {
 			explain.Segments[0].(*widget.TextSegment).Text = tr("Only the settings that differ between the file and the device are written.")
 		} else {

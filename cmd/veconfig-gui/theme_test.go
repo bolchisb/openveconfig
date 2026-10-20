@@ -54,15 +54,18 @@ func TestThemeContrast(t *testing.T) {
 			{"placeholder (muted) on input", k.muted, k.input},
 			{"on primary on primary", k.onPrimary, k.primary},
 			{"primary on surface", k.primary, k.surface},
+			// Error and success also colour text; warning (and "changed") is
+			// only a fill, with text in its own colour on it.
 			{"error on surface", k.errorColor, k.surface},
-			{"warning on surface", k.warning, k.surface},
 			{"success on surface", k.success, k.surface},
-			{"on warning on warning", k.onSemantic, k.warning},
+			{"on warning on warning", k.onWarning, k.warning},
 			{"on error on error", k.onSemantic, k.errorColor},
 			{"on success on success", k.onSemantic, k.success},
-			{"warning pill", k.warning, over(withAlpha(k.warning, pillTint), k.surface)},
-			{"success pill", k.success, over(withAlpha(k.success, pillTint), k.surface)},
-			{"primary pill", k.primary, over(withAlpha(k.primary, pillTint), k.surface)},
+			// Pills that are not solid have foreground text on a tint.
+			{"warning pill", k.foreground, over(withAlpha(k.warning, pillTint), k.surface)},
+			{"error pill", k.foreground, over(withAlpha(k.errorColor, pillTint), k.surface)},
+			{"success pill", k.foreground, over(withAlpha(k.success, pillTint), k.surface)},
+			{"primary pill", k.foreground, over(withAlpha(k.primary, pillTint), k.surface)},
 			{"foreground on selection", k.foreground, over(withAlpha(k.primary, 0x33), k.surface)},
 		}
 		for _, p := range text {

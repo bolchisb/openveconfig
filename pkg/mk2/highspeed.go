@@ -98,6 +98,7 @@ const verifyAttempts = 3
 func (c *Client) NegotiateBaud(ctx context.Context, port BaudRateSetter, mode HighSpeed) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.linkReady = false // the link is set up again, possibly after 'R'
 	if err := c.restoreLowSpeed(ctx, port); err != nil {
 		return BaudRate, err
 	}

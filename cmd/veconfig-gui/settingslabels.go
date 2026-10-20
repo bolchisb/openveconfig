@@ -62,12 +62,13 @@ func settingLabels() map[vebus.ID]string {
 		s(75): tr("Battery current that ends absorption"),
 		f(4):  tr("Stop bulk charging after its safety time"),
 		f(14): tr("Accept a distorted AC input"),
+		f(40): tr("Ignore the battery voltage sense input"),
 		s(86): tr("Block charging below temperature"),
 		s(87): tr("Temperature compensation"),
 
 		// Virtual switch: usage and options.
-		s(15): tr("The virtual switch controls"),
-		f(26): tr("Invert the virtual switch"),
+		s(15): tr("Specify virtual switch usage"),
+		f(26): tr("Invert virtual switch usage"),
 		s(43): tr("Minimum on time"),
 		f(34): tr("Shift the inverter frequency while on"),
 		s(62): tr("Inverter period while shifted"),
@@ -163,6 +164,7 @@ func settingHelp() map[vebus.ID]string {
 		s(7):  tr("A short absorption, repeated at the interval below while floating."),
 		s(75): tr("Absorption also ends when the battery current falls below this."),
 		f(14): tr("Lets the charger run on a distorted supply, such as a small generator."),
+		f(40): tr("For fault finding only: the voltage measured on the sense wires is not used. Leave it off in normal use."),
 		s(87): tr("How much the charge voltages drop per degree the battery warms up."),
 		s(88): tr("The charger keeps the battery at least at this voltage."),
 	}
@@ -190,6 +192,23 @@ var masterFlags = map[uint16][]vebus.ID{
 var masterValues = map[uint16][]vebus.ID{
 	64: {vebus.SettingID(65), vebus.SettingID(72), vebus.SettingID(74)},
 	84: {vebus.SettingID(83)},
+	86: nil, // the low-temperature charge block: raw 0 is off
+}
+
+// groupOverrides moves entries to a group of the settings pages other than
+// their catalogue group: the low-temperature charge block gets a card of
+// its own, so that its switch does not sit on the temperature compensation.
+var groupOverrides = map[vebus.ID]string{
+	vebus.SettingID(86): "Low-temperature charge block",
+	vebus.FlagID(26):    "Usage", // the inversion goes with the usage, as in the original
+}
+
+// entryGroup returns the group e is shown in on the settings pages.
+func entryGroup(e vebus.Entry) string {
+	if g, ok := groupOverrides[e.ID()]; ok {
+		return g
+	}
+	return e.Group
 }
 
 // valueSwitches are the groups switched on by a master value (masterValues)
@@ -197,15 +216,78 @@ var masterValues = map[uint16][]vebus.ID{
 // not 0", like the original tool's check box that is no device value
 // (reverse-engineered, #6). While the function is off, the master value
 // itself is disabled too.
-var valueSwitches = map[string]uint16{"Battery monitor": 64, "State of charge shutdown": 84}
+var valueSwitches = map[string]uint16{"Battery monitor": 64, "State of charge shutdown": 84, "Low-temperature charge block": 86}
 
 // valueSwitchHint is shown under a value switch that was turned on before
 // its master value n was entered.
 func valueSwitchHint(n uint16) string {
-	if n == 64 {
+	switch n {
+	case 64:
 		return tr("Enter the battery bank capacity to turn the battery monitor on.")
+	case 86:
+		return tr("Enter the temperature below which charging stops.")
 	}
 	return tr("Enter the restart level to turn the shutdown on.")
+}
+
+// cardPairs are groups shown as the two columns of one card: the key's
+// group on the left, the value's on the right.
+var cardPairs = map[string]string{"Charge voltages and current": "Absorption"}
+
+// cardSplits are groups shown as one card with two columns: the entries
+// listed first on the left, the others on the right.
+var cardSplits = map[string][]vebus.ID{
+	"AC input voltage limits": {vebus.SettingID(44), vebus.SettingID(45)}, // low levels left, high right
+}
+
+// pairTitle returns the title of the card of the pair whose left group is
+// left.
+func pairTitle(left string) string {
+	if left == "Charge voltages and current" {
+		return tr("Charge voltages and times")
+	}
+	return groupLabel(left)
+}
+
+// The Charger page hides lithiumHidden while the lithium flag (36) is on, and
+// shows lithiumOnly only then; with lithium the charge algorithm offers no
+// gradual-absorption variant (3). Reverse-engineered (#6).
+var (
+	lithiumHidden = []vebus.ID{vebus.FlagID(11), vebus.FlagID(29), vebus.SettingID(87)}
+	lithiumOnly   = []vebus.ID{vebus.SettingID(86), vebus.FlagID(39)}
+)
+
+// lithiumOn reports whether d's lithium flag is set.
+func lithiumOn(d *vebus.Device) bool {
+	on, err := d.Flag(36)
+	return err == nil && on
+}
+
+// lithiumChanged makes the changes that switching the lithium flag implies
+// (reverse-engineered, #6). On: storage mode and the traction curve are
+// cleared, and the adaptive algorithm with gradual absorption becomes the
+// fixed one. Off: the low-temperature charge block is turned off (raw 0)
+// and the VE.Bus BMS flag is cleared.
+func lithiumChanged(d *vebus.Device, on bool) error {
+	var errs []error
+	clear := func(n uint16) {
+		if d.Supported(vebus.FlagID(n)) {
+			errs = append(errs, d.SetFlag(n, false))
+		}
+	}
+	if on {
+		clear(11)
+		clear(29)
+		if raw, err := d.Raw(vebus.SettingID(10)); err == nil && raw == 3 {
+			errs = append(errs, d.SetRaw(vebus.SettingID(10), 1))
+		}
+	} else {
+		if d.Supported(vebus.SettingID(86)) {
+			errs = append(errs, d.SetRaw(vebus.SettingID(86), 0))
+		}
+		clear(39)
+	}
+	return errors.Join(errs...)
 }
 
 // batteryMonitorOff makes the changes that turning the battery monitor off
@@ -253,6 +335,8 @@ func groupLabel(group string) string {
 		return tr("Charger")
 	case "Temperature":
 		return tr("Temperature")
+	case "Low-temperature charge block":
+		return tr("Stop charging at low temperature")
 	case "Usage":
 		return tr("Usage")
 	case "On conditions":
@@ -286,17 +370,44 @@ func groupLabel(group string) string {
 // text.
 func choiceLabels() map[uint16]map[uint16]string {
 	return map[uint16]map[uint16]string{
-		10: {1: tr("Fixed"), 2: tr("Adaptive"), 3: tr("Adaptive, with a gradual absorption phase")},
-		15: {
-			0: tr("Nothing (not used)"),
-			1: tr("The relay"),
-			2: tr("Disconnecting the AC input"),
-			3: tr("Second switch disconnects the AC input"),
-			4: tr("Second switch runs a generator"),
-			5: tr("The relay and disconnecting the AC input"),
-			6: tr("Disconnecting the AC input; second switch runs a generator"),
-		},
+		// "Adaptive + BatterySafe" is the name Victron's public manuals use.
+		10: {1: tr("Fixed"), 2: tr("Adaptive"), 3: tr("Adaptive + BatterySafe")},
+		15: usageLabels(),
 	}
+}
+
+// usageLabels returns the labels of the virtual switch usages (setting 15).
+// They are the texts the original tool shows, kept word for word because
+// installers know them (user decision of 2026-10-20, see docs/CLEAN-ROOM.md).
+func usageLabels() map[uint16]string {
+	return map[uint16]string{
+		0: tr("Do not use VS"),
+		1: tr("drive multifunctional (aux.) relay: VS on=open; VS off=close"),
+		2: tr("ignore AC input: VS on=ignore; VS off=do not ignore"),
+		3: tr("dedicated ignore AC input"),
+		4: tr("dedicated generator control"),
+		5: tr("drive aux. relay (VS on=open) + dedicated ignore AC input"),
+		6: tr("ignore AC input (VS on=ignore) + dedicated generator control"),
+	}
+}
+
+// usageInvertible reports whether a virtual switch usage can be inverted:
+// those in which the first switch drives the relay or the AC input.
+func usageInvertible(usage uint16) bool { return usage == 1 || usage == 2 || usage == 5 || usage == 6 }
+
+// vsGroupShown reports whether the virtual switch sub-page of group is shown
+// for usage: only the usage page while the switch is not used; the first
+// switch's pages when it drives something (1, 2, 5, 6); the second switch's
+// page for usages 3 to 6. Reverse-engineered (#6); for 3 and 4 the first
+// switch's pages are taken to be hidden (inferred).
+func vsGroupShown(group string, usage uint16) bool {
+	switch group {
+	case "Usage":
+		return true
+	case "Virtual switch 2":
+		return usage >= 3
+	}
+	return usageInvertible(usage)
 }
 
 // flagChoices returns the flags shown as a choice of two: the label for

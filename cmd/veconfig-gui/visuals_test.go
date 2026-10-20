@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/theme"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus"
@@ -83,11 +82,14 @@ func TestChargeChart(t *testing.T) {
 		t.Errorf("subtitle %q, caption %q", s.subtitle, s.caption)
 	}
 	abs, flt := label(t, s.plot, "14.40 V"), label(t, s.plot, "13.80 V")
-	if abs.y <= flt.y || abs.y > 1 || flt.y < voltageBottom {
-		t.Errorf("absorption at y %v, float at y %v; want absorption above float in the voltage panel", abs.y, flt.y)
+	if abs.y <= flt.y || abs.y > 1 || flt.y <= 0 {
+		t.Errorf("absorption at y %v, float at y %v; want absorption above float", abs.y, flt.y)
 	}
-	if l := label(t, s.plot, "70 A"); l.y != currentTop {
-		t.Errorf("charge current at y %v, want the top of the current panel %v", l.y, currentTop)
+	if l := label(t, s.plot, "70 A"); l.y != currentTop || l.x >= bulkEnd {
+		t.Errorf("charge current label at %v,%v, want the bulk part of the current line at the top", l.x, l.y)
+	}
+	if len(s.legend) != 2 || s.legend[0].colour != colorNameSeriesVoltage || s.legend[1].colour != colorNameSeriesCurrent {
+		t.Errorf("legend %v, want voltage and current", s.legend)
 	}
 	if l := label(t, s.plot, "Absorption"); l.name != "8 h" || l.x <= bulkEnd || l.x >= absorptionEnd {
 		t.Errorf("absorption phase label %+v, want 8 h within the absorption band", l)
@@ -98,7 +100,7 @@ func TestChargeChart(t *testing.T) {
 	// The voltage line ends at the float voltage and reaches absorption.
 	var volts plotLine
 	for _, l := range s.plot.lines {
-		if l.colour == theme.ColorNamePrimary && l.pts[0].Y > voltageBottom-0.01 && len(l.pts) > 2 {
+		if l.colour == colorNameSeriesVoltage {
 			volts = l
 		}
 	}
@@ -125,13 +127,12 @@ func TestChargeChart(t *testing.T) {
 		t.Errorf("subtitle %q, want the adaptive algorithm", s.subtitle)
 	}
 
-	// Without the charge current there is no current panel.
+	// Without the charge current there is no current line.
 	set = chargeSettings()
 	delete(set, 4)
 	s = chargeChart(chartDevice(set))
-	// The voltage panel takes the whole height instead.
-	if slices.Contains(labelValues(s.plot), "Charge current") || label(t, s.plot, "13.80 V").y >= flt.y {
-		t.Errorf("without a charge current: labels %v", labelValues(s.plot))
+	if slices.ContainsFunc(s.plot.lines, func(l plotLine) bool { return l.colour == colorNameSeriesCurrent }) || len(s.legend) != 1 {
+		t.Errorf("without a charge current: lines %v, legend %v", s.plot.lines, s.legend)
 	}
 
 	// Without a voltage there is no chart.
@@ -170,7 +171,7 @@ func TestACInputChart(t *testing.T) {
 	}
 	var accepted *plotArea
 	for i, a := range s.plot.areas {
-		if a.colour == theme.ColorNameSuccess {
+		if a.colour == colorNameZoneOK {
 			accepted = &s.plot.areas[i]
 		}
 	}
@@ -224,7 +225,7 @@ func TestBatteryChart(t *testing.T) {
 	}
 	var low *plotArea
 	for i, a := range s.plot.areas {
-		if a.colour == theme.ColorNameWarning {
+		if a.colour == colorNameZoneWarn {
 			low = &s.plot.areas[i]
 		}
 	}

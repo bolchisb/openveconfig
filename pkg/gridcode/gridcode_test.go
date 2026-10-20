@@ -1,7 +1,6 @@
 package gridcode
 
 import (
-	"errors"
 	"math"
 	"math/bits"
 	"testing"
@@ -299,19 +298,6 @@ func TestPageFor(t *testing.T) {
 	for c, p := range pageOf {
 		if p != nil && !listed[p] {
 			t.Errorf("code %d: page %s not in Pages", c, p.Name)
-		}
-	}
-}
-
-func TestCheckWrite(t *testing.T) {
-	for _, ids := range [][]uint16{nil, {81}, {0, 44, 81, 127, 192}} {
-		if err := CheckWrite(ids); err != nil {
-			t.Errorf("CheckWrite(%v) = %v", ids, err)
-		}
-	}
-	for _, ids := range [][]uint16{{128}, {81, 150}, {190}, {191}} {
-		if err := CheckWrite(ids); !errors.Is(err, ErrNoChecker) {
-			t.Errorf("CheckWrite(%v) = %v, want ErrNoChecker", ids, err)
 		}
 	}
 }

@@ -5,11 +5,13 @@ package main
 // (settings 129-190, pkg/gridcode).
 //
 // The device keeps two checker words (settings 128 and 191) with the grid
-// parameters; how they are computed is not known (#9). Grid parameters can
-// therefore be edited here but neither sent nor saved (gridWriteCheck).
-// The grid code itself is sent like any other setting; the device decides
-// whether it needs a password. This program never enters or derives one
-// (docs/CLEAN-ROOM.md, "Access control").
+// parameters (gridcode.Stamp). A settings file with a changed grid code or
+// changed grid parameters is saved with newly stamped checker words
+// (settingsFile.save). Sending them straight to a device would need a
+// fixed write order that has not been verified on hardware, so grid
+// changes are never sent to a device (gridWriteCheck). Whether a grid code
+// needs a password is up to the device; this program never enters or
+// derives one (docs/CLEAN-ROOM.md, "Access control").
 
 import (
 	"context"
@@ -63,11 +65,23 @@ func changedGridWords(d *vebus.Device) []uint16 {
 	return ids
 }
 
-// gridWriteCheck refuses to send or save d when grid words were changed:
-// valid checker words for them cannot be computed (gridcode.CheckWrite).
-func gridWriteCheck(d *vebus.Device) error {
+// changedGridSettings returns the grid code, if it was changed, and the
+// changed grid words of d.
+func changedGridSettings(d *vebus.Device) []uint16 {
 	ids := changedGridWords(d)
-	err := gridcode.CheckWrite(ids)
+	if d.Dirty(vebus.SettingID(gridCodeSetting)) {
+		ids = append([]uint16{gridCodeSetting}, ids...)
+	}
+	return ids
+}
+
+// gridWriteCheck refuses to send d to a device when its grid code or grid
+// words were changed (gridcode.CheckDeviceWrite): the checker words would
+// have to be written in a fixed order that has not been verified on
+// hardware.
+func gridWriteCheck(d *vebus.Device) error {
+	ids := changedGridSettings(d)
+	err := gridcode.CheckDeviceWrite(ids)
 	if err == nil {
 		return nil
 	}
@@ -75,22 +89,23 @@ func gridWriteCheck(d *vebus.Device) error {
 	for i, id := range ids {
 		list[i] = strconv.Itoa(int(id))
 	}
-	return &uiError{err: err, msg: tr("Grid parameters were changed (settings {{.Settings}}). They cannot be sent or saved yet: "+
-		"the device keeps two check words with them (settings 128 and 191) whose computation is not known. "+
-		"Nothing was sent or saved. Undo the grid parameter changes on the Grid page, then try again.",
+	return &uiError{err: err, msg: tr("The grid code or grid parameters were changed (settings {{.Settings}}). They cannot be sent straight to a device yet: "+
+		"the device keeps two check words with them that must be updated in a fixed order, which has not been verified on hardware. "+
+		"Nothing was sent. To apply them, save them in a settings file and apply that file through a GX device (VRM Remote VEConfigure), "+
+		"or undo the grid changes on the Grid page to send the other settings.",
 		args{"Settings": strings.Join(list, ", ")})}
 }
 
 // writeAllButGrid writes every setting of d, as WriteOptions.All does,
-// except the grid words and an unchanged grid code: rewriting them would
-// need the checker words, and the grid code may need a password. It
-// writes a copy of d and records the outcome in d.
+// except the grid code and the grid words, which are never sent to a
+// device (gridWriteCheck). It writes a copy of d and records the outcome
+// in d.
 func writeAllButGrid(ctx context.Context, c *mk2.Client, d *vebus.Device, progress func(done, total int)) (*vebus.WriteReport, error) {
 	w := vebus.NewDevice(d.Catalogue())
 	w.Address, w.Firmware = d.Address, d.Firmware
 	for _, id := range d.SettingIDs() {
 		sid := vebus.SettingID(id)
-		if vebus.GridCodeSetting(id) && !(id == gridCodeSetting && d.Dirty(sid)) {
+		if vebus.GridCodeSetting(id) {
 			continue
 		}
 		info, _ := d.SettingInfo(id)
@@ -131,6 +146,8 @@ type gridTabView struct {
 	// loaded holds the grid words as loaded, to show what changed and to
 	// undo the changes.
 	loaded map[uint16]uint16
+	// checkStatus describes the checker words as loaded (checkWordStatus).
+	checkStatus string
 	// updating is set while controls are set from the model.
 	updating bool
 }
@@ -176,6 +193,7 @@ func newGridTab(u *ui) *gridTabView {
 		g.paramsItem)
 	g.pg = newPage(tr("Grid"), tr("The grid code, and the limits within which the AC input is accepted."),
 		theme.LoginIcon(), vebus.TabGrid, withVisual(g.subTabs, pageVisual(u, vebus.TabGrid)))
+	g.ordinary.scroll = g.pg.scroll
 
 	u.settings.onChange(func(loaded bool) {
 		if loaded {
@@ -209,6 +227,7 @@ func (g *gridTabView) load() {
 			}
 		}
 	}
+	g.checkStatus = checkWordStatus(d, g.u.settings.file)
 	has := slices.Contains(g.subTabs.Items, g.paramsItem)
 	switch {
 	case len(g.loaded) == 0 && has:
@@ -293,8 +312,8 @@ func (g *gridTabView) updateCode() {
 	g.codeRow.setChanged(d.Dirty(id))
 	g.codeRow.setMarkers(d.ResetRequired(id), ok && a.PasswordRequired() || !gridcode.SelectableWithoutPassword(gridcode.Code(cur), d.Firmware))
 	g.codeNote.SetText(tr("Codes marked \"needs password\" are accepted by the device only after the installer password for grid codes " +
-		"has been entered. This program cannot enter it: the device refuses such a code when the settings are sent, " +
-		"and the send report says so."))
+		"has been entered. This program cannot enter it. A changed grid code can be saved to a settings file, " +
+		"but not sent straight to a device."))
 }
 
 // gridCodeLabel names grid code c for the choice, with a note when it
@@ -328,8 +347,12 @@ func (g *gridTabView) buildParams(code int) {
 		objs = append(objs, l)
 	}
 	if d != nil {
-		note(tr("Grid parameters can be edited here to see how they are stored, but changed parameters cannot be sent " +
-			"or saved yet: the device keeps two check words with them (settings 128 and 191) whose computation is not known."))
+		note(tr("Grid parameters can be edited here and saved to a settings file; the two check words the device keeps with them " +
+			"(settings 128 and 191) are updated when the file is saved. Sending grid changes straight to a device is disabled " +
+			"until it has been verified on hardware."))
+		if g.checkStatus != "" {
+			note(g.checkStatus)
+		}
 	}
 	p, known := gridcode.PageFor(gridcode.Code(code))
 	switch {
@@ -354,6 +377,43 @@ func (g *gridTabView) buildParams(code int) {
 	objs = append(objs, container.NewHBox(g.undo))
 	g.params.Objects = []fyne.CanvasObject{newForm(objs...)}
 	g.params.Refresh()
+}
+
+// checkWordStatus describes whether the checker words of d, a model just
+// loaded from file (nil: read from a device), fit its grid code, in the
+// form the original checks when it shows settings (gridcode.Pair.CheckShown).
+// The parameter-set version comes from the file's grid-info table (0
+// without one); it is not read from a device, so for a device only the
+// rest is checked. It returns "" when d has no checker words.
+func checkWordStatus(d *vebus.Device, file *settingsFile) string {
+	if d == nil {
+		return ""
+	}
+	a, errA := d.Raw(vebus.SettingID(firstGridWord))
+	b, errB := d.Raw(vebus.SettingID(lastGridWord))
+	code, errC := d.Raw(vebus.SettingID(gridCodeSetting))
+	if errA != nil || errB != nil || errC != nil {
+		return ""
+	}
+	var v uint8
+	if file != nil {
+		table, err := file.f.GridInfo()
+		if err == nil {
+			v, err = gridcode.ParamSetVersion(table, gridcode.Code(code))
+		}
+		if err != nil {
+			return tr("The check words (settings 128 and 191) cannot be checked: {{.Err}}", args{"Err": err})
+		}
+	}
+	header, version := gridcode.Pair{A: a, B: b}.CheckShown(gridcode.Code(code), v)
+	switch {
+	case !header || file != nil && !version:
+		return tr("The check words (settings 128 and 191) do not fit the grid code: the device may refuse the grid parameters.")
+	case file == nil:
+		return tr("The check words (settings 128 and 191) fit the grid code. Their parameter-set version is not checked, " +
+			"because this program does not read it from the device.")
+	}
+	return tr("The check words (settings 128 and 191) fit the grid code.")
 }
 
 // paramCards returns one card per group of page p, with a row per

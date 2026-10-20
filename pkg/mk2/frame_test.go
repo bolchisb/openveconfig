@@ -3,6 +3,7 @@ package mk2
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -255,12 +256,52 @@ func FuzzDecode(f *testing.F) {
 	f.Add(withCS(f, "84 FF 'S 1F 02"))
 	f.Add(withCS(f, "0F 20 01 01 81 79 08 37 53 49 00 37 53 27 00 C3"))
 	f.Add([]byte("UUUUU\x02\xffL\xb3"))
+	f.Add(unhex(f, "0D 20 78 56 34 12 01 00 FD FB 27 00 00 00 9F"))
+	f.Add(unhex(f, "10 20 78 56 34 12 02 00 01 01 01 00 00 00 00 F0 00 C7"))
+	f.Add(unhex(f, "0F 21 78 56 34 12 04 01 01 01 00 00 00 00 F0 00 2D"))
+	f.Add(unhex(f, "55 55 06 21 00 00 00 00 03 C4 02 FF 56 A9"))
 	f.Fuzz(func(t *testing.T, b []byte) {
 		if fr, err := Decode(b); err == nil {
 			// A decoded frame re-encodes to the same bytes.
 			enc, err := fr.Encode()
 			if err != nil || !bytes.Equal(enc, b) {
 				t.Fatalf("round trip: % X -> %+v -> % X, %v", b, fr, enc, err)
+			}
+			// The system reply parsers never panic, and a reply they
+			// accept rebuilds to the same fields.
+			if id, err := ParseIdentify(fr); err == nil {
+				if got, err := ParseIdentify(id.Frame()); err != nil || got.LongID != id.LongID || got.VersionWord != id.VersionWord {
+					t.Fatalf("identify round trip %+v -> %+v, %v", id, got, err)
+				}
+			}
+			if len(fr.Data) >= 4 {
+				longID := binary.LittleEndian.Uint32(fr.Data)
+				if sc, err := ParseSystemConfig(fr, longID); err == nil {
+					if got, err := ParseSystemConfig(sc.Frame(), longID); err != nil || got != sc {
+						t.Fatalf("config round trip %+v -> %+v, %v", sc, got, err)
+					}
+				}
+			}
+		}
+		// A decoded raw frame re-encodes to the same bytes.
+		if p, err := DecodeRaw(b); err == nil {
+			enc, err := EncodeRaw(p)
+			if err != nil || !bytes.Equal(enc, b) {
+				t.Fatalf("raw round trip: % X -> % X -> % X, %v", b, p, enc, err)
+			}
+			_, _, _, _ = ParseSystemPayload(p)
+		}
+		// ScanHostFrames returns only valid raw frames and complete MK2
+		// frames with a valid checksum.
+		sc := bufio.NewScanner(bytes.NewReader(b))
+		sc.Split(ScanHostFrames)
+		for sc.Scan() {
+			tok := sc.Bytes()
+			if _, err := DecodeRaw(tok); err == nil {
+				continue
+			}
+			if len(tok) < 4 || tok[1] != Marker || len(tok) != int(tok[0]&^LengthLEDFlag)+2 || Checksum(tok[:len(tok)-1]) != tok[len(tok)-1] {
+				t.Fatalf("bad host token % X", tok)
 			}
 		}
 		// The stream splitters never panic, and every token they return

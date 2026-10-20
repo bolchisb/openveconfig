@@ -12,7 +12,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
@@ -299,9 +298,9 @@ func TestRemotePanelLEDs(t *testing.T) {
 	}
 	// The colour each LED lights in.
 	colours := map[byte]fyne.ThemeColorName{
-		mk2.LEDMains: theme.ColorNameSuccess, mk2.LEDInverter: theme.ColorNameSuccess,
-		mk2.LEDBulk: theme.ColorNameWarning, mk2.LEDAbsorption: theme.ColorNameWarning, mk2.LEDFloat: theme.ColorNameWarning,
-		mk2.LEDOverload: theme.ColorNameError, mk2.LEDLowBattery: theme.ColorNameError, mk2.LEDTemperature: theme.ColorNameError,
+		mk2.LEDMains: colorNameLEDGreen, mk2.LEDInverter: colorNameLEDGreen,
+		mk2.LEDBulk: colorNameLEDAmber, mk2.LEDAbsorption: colorNameLEDAmber, mk2.LEDFloat: colorNameLEDAmber,
+		mk2.LEDOverload: colorNameLEDRed, mk2.LEDLowBattery: colorNameLEDRed, mk2.LEDTemperature: colorNameLEDRed,
 	}
 	for bit, l := range led {
 		if l.ind.colour != colours[bit] {

@@ -97,6 +97,7 @@ func unitPayload(u unitSpec) []byte {
 	for i := 0x0c; i < 0x22; i++ { // undecoded header bytes: an invented pattern
 		b = append(b, byte(0x40+i))
 	}
+	binary.LittleEndian.PutUint16(b[0x13:], 6) // 6 extra bytes: the system record starts at 0x1c
 	b = append(b, u.phase, u.flag, u.index)
 	b = binary.LittleEndian.AppendUint16(b, uint16(len(u.serial)))
 	serial := make([]byte, 11)
@@ -331,6 +332,54 @@ func TestParseCopiesInput(t *testing.T) {
 	}
 }
 
+// gridInfoTail returns invented bytes that follow the setting records:
+// undecoded bytes, one access byte per testInfo setting, the u16 length
+// of table and table.
+func gridInfoTail(undecoded, table []byte) []byte {
+	b := append([]byte(nil), undecoded...)
+	b = append(b, 0x81, 0x80, 0x00, 0x81, 0x00, 0x7e)
+	b = binary.LittleEndian.AppendUint16(b, uint16(len(table)))
+	return append(b, table...)
+}
+
+func TestGridInfo(t *testing.T) {
+	table := []byte{0x09, 0x00, 3, 2, 1, 0x09, 0x00, 0x0a, 0x00, 0x02, 0x01, 0x00, 0x00, 0x00}
+	parse := func(tail []byte) *File {
+		t.Helper()
+		data, _ := buildFile(rawSection{SectionSettingInfo, settingInfoPayload(0x00654321, testInfo, tail)})
+		f, err := Parse(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	for _, undecoded := range [][]byte{nil, {0x50, 0, 0, 0, 0, 0, 0x80, 0}} {
+		got, err := parse(gridInfoTail(undecoded, table)).GridInfo()
+		if err != nil || !bytes.Equal(got, table) {
+			t.Errorf("%d undecoded bytes: GridInfo = % x, %v; want % x", len(undecoded), got, err, table)
+		}
+	}
+	// No table: the fixture's short tail, a too short table, no tail.
+	for _, tail := range [][]byte{infoTail, gridInfoTail(nil, []byte{1, 2, 3, 4}), nil} {
+		if got, err := parse(tail).GridInfo(); err != nil || got != nil {
+			t.Errorf("tail % x: GridInfo = % x, %v; want none", tail, got, err)
+		}
+	}
+	// A second place that reads as a table length is ambiguous.
+	tail := gridInfoTail([]byte{0, 0, 0, 0, 0, 0, 0, 0}, table)
+	binary.LittleEndian.PutUint16(tail[6:], uint16(len(tail)-8))
+	if _, err := parse(tail).GridInfo(); !errors.Is(err, ErrFormat) {
+		t.Errorf("ambiguous table: %v, want ErrFormat", err)
+	}
+	// The result is a copy.
+	f := parse(gridInfoTail(nil, table))
+	got, _ := f.GridInfo()
+	got[0] = 0xff
+	if again, _ := f.GridInfo(); again[0] != table[0] {
+		t.Error("GridInfo returned the section's own bytes")
+	}
+}
+
 func TestPayloadResize(t *testing.T) {
 	data, _ := testFile()
 	f, err := Parse(data)
@@ -535,6 +584,11 @@ func TestRealFiles(t *testing.T) {
 			}
 			if len(units) == 0 {
 				t.Fatal("no units")
+			}
+			if table, err := f.GridInfo(); err != nil {
+				t.Error(err)
+			} else {
+				t.Logf("grid-info table: %d bytes", len(table))
 			}
 			t.Logf("mk2vsc %s, %d setting info records, info firmware %d, %d units",
 				version, len(info.Settings), info.FirmwareWord&0xffffff, len(units))

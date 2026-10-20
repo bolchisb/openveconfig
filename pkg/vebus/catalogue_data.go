@@ -25,8 +25,10 @@ package vebus
 // voltages, current, absorption times, temperature compensation) and 13
 // Virtual Switch. Entries those chapters do not mention are placed by own
 // judgment from their names (Advanced for assistant-related settings, None
-// for system configuration and flags not to be changed by hand). Group
-// labels are this project's own.
+// for system configuration and flags not to be changed by hand). Flag 40
+// (VSense off, for diagnostics) is on the Charger tab, where the original
+// tool shows it (reverse-engineered, #6). Group labels are this project's
+// own.
 
 const (
 	srcRAM        = "MK2 Protocol 3.14 §7.3.13.1"
@@ -255,7 +257,7 @@ var defaultEntries = []Entry{
 	flag(37, "Allow enable feed-in", TabGrid, "Grid code", srcCommFlags),
 	flag(38, "External mains current sensor connected", TabGeneral, "AC input current", srcCommFlags),
 	flag(39, "Configured for VE.Bus BMS", TabCharger, "Battery type", srcCommFlags),
-	flag(40, "Disable Ubat VSense (for diagnostic purposes)", TabNone, "Do not change", srcCommFlags),
+	flag(40, "Disable Ubat VSense (for diagnostic purposes)", TabCharger, "Charger", srcCommFlags),
 	flag(41, "Prefer renewable energy (Solar & Wind priority)", TabAdvanced, "Renewable energy priority", srcCommFlags),
 
 	// RAM variables, §7.3.13.1.

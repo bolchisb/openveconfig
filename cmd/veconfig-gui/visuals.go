@@ -121,7 +121,7 @@ type plotLabel struct {
 // Opacity of the tints of the charts.
 const (
 	tintPhase = 0x18 // a phase band of the charge profile
-	tintZone  = 0x40 // a zone of a voltage scale
+	tintZone  = 0x80 // a zone of a voltage scale; half opacity keeps the zones apart for colour-blind readers
 )
 
 // scaleX returns the position of v on a scale from lo to hi.
@@ -169,16 +169,20 @@ func days(minutes float64) string {
 	return tr("{{.Value}} d", args{"Value": formatNumber(d, decimals)})
 }
 
-// Phases of the charge profile, as fractions of its width.
+// Phases of the charge profile, as fractions of its width: a short bulk, a
+// long absorption, float, and a short repeated absorption, as a charger's
+// cycle is usually drawn.
 const (
-	bulkEnd       = 0.3
-	absorptionEnd = 0.56
-	repeatStart   = 0.76
-	repeatEnd     = 0.9
-	// The voltage panel is the top of the plot, the current panel the
-	// bottom; the gap between them holds the current panel's name.
-	voltageBottom = 0.42
-	currentTop    = 0.28
+	bulkEnd       = 0.16
+	absorptionEnd = 0.5
+	repeatStart   = 0.74
+	repeatEnd     = 0.82
+	// Heights in the plot: the charge current at the top, the absorption
+	// voltage just under it, and float one gap below absorption, so that the
+	// two levels stay apart however close they are.
+	currentTop    = 0.94
+	absorptionTop = 0.84
+	floatGap      = 0.14
 )
 
 // chargeChart returns the charge profile of d: bulk at the charge current
@@ -223,14 +227,14 @@ func chargeChart(d *vebus.Device) *chartSpec {
 	p.minWidth, p.minHeight = 360, 200
 	p.left, p.top, p.right, p.bottom = 58, 20, 8, 36
 
-	// Phase bands over both panels.
+	// Phase bands.
 	p.areas = append(p.areas, plotArea{x1: bulkEnd, y1: 0, x2: absorptionEnd, y2: 1, colour: theme.ColorNamePrimary, alpha: tintPhase})
 	if repeat {
 		p.areas = append(p.areas, plotArea{x1: repeatStart, y1: 0, x2: repeatEnd, y2: 1, colour: theme.ColorNamePrimary, alpha: tintPhase})
 	}
 	p.labels = append(p.labels,
-		plotLabel{x: bulkEnd / 2, y: 0, value: tr("Bulk"), place: placeBelow, row: 1},
-		plotLabel{x: (bulkEnd + absorptionEnd) / 2, y: 0, value: tr("Absorption"), place: placeBelow, row: 1},
+		plotLabel{x: bulkEnd / 2, y: 0, value: tr("Bulk"), place: placeBelow, align: fyne.TextAlignCenter, row: 1},
+		plotLabel{x: (bulkEnd + absorptionEnd) / 2, y: 0, value: tr("Absorption"), place: placeBelow, align: fyne.TextAlignCenter, row: 1},
 	)
 	if t, ok := setting(d, 9); ok {
 		text := hours(t)
@@ -241,35 +245,21 @@ func chargeChart(d *vebus.Device) *chartSpec {
 	}
 	if repeat {
 		p.labels = append(p.labels,
-			plotLabel{x: (absorptionEnd + repeatStart) / 2, y: 0, value: tr("Float"), place: placeBelow, row: 1},
-			plotLabel{x: (repeatStart + repeatEnd) / 2, y: 0, value: tr("Repeat"), name: hours(repTime), place: placeBelow, row: 1})
+			plotLabel{x: (absorptionEnd + repeatStart) / 2, y: 0, value: tr("Float"), place: placeBelow, align: fyne.TextAlignCenter, row: 1},
+			plotLabel{x: (repeatStart + repeatEnd) / 2, y: 0, value: tr("Repeat"), name: hours(repTime), place: placeBelow, align: fyne.TextAlignCenter, row: 1})
 	} else {
-		p.labels = append(p.labels, plotLabel{x: (absorptionEnd + 1) / 2, y: 0, value: tr("Float"), place: placeBelow, row: 1})
+		p.labels = append(p.labels, plotLabel{x: (absorptionEnd + 1) / 2, y: 0, value: tr("Float"), place: placeBelow, align: fyne.TextAlignCenter, row: 1})
 	}
 
-	// The voltage panel: from a start voltage below float up to absorption.
-	vTop, vBottom := float32(1), float32(voltageBottom)
-	if !hasCurrent {
-		vBottom = 0
-	}
-	// The domain is a multiple of the step from float to absorption, so
-	// that the two levels stay apart however close they are.
+	// The battery voltage: rising through bulk up to absorption, held, then
+	// float, with the repeated absorption back up.
 	span := vAbs - vFloat
-	if span <= 0 {
-		span = vAbs * 0.03
+	if span == 0 {
+		span = 1
 	}
-	vStart := min(vFloat, vAbs) - 1.2*span
-	lo, hi := vStart-0.2*span, max(vAbs, vFloat)+0.35*span
-	vy := func(v float64) float32 { return vBottom + (vTop-vBottom)*scaleX(v, lo, hi) }
-	var volts []fyne.Position
-	for i := range 9 {
-		t := float64(i) / 8
-		// Rising slowly, then faster towards the absorption voltage.
-		v := vStart + (vAbs-vStart)*(0.55*t+0.45*t*t*t)
-		volts = append(volts, fyne.NewPos(float32(bulkEnd*t), vy(v)))
-	}
-	const drop = 0.025 // width of a step between two levels
-	volts = append(volts, fyne.NewPos(absorptionEnd, vy(vAbs)), fyne.NewPos(absorptionEnd+drop, vy(vFloat)))
+	vy := func(v float64) float32 { return absorptionTop - floatGap*float32((vAbs-v)/math.Abs(span)) }
+	const drop = 0.02 // width of a step between two levels
+	volts := []fyne.Position{{X: 0, Y: 0.04}, {X: bulkEnd, Y: vy(vAbs)}, {X: absorptionEnd, Y: vy(vAbs)}, {X: absorptionEnd + drop, Y: vy(vFloat)}}
 	if repeat {
 		volts = append(volts, fyne.NewPos(repeatStart, vy(vFloat)), fyne.NewPos(repeatStart+drop, vy(vAbs)),
 			fyne.NewPos(repeatEnd, vy(vAbs)), fyne.NewPos(repeatEnd+drop, vy(vFloat)))
@@ -278,44 +268,38 @@ func chargeChart(d *vebus.Device) *chartSpec {
 	p.lines = append(p.lines,
 		plotLine{pts: []fyne.Position{{X: 0, Y: vy(vAbs)}, {X: 1, Y: vy(vAbs)}}, colour: theme.ColorNameSeparator, alpha: 0xff, width: 1},
 		plotLine{pts: []fyne.Position{{X: 0, Y: vy(vFloat)}, {X: 1, Y: vy(vFloat)}}, colour: theme.ColorNameSeparator, alpha: 0xff, width: 1},
-		plotLine{pts: []fyne.Position{{X: 0, Y: vBottom}, {X: 1, Y: vBottom}}, colour: theme.ColorNameSeparator, alpha: 0xff, width: 1},
-		plotLine{pts: volts, colour: theme.ColorNamePrimary, alpha: 0xff, width: 2.5},
+		plotLine{pts: []fyne.Position{{X: 0, Y: 0}, {X: 1, Y: 0}}, colour: theme.ColorNameSeparator, alpha: 0xff, width: 1},
+		plotLine{pts: volts, colour: colorNameSeriesVoltage, alpha: 0xff, width: 2.5},
 	)
 	vLabel := func(v float64) string { return tr("{{.Value}} V", args{"Value": formatNumber(v, 2)}) }
-	p.labels = append(p.labels,
-		plotLabel{x: 0, y: vTop, value: tr("Battery voltage"), place: placeAbove, align: fyne.TextAlignLeading, muted: true},
-		plotLabel{x: 0, y: vy(vAbs), value: vLabel(vAbs), place: placeMiddle, align: fyne.TextAlignTrailing},
-		plotLabel{x: 0, y: vy(vFloat), value: vLabel(vFloat), place: placeMiddle, align: fyne.TextAlignTrailing},
-	)
+	p.labels = append(p.labels, plotLabel{x: 0, y: vy(vAbs), value: vLabel(vAbs), place: placeMiddle, align: fyne.TextAlignTrailing})
+	if vFloat != vAbs {
+		p.labels = append(p.labels, plotLabel{x: 0, y: vy(vFloat), value: vLabel(vFloat), place: placeMiddle, align: fyne.TextAlignTrailing})
+	}
+	s.legend = append(s.legend, legendItem{colorNameSeriesVoltage, tr("Battery voltage")})
 
-	// The current panel: the charge current in bulk, falling during
-	// absorption, low in float.
+	// The charge current: full through bulk, falling during absorption, low
+	// in float, with a small rise at the repeated absorption.
 	if hasCurrent {
-		iy := func(i float64) float32 { return currentTop * float32(i/iBulk) }
-		tail, floatI := 0.12*iBulk, 0.04*iBulk
-		cur := []fyne.Position{{X: 0, Y: iy(iBulk)}, {X: bulkEnd, Y: iy(iBulk)}}
-		decay := func(from, to, i0, i1 float64) {
-			for i := 1; i <= 8; i++ {
-				t := float64(i) / 8
-				cur = append(cur, fyne.NewPos(float32(from+(to-from)*t), iy(i1+(i0-i1)*math.Exp(-4*t))))
+		const floatI = 0.02
+		cur := []fyne.Position{{X: 0, Y: currentTop}, {X: bulkEnd, Y: currentTop}}
+		decay := func(from, to float64, y0 float32) {
+			for i := 1; i <= 12; i++ {
+				t := float64(i) / 12
+				cur = append(cur, fyne.NewPos(float32(from+(to-from)*t), floatI+(y0-floatI)*float32(math.Exp(-5*t))))
 			}
 		}
-		decay(bulkEnd, absorptionEnd, iBulk, tail)
-		cur = append(cur, fyne.NewPos(absorptionEnd+drop, iy(floatI)))
+		decay(bulkEnd, absorptionEnd, currentTop)
+		cur = append(cur, fyne.NewPos(absorptionEnd+drop, floatI))
 		if repeat {
-			cur = append(cur, fyne.NewPos(repeatStart, iy(floatI)))
-			decay(repeatStart, repeatEnd, 0.3*iBulk, floatI)
+			cur = append(cur, fyne.NewPos(repeatStart, floatI))
+			decay(repeatStart, repeatEnd, 0.2)
 		}
-		cur = append(cur, fyne.NewPos(1, iy(floatI)))
-		p.lines = append(p.lines,
-			plotLine{pts: []fyne.Position{{X: 0, Y: 0}, {X: 1, Y: 0}}, colour: theme.ColorNameSeparator, alpha: 0xff, width: 1},
-			plotLine{pts: cur, colour: theme.ColorNamePrimary, alpha: 0xff, width: 2.5},
-		)
-		p.labels = append(p.labels,
-			plotLabel{x: 0, y: currentTop, value: tr("Charge current"), place: placeAbove, align: fyne.TextAlignLeading, muted: true},
-			plotLabel{x: 0, y: iy(iBulk), value: tr("{{.Value}} A", args{"Value": formatNumber(iBulk, 0)}), place: placeMiddle, align: fyne.TextAlignTrailing},
-			plotLabel{x: 0, y: 0, value: tr("{{.Value}} A", args{"Value": formatNumber(0, 0)}), place: placeMiddle, align: fyne.TextAlignTrailing, muted: true},
-		)
+		cur = append(cur, fyne.NewPos(1, floatI))
+		p.lines = append(p.lines, plotLine{pts: cur, colour: colorNameSeriesCurrent, alpha: 0xff, width: 2.5})
+		p.labels = append(p.labels, plotLabel{x: bulkEnd / 2, y: currentTop,
+			value: tr("{{.Value}} A", args{"Value": formatNumber(iBulk, 0)}), place: placeAbove, align: fyne.TextAlignCenter})
+		s.legend = append(s.legend, legendItem{colorNameSeriesCurrent, tr("Charge current")})
 	}
 	return s
 }
@@ -406,19 +390,19 @@ func acInputChart(d *vebus.Device) *chartSpec {
 	pad := 0.12 * (hi - lo)
 	lo, hi = lo-pad, hi+pad
 	zones := []scaleZone{
-		{lo, lowOff, theme.ColorNameError},
-		{lowOff, lowOn, theme.ColorNameWarning},
-		{lowOn, highOn, theme.ColorNameSuccess},
-		{highOn, highOff, theme.ColorNameWarning},
-		{highOff, hi, theme.ColorNameError},
+		{lo, lowOff, colorNameZoneOff},
+		{lowOff, lowOn, colorNameZoneWarn},
+		{lowOn, highOn, colorNameZoneOK},
+		{highOn, highOff, colorNameZoneWarn},
+		{highOff, hi, colorNameZoneOff},
 	}
 	s := &chartSpec{
 		title: tr("AC input voltage window"),
 		plot:  scaleScene(lo, hi, zones, marks),
 		legend: []legendItem{
-			{theme.ColorNameSuccess, tr("Accepted")},
-			{theme.ColorNameWarning, tr("Accepted until a disconnect")},
-			{theme.ColorNameError, tr("Disconnected")},
+			{colorNameZoneOK, tr("Accepted")},
+			{colorNameZoneWarn, tr("Accepted until a disconnect")},
+			{colorNameZoneOff, tr("Disconnected")},
 		},
 		caption: tr("The AC input is used while its voltage stays between the disconnect levels. After a disconnect it is used again once the voltage is back between the reconnect levels."),
 	}
@@ -472,17 +456,17 @@ func batteryChart(d *vebus.Device) *chartSpec {
 	lo, hi = lo-pad, hi+pad
 	low = max(low, shut)
 	zones := []scaleZone{
-		{lo, shut, theme.ColorNameError},
-		{shut, low, theme.ColorNameWarning},
-		{low, hi, theme.ColorNameSuccess},
+		{lo, shut, colorNameZoneOff},
+		{shut, low, colorNameZoneWarn},
+		{low, hi, colorNameZoneOK},
 	}
 	return &chartSpec{
 		title: tr("Battery voltage levels"),
 		plot:  scaleScene(lo, hi, zones, marks),
 		legend: []legendItem{
-			{theme.ColorNameError, tr("Inverter off")},
-			{theme.ColorNameWarning, tr("Low battery")},
-			{theme.ColorNameSuccess, tr("Normal")},
+			{colorNameZoneOff, tr("Inverter off")},
+			{colorNameZoneWarn, tr("Low battery")},
+			{colorNameZoneOK, tr("Normal")},
 		},
 		caption: tr("The inverter shuts down when the battery voltage falls to the shut-down level and starts again once it rises to the restart level. Float and absorption are shown for comparison."),
 	}

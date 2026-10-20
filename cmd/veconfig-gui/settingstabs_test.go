@@ -149,27 +149,58 @@ func TestTabsShowSupportedEntriesOnly(t *testing.T) {
 	}
 }
 
-// TestVirtualSwitchSubTabs loads a model with virtual switch settings
-// and checks that each group with a supported entry gets a sub-tab.
+// TestVirtualSwitchSubTabs checks that the virtual switch sub-pages follow
+// the usage, that the usages are a list, and that the inversion is only
+// offered where it applies.
 func TestVirtualSwitchSubTabs(t *testing.T) {
 	u := newTestUI(t)
 	p := newSubPages(u, vebus.TabVirtualSwitch)
 	d := vebus.NewDevice(nil)
-	d.AddSetting(15, mk2.SettingInfo{Sc: 1, Max: 6}, 1)
+	d.AddSetting(1, mk2.SettingInfo{Sc: 1, Max: 1 << 10}, 0) // flag 26 (invert)
+	d.AddSetting(15, mk2.SettingInfo{Sc: 1, Max: 6}, 0)
 	d.AddSetting(16, mk2.SettingInfo{Sc: -10, Max: 500}, 100)
+	d.AddSetting(52, mk2.SettingInfo{Sc: -10, Max: 500}, 100)
 	u.settings.load(d, nil)
-	var titles []string
-	for _, it := range p.subTabs.Items {
-		titles = append(titles, it.Text)
+	titles := func() (s []string) {
+		for _, it := range p.subTabs.Items {
+			s = append(s, it.Text)
+		}
+		return s
 	}
-	if !slices.Equal(titles, []string{"Usage", "Switch on when"}) {
-		t.Errorf("sub-tabs = %v, want Usage and Switch on when", titles)
+	usage := func(v uint16) {
+		t.Helper()
+		if err := d.SetRaw(vebus.SettingID(15), v); err != nil {
+			t.Fatal(err)
+		}
+		u.settings.changed()
 	}
-	// The usage choice offers the catalogue values within the device's
-	// range.
-	_, labels := choiceOptions(d, mustEntry(t, d, vebus.SettingID(15)))
-	if len(labels) != 7 || labels[1] != "The relay" {
-		t.Errorf("usage choices = %q", labels)
+	usagePage := p.sub[slices.IndexFunc(p.sub, func(s *settingsPage) bool { return s.groups[0] == "Usage" })]
+	invert := rowOf(t, usagePage, vebus.FlagID(26))
+
+	for _, tc := range []struct {
+		usage      uint16
+		tabs       []string
+		invertible bool
+	}{
+		{0, []string{"Usage"}, false},
+		{1, []string{"Usage", "Switch on when"}, true},
+		{3, []string{"Usage", "Second switch"}, false},
+		{5, []string{"Usage", "Switch on when", "Second switch"}, true},
+	} {
+		usage(tc.usage)
+		if !slices.Equal(titles(), tc.tabs) {
+			t.Errorf("usage %d: sub-tabs %v, want %v", tc.usage, titles(), tc.tabs)
+		}
+		if got := !invert.control.(fyne.Disableable).Disabled(); got != tc.invertible {
+			t.Errorf("usage %d: inversion offered %v, want %v", tc.usage, got, tc.invertible)
+		}
+	}
+
+	// The usages are a list of all seven, in the original tool's words.
+	row := rowOf(t, usagePage, vebus.SettingID(15))
+	radio := row.control.(*widget.RadioGroup)
+	if len(radio.Options) != 7 || radio.Options[0] != "Do not use VS" || !strings.HasPrefix(radio.Options[1], "drive multifunctional (aux.) relay") {
+		t.Errorf("usages %q", radio.Options)
 	}
 }
 
@@ -498,31 +529,6 @@ func TestParseNumberLocale(t *testing.T) {
 	}
 }
 
-func TestBatteryPresets(t *testing.T) {
-	u := newTestUI(t)
-	prefs := u.app.Preferences()
-	d := vebus.NewDevice(nil)
-	d.AddSetting(2, mk2.SettingInfo{Sc: -100, Min: 800, Max: 1750}, 1440)
-	d.AddSetting(3, mk2.SettingInfo{Sc: -100, Min: 800, Max: 1750}, 1380)
-	d.AddSetting(1, mk2.SettingInfo{Sc: 1, Max: 0x7000}, 1<<13) // flag 29 (traction curve) on
-	storePresets(prefs, []batteryPreset{presetFrom(d, "Mine")})
-
-	_ = setNumber(d, mustEntry(t, d, vebus.SettingID(2)), "14.1")
-	ps := loadPresets(prefs)
-	if len(ps) != 1 || ps[0].Name != "Mine" {
-		t.Fatalf("stored presets = %+v", ps)
-	}
-	if errs := ps[0].apply(d); len(errs) > 0 {
-		t.Fatal(errs)
-	}
-	if v, _ := d.Display(vebus.SettingID(2)); v != 14.4 {
-		t.Errorf("absorption after the preset = %v, want 14.4", v)
-	}
-	if on, _ := d.Flag(29); on {
-		t.Error("the preset left the traction curve on")
-	}
-}
-
 func TestFindEntries(t *testing.T) {
 	d := vebus.NewDevice(nil)
 	d.AddSetting(0, mk2.SettingInfo{Sc: 1, Max: 0x0024}, 0) // flags 2 and 5
@@ -779,6 +785,63 @@ func TestBatteryMonitorSwitch(t *testing.T) {
 	test.Tap(s.toggle)
 	if raw, _ := d.Raw(vebus.SettingID(64)); raw != 200 || s.pending {
 		t.Errorf("on again: capacity %d (want 200), pending %v", raw, s.pending)
+	}
+}
+
+// TestLithiumRules checks what the lithium flag hides and shows on the
+// Charger page, the charge algorithms it allows, and what switching it on
+// and off changes.
+func TestLithiumRules(t *testing.T) {
+	u := newTestUI(t)
+	charger := newSettingsPage(u, vebus.TabCharger)
+	d := vebus.NewDevice(nil)
+	d.AddSetting(0, mk2.SettingInfo{Sc: 1, Max: 1 << 11}, 1<<11)            // flag 11 (storage) on
+	d.AddSetting(1, mk2.SettingInfo{Sc: 1, Max: 1 << 13}, 0)                // flag 29
+	d.AddSetting(60, mk2.SettingInfo{Sc: 1, Max: 1<<4 | 1<<7}, 0)           // flags 36 (lithium), 39 (BMS)
+	d.AddSetting(10, mk2.SettingInfo{Sc: 1, Default: 3, Min: 1, Max: 3}, 3) // adaptive with gradual absorption
+	d.AddSetting(86, mk2.SettingInfo{Sc: -2, Offset: -41, Max: 137}, 20)
+	d.AddSetting(87, mk2.SettingInfo{Sc: -100, Max: 12000}, 3240)
+	u.settings.load(d, nil)
+
+	shown := func(ids ...vebus.ID) (s []bool) {
+		for _, id := range ids {
+			s = append(s, rowOf(t, charger, id).root.Visible())
+		}
+		return s
+	}
+	algorithms := func() []string { return rowOf(t, charger, vebus.SettingID(10)).control.(*widget.RadioGroup).Options }
+	hidden, only := []vebus.ID{vebus.FlagID(11), vebus.FlagID(29), vebus.SettingID(87)}, []vebus.ID{vebus.SettingID(86), vebus.FlagID(39)}
+
+	if !slices.Equal(shown(hidden...), []bool{true, true, true}) || !slices.Equal(shown(only...), []bool{false, false}) || len(algorithms()) != 3 {
+		t.Errorf("lithium off: shown %v / %v, algorithms %v", shown(hidden...), shown(only...), algorithms())
+	}
+
+	test.Tap(rowOf(t, charger, vebus.FlagID(36)).control.(*widget.Check))
+	if !slices.Equal(shown(hidden...), []bool{false, false, false}) || !slices.Equal(shown(only...), []bool{true, true}) || len(algorithms()) != 2 {
+		t.Errorf("lithium on: shown %v / %v, algorithms %v", shown(hidden...), shown(only...), algorithms())
+	}
+	if on, _ := d.Flag(11); on {
+		t.Error("lithium on left storage mode on")
+	}
+	if raw, _ := d.Raw(vebus.SettingID(10)); raw != 1 {
+		t.Errorf("lithium on: algorithm %d, want 1 (fixed)", raw)
+	}
+	// The low-temperature block has a switch of its own: on while its raw
+	// value is not 0.
+	if s := charger.switches[86]; s == nil || !s.toggle.On {
+		t.Error("low-temperature block: no switch, or off while set")
+	}
+
+	if err := d.SetFlag(39, true); err != nil {
+		t.Fatal(err)
+	}
+	u.settings.changed()
+	test.Tap(rowOf(t, charger, vebus.FlagID(36)).control.(*widget.Check))
+	if raw, _ := d.Raw(vebus.SettingID(86)); raw != 0 || charger.switches[86].toggle.On {
+		t.Errorf("lithium off: low-temperature block raw %d (want 0, off), switch on %v", raw, charger.switches[86].toggle.On)
+	}
+	if on, _ := d.Flag(39); on {
+		t.Error("lithium off left the VE.Bus BMS flag on")
 	}
 }
 

@@ -9,12 +9,25 @@
 // high-speed command 'N' (Config.HighSpeed), which follows community
 // reports.
 //
+// The other exception is the VE.Bus system configuration (SystemUnit): the
+// raw system frames that read and write each unit's system record, which
+// are not in the MK2 document. They follow the project's behavioural spec
+// (#53), written from reverse engineering of the original tools; where the
+// device side is unknown the simulator follows what those tools expect and
+// says so (assumptions to check on hardware, #3). Buses of system units
+// are built with SystemDevice or the ready-made SystemFactory,
+// SystemParallel2, SystemThreePhase and SystemMixedFirmware; units are
+// switched on and off with SetPowered and made to misbehave with
+// SetBehaviour.
+//
 // All device data is synthetic. The profiles (Synthetic12V230,
 // Synthetic48V120) use setting and RAM IDs and names from §7.3.13 and, for
 // some RAM variables, the example scale values printed in Appendix 2. Every
 // other value (firmware versions, defaults, limits, live readings) was made
 // up for this package. Nothing is taken from Victron software or its
-// built-in demo devices.
+// built-in demo devices. The same holds for system units: their long IDs,
+// version words and letters are made up, and their records are the worked
+// examples of the project's spec, computed from its rules.
 //
 // The host side is a *Port, an io.ReadWriteCloser with SetBaudRate, so it
 // can stand in for a serial port:

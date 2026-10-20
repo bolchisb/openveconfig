@@ -167,17 +167,35 @@ func Decode(b []byte) (Frame, error) {
 // turns up too easily (about 1 in 256 per candidate) inside the data of a
 // genuine frame that is still arriving, so it does not count on its own.
 func ScanFrames(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	return scan(data, atEOF, false)
+	return scan(data, atEOF, scanAny)
 }
 
 // ScanMK2Frames is like ScanFrames but only accepts MK2 frames (second byte
 // 0xFF). Use it on the host-to-device direction, where every frame is an MK2
 // frame; it also skips sync bytes such as 0x55 that some hosts send.
 func ScanMK2Frames(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	return scan(data, atEOF, true)
+	return scan(data, atEOF, scanMK2)
 }
 
-func scan(data []byte, atEOF, mk2Only bool) (int, []byte, error) {
+// ScanHostFrames is like ScanMK2Frames but also accepts raw frames (see
+// EncodeRaw): a frame whose second byte is not 0xFF is checked with
+// RawChecksum. Use it on the host-to-device direction when the host sends
+// system frames. In the anchor rule of ScanFrames, raw frames take the place
+// of VE.Bus frames.
+func ScanHostFrames(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	return scan(data, atEOF, scanHost)
+}
+
+// scanMode selects the frames scan accepts.
+type scanMode int
+
+const (
+	scanAny  scanMode = iota // MK2 and VE.Bus frames
+	scanMK2                  // MK2 frames only
+	scanHost                 // MK2 frames and raw frames
+)
+
+func scan(data []byte, atEOF bool, mode scanMode) (int, []byte, error) {
 	anchor := -1 // offset of an anchor after an incomplete candidate
 	for start := 0; ; start++ {
 		rest := data[start:]
@@ -187,33 +205,59 @@ func scan(data []byte, atEOF, mk2Only bool) (int, []byte, error) {
 			}
 			return start, nil, nil
 		}
-		n := int(rest[0] &^ LengthLEDFlag)
-		if n == 0 || (mk2Only && (n < 2 || rest[1] != Marker)) {
+		n := bodyLen(rest, mode)
+		if n == 0 {
 			continue
 		}
 		if len(rest) < n+2 {
 			if atEOF || start < anchor {
 				continue
 			}
-			if anchor = nextAnchor(data, start+1); anchor < 0 {
+			if anchor = nextAnchor(data, start+1, mode); anchor < 0 {
 				return start, nil, nil
 			}
 			continue
 		}
-		if checksumOK(rest[:n+2]) {
+		if frameOK(rest[:n+2], mode) {
 			return start + n + 2, rest[:n+2], nil
 		}
 	}
+}
+
+// bodyLen returns the <Length> of a frame accepted in this mode that may
+// start at b, or 0 if none can. len(b) >= 2.
+func bodyLen(b []byte, mode scanMode) int {
+	n := int(b[0] &^ LengthLEDFlag)
+	switch {
+	case mode == scanHost && b[1] != Marker:
+		// A raw frame: <n> counts the payload and has no LED flag.
+		if b[0] > MaxBody {
+			return 0
+		}
+		return int(b[0])
+	case mode != scanAny && n < 2, mode == scanMK2 && b[1] != Marker:
+		return 0
+	}
+	return n
+}
+
+// frameOK reports whether the complete frame b has a valid checksum: the
+// raw rule for a raw frame in host mode, otherwise a byte sum of 0.
+func frameOK(b []byte, mode scanMode) bool {
+	if mode == scanHost && b[1] != Marker {
+		return b[len(b)-1] == RawChecksum(b[1:len(b)-1])
+	}
+	return checksumOK(b)
 }
 
 // nextAnchor returns the offset of the first anchor (see ScanFrames) in
 // data at or after from, or -1. scan only calls it while a candidate frame
 // of at most MaxBody+2 bytes is incomplete, so data[from:] is shorter than
 // that and the search is bounded.
-func nextAnchor(data []byte, from int) int {
+func nextAnchor(data []byte, from int, mode scanMode) int {
 	for j := from; j < len(data); j++ {
-		n := frameAt(data, j)
-		if n >= 4 && data[j+1] == Marker || n > 0 && frameAt(data, j+n) > 0 {
+		n := frameAt(data, j, mode)
+		if n >= 4 && data[j+1] == Marker || n > 0 && frameAt(data, j+n, mode) > 0 {
 			return j
 		}
 	}
@@ -221,13 +265,17 @@ func nextAnchor(data []byte, from int) int {
 }
 
 // frameAt returns the size of the complete frame with a valid checksum at
-// data[j:], or 0.
-func frameAt(data []byte, j int) int {
+// data[j:], or 0. In host mode the frame is an MK2 or raw frame; otherwise
+// it is an MK2 or VE.Bus frame.
+func frameAt(data []byte, j int, mode scanMode) int {
 	if j+3 > len(data) {
 		return 0
 	}
 	n := int(data[j]&^LengthLEDFlag) + 2
-	if n == 2 || j+n > len(data) || !checksumOK(data[j:j+n]) {
+	if mode == scanHost {
+		n = bodyLen(data[j:], mode) + 2
+	}
+	if n == 2 || j+n > len(data) || !frameOK(data[j:j+n], mode) {
 		return 0
 	}
 	return n

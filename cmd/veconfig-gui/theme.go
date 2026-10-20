@@ -20,6 +20,23 @@ const (
 	colorNameSurface fyne.ThemeColorName = "surface"
 	// colorNameChanged marks a value or a page with unsent changes.
 	colorNameChanged fyne.ThemeColorName = "changed"
+	// colorNameZoneOK, colorNameZoneWarn and colorNameZoneOff are the zones
+	// of the charts' voltage scales: normal, a warning, and off. Blue,
+	// yellow and red (after the Okabe-Ito palette) stay apart for readers
+	// with red-green colour blindness, unlike green and red.
+	colorNameZoneOK   fyne.ThemeColorName = "zoneOK"
+	colorNameZoneWarn fyne.ThemeColorName = "zoneWarn"
+	colorNameZoneOff  fyne.ThemeColorName = "zoneOff"
+	// colorNameSeriesVoltage and colorNameSeriesCurrent are the two lines of
+	// the charge profile; vermilion and blue stay apart for colour-blind
+	// readers.
+	colorNameSeriesVoltage fyne.ThemeColorName = "seriesVoltage"
+	colorNameSeriesCurrent fyne.ThemeColorName = "seriesCurrent"
+	// colorNameLEDGreen, colorNameLEDAmber and colorNameLEDRed are the LEDs
+	// of the remote panel, in the colours of a physical panel.
+	colorNameLEDGreen fyne.ThemeColorName = "ledGreen"
+	colorNameLEDAmber fyne.ThemeColorName = "ledAmber"
+	colorNameLEDRed   fyne.ThemeColorName = "ledRed"
 )
 
 // prefTheme is the preference that holds the chosen theme variant: "light",
@@ -47,7 +64,11 @@ type tokens struct {
 	button, disabledButton             color.NRGBA
 	primary, onPrimary                 color.NRGBA
 	warning, errorColor, success       color.NRGBA
-	onSemantic                         color.NRGBA // text on warning, error and success
+	onSemantic                         color.NRGBA // text on error and success
+	onWarning                          color.NRGBA // text on warning
+	ledGreen, ledAmber, ledRed         color.NRGBA // remote panel LEDs
+	zoneOK, zoneWarn, zoneOff          color.NRGBA // chart zones (colorNameZoneOK …)
+	seriesVoltage, seriesCurrent       color.NRGBA // charge profile lines
 	scrollBarBackground                color.NRGBA
 	hover, pressed, shadow             uint8 // opacity of the foreground, the foreground and black
 }
@@ -59,7 +80,10 @@ var (
 		foreground: rgb(0x11181C), muted: rgb(0x5B6970), disabled: rgb(0x87949A),
 		button: rgb(0xE6EBED), disabledButton: rgb(0xEEF1F2),
 		primary: rgb(0x0F766E), onPrimary: rgb(0xFFFFFF),
-		warning: rgb(0xB45309), errorColor: rgb(0xDC2626), success: rgb(0x047857), onSemantic: rgb(0xFFFFFF),
+		warning: rgb(0xE6A100), errorColor: rgb(0xDC2626), success: rgb(0x0072B2), onSemantic: rgb(0xFFFFFF),
+		onWarning: rgb(0x11181C), ledGreen: rgb(0x047857), ledAmber: rgb(0xD97706), ledRed: rgb(0xDC2626),
+		zoneOK: rgb(0x0072B2), zoneWarn: rgb(0xE6B400), zoneOff: rgb(0xD62828),
+		seriesVoltage: rgb(0xD55E00), seriesCurrent: rgb(0x0072B2),
 		scrollBarBackground: rgb(0xE6EBED), hover: 0x0F, pressed: 0x1F, shadow: 0x33,
 	}
 	darkTokens = tokens{
@@ -68,7 +92,10 @@ var (
 		foreground: rgb(0xE6EDF0), muted: rgb(0x93A1A8), disabled: rgb(0x66747B),
 		button: rgb(0x263036), disabledButton: rgb(0x1B2226),
 		primary: rgb(0x14B8A6), onPrimary: rgb(0x0F1417),
-		warning: rgb(0xF59E0B), errorColor: rgb(0xF87171), success: rgb(0x34D399), onSemantic: rgb(0x0F1417),
+		warning: rgb(0xF5B400), errorColor: rgb(0xF87171), success: rgb(0x56B4E9), onSemantic: rgb(0x0F1417),
+		onWarning: rgb(0x0F1417), ledGreen: rgb(0x34D399), ledAmber: rgb(0xF59E0B), ledRed: rgb(0xF87171),
+		zoneOK: rgb(0x56B4E9), zoneWarn: rgb(0xF0E442), zoneOff: rgb(0xFF5C5C),
+		seriesVoltage: rgb(0xE8632A), seriesCurrent: rgb(0x3A94CF),
 		scrollBarBackground: rgb(0x1E262B), hover: 0x14, pressed: 0x29, shadow: 0x80,
 	}
 	lightPalette = lightTokens.palette()
@@ -103,7 +130,15 @@ func (k tokens) palette() map[fyne.ThemeColorName]color.Color {
 		colorNameChanged:                         k.warning,
 		theme.ColorNameError:                     k.errorColor,
 		theme.ColorNameSuccess:                   k.success,
-		theme.ColorNameForegroundOnWarning:       k.onSemantic,
+		colorNameZoneOK:                          k.zoneOK,
+		colorNameZoneWarn:                        k.zoneWarn,
+		colorNameZoneOff:                         k.zoneOff,
+		colorNameSeriesVoltage:                   k.seriesVoltage,
+		colorNameSeriesCurrent:                   k.seriesCurrent,
+		colorNameLEDGreen:                        k.ledGreen,
+		colorNameLEDAmber:                        k.ledAmber,
+		colorNameLEDRed:                          k.ledRed,
+		theme.ColorNameForegroundOnWarning:       k.onWarning,
 		theme.ColorNameForegroundOnError:         k.onSemantic,
 		theme.ColorNameForegroundOnSuccess:       k.onSemantic,
 		theme.ColorNameShadow:                    withAlpha(rgb(0), k.shadow),

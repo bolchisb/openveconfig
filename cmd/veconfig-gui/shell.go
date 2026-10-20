@@ -34,17 +34,21 @@ type page struct {
 	// nil for a page that always has something to show.
 	empty func() bool
 	view  fyne.CanvasObject // title, description and content
+	// scroll scrolls the whole page; its content has no scroll of its own.
+	scroll *container.Scroll
 }
 
 // newPage returns a page that shows content under its title and a one-line
-// description. Add it to ui.pages to list it in the sidebar.
+// description, all in one scroll area, so content must not scroll itself.
+// Add it to ui.pages to list it in the sidebar.
 func newPage(title, desc string, icon fyne.Resource, tab vebus.Tab, content fyne.CanvasObject) *page {
 	head := widget.NewRichText(
 		&widget.TextSegment{Text: title, Style: widget.RichTextStyle{SizeName: theme.SizeNameHeadingText, TextStyle: fyne.TextStyle{Bold: true}}},
 		&widget.TextSegment{Text: desc, Style: widget.RichTextStyle{ColorName: theme.ColorNamePlaceHolder}})
 	head.Wrapping = fyne.TextWrapWord
-	view := container.New(layout.NewCustomPaddedLayout(8, 0, 12, 12), container.NewBorder(head, nil, nil, nil, content))
-	return &page{title: title, desc: desc, icon: icon, tab: tab, view: view}
+	scroll := container.NewVScroll(container.New(layout.NewCustomPaddedLayout(0, 12, 0, 12), container.NewVBox(head, content)))
+	view := container.New(layout.NewCustomPaddedLayout(8, 0, 12, 0), scroll)
+	return &page{title: title, desc: desc, icon: icon, tab: tab, view: view, scroll: scroll}
 }
 
 // unavailable reports whether the loaded model has nothing to show on p.
@@ -246,11 +250,8 @@ func primaryAction(u *ui, c changeCounts) (label string, do func(), reason strin
 	m, s := u.settings, u.sess
 	if m.file != nil {
 		label, do = tr("Save file"), func() { saveSettingsFile(u) }
-		switch {
-		case c.invalid > 0:
+		if c.invalid > 0 {
 			reason = tr("Correct the invalid values to save.")
-		case c.gridWords > 0:
-			reason = tr("Undo the grid parameter changes to save.")
 		}
 		return label, do, reason
 	}
@@ -262,8 +263,8 @@ func primaryAction(u *ui, c changeCounts) (label string, do func(), reason strin
 		reason = tr("The device these settings were read from is not on the bus.")
 	case c.invalid > 0:
 		reason = tr("Correct the invalid values to send.")
-	case c.gridWords > 0:
-		reason = tr("Undo the grid parameter changes to send.")
+	case c.gridWords > 0 || c.gridCode:
+		reason = tr("Undo the grid code and grid parameter changes to send.")
 	}
 	return label, do, reason
 }
@@ -311,7 +312,7 @@ func (p *pill) set(text string, colour fyne.ThemeColorName, solid bool) {
 }
 
 // pillTint is the opacity of the background of a pill that is not solid.
-const pillTint = 0x14
+const pillTint = 0x40
 
 // onColour returns the theme colour of text on a solid background of c.
 func onColour(c fyne.ThemeColorName) fyne.ThemeColorName {
@@ -367,8 +368,9 @@ func (r *pillRenderer) Refresh() {
 		r.bg.FillColor = c
 		r.text.Color = th.Color(onColour(r.p.colour), v)
 	} else {
+		// Text stays in the text colour; the status colour is the tint.
 		r.bg.FillColor = withAlpha(color.NRGBAModel.Convert(c).(color.NRGBA), pillTint)
-		r.text.Color = c
+		r.text.Color = th.Color(theme.ColorNameForeground, v)
 	}
 	r.text.Text = r.p.text
 	r.text.TextSize = th.Size(theme.SizeNameCaptionText)

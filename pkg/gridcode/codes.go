@@ -1,11 +1,5 @@
 package gridcode
 
-import (
-	"errors"
-	"fmt"
-	"strings"
-)
-
 // Code is a grid code: a value of setting 81. The value is the number the
 // original tool shows in front of each entry of its grid code list, not
 // the entry's position in that list (reverse-engineered, INFERRED: with
@@ -124,33 +118,4 @@ var pageOf = map[Code]*Page{
 func PageFor(c Code) (p *Page, known bool) {
 	p, known = pageOf[c]
 	return p, known
-}
-
-// Checker words: two settings the device keeps with the grid parameter
-// words. How their values are computed is not known (#9).
-const (
-	CheckerWordA uint16 = 128
-	CheckerWordB uint16 = 191
-)
-
-// ErrNoChecker is returned (wrapped) by CheckWrite.
-var ErrNoChecker = errors.New("gridcode: the grid checker words (settings 128 and 191) cannot be computed (see #9), so grid parameters cannot be written")
-
-// CheckWrite checks the IDs of settings about to be written. It returns an
-// error wrapping ErrNoChecker, naming them, if they include a grid
-// parameter word (129-190) or a checker word (128, 191): a parameter
-// change would need checker words this package cannot compute, and
-// writing the checker words without valid values is never safe. Setting
-// 81 (the grid code itself) and settings outside 128-191 are not affected.
-func CheckWrite(ids []uint16) error {
-	var grid []string
-	for _, id := range ids {
-		if id >= CheckerWordA && id <= CheckerWordB {
-			grid = append(grid, fmt.Sprint(id))
-		}
-	}
-	if len(grid) == 0 {
-		return nil
-	}
-	return fmt.Errorf("%w (settings %s)", ErrNoChecker, strings.Join(grid, ", "))
 }

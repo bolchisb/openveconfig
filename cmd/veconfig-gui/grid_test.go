@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -102,12 +104,12 @@ func TestGridCodeSelectAndSend(t *testing.T) {
 		t.Error("the page's unsupported parameters are not listed")
 	}
 
-	rep, err := writeSettings(ctxT(t), s, d, false, nil)
-	if err != nil || len(rep.Results) != 1 || rep.Results[0].ID != vebus.SettingID(gridCodeSetting) || rep.Results[0].Status != vebus.StatusVerified {
-		t.Fatalf("write = %+v, %v; want setting 81 verified", rep, err)
+	// A changed grid code is never sent to a device.
+	if rep, err := writeSettings(ctxT(t), s, d, false, nil); rep != nil || !errors.Is(err, gridcode.ErrDeviceWrite) {
+		t.Fatalf("write = %+v, %v; want refused", rep, err)
 	}
-	if v := deviceValue(t, s, gridCodeSetting); v != 17 {
-		t.Errorf("device grid code = %d, want 17", v)
+	if v := deviceValue(t, s, gridCodeSetting); v != 0 {
+		t.Errorf("device grid code = %d, want 0 (nothing sent)", v)
 	}
 
 	// A code whose page is not known says so.
@@ -188,13 +190,21 @@ func TestGridParamEditBlocksSend(t *testing.T) {
 	if w, _ := d.Raw(vebus.SettingID(148)); w != 0x4|2<<3 {
 		t.Errorf("word 148 = %#04x, want %#04x", w, 0x4|2<<3)
 	}
-	if st := modelStatus(u.settings); !strings.Contains(st, "2 grid parameter words were changed") {
-		t.Errorf("status %q does not report the 2 changed grid words (143, 148)", st)
+	if st := modelStatus(u.settings); !strings.Contains(st, "cannot be sent straight to a device") {
+		t.Errorf("status %q does not report the grid changes", st)
+	}
+	if _, _, why := primaryAction(u, countChanges(d)); !strings.Contains(why, "Undo the grid code") {
+		t.Errorf("changes bar reason %q, want the grid changes", why)
+	}
+	for _, r := range changeRows(u, d, lastRead(d)) {
+		if vebus.GridCodeSetting(r.id.Num) && !hasMark(r, "cannot be sent yet") {
+			t.Errorf("review row of %v is not marked as not sendable", r.id)
+		}
 	}
 
 	// Sending is refused before anything is written, also the grid code.
 	sendSettings(u)
-	if dlg := u.win.Canvas().Overlays().Top(); dlg == nil || !strings.Contains(labelTexts(dlg), "cannot be sent or saved yet") {
+	if dlg := u.win.Canvas().Overlays().Top(); dlg == nil || !strings.Contains(labelTexts(dlg), "cannot be sent straight to a device yet") {
 		t.Fatal("no message that grid parameters cannot be sent")
 	}
 	for _, all := range []bool{false, true} {
@@ -208,13 +218,24 @@ func TestGridParamEditBlocksSend(t *testing.T) {
 		}
 	}
 
-	// Undo restores the words; then the grid code can be sent.
+	// Undo restores the words; the changed grid code still blocks sending
+	// until it is reverted too.
 	test.Tap(g.undo)
 	if ids := changedGridWords(d); len(ids) != 0 {
 		t.Errorf("after undo, changed grid words %v", ids)
 	}
-	if _, err := writeSettings(ctxT(t), s, d, false, nil); err != nil {
-		t.Errorf("send after undo: %v", err)
+	if _, err := writeSettings(ctxT(t), s, d, false, nil); !errors.Is(err, gridcode.ErrDeviceWrite) {
+		t.Errorf("send with the grid code changed: %v, want refused", err)
+	}
+	test.Tap(g.codeRow.revert)
+	if err := d.SetRaw(vebus.SettingID(44), 181); err != nil {
+		t.Fatal(err)
+	}
+	if rep, err := writeSettings(ctxT(t), s, d, false, nil); err != nil || len(rep.Results) != 1 {
+		t.Errorf("send after undoing the grid changes = %+v, %v", rep, err)
+	}
+	if v := deviceValue(t, s, 44); v != 181 {
+		t.Errorf("device setting 44 = %d, want 181", v)
 	}
 }
 
@@ -236,43 +257,118 @@ func TestGridSendAllSkipsGridWords(t *testing.T) {
 		t.Errorf("send all wrote grid settings %v", ids)
 	}
 	selectCode(t, g, 2)
-	if rep, err = writeSettings(ctxT(t), s, d, true, nil); err != nil || !slices.Equal(grid(rep), []uint16{gridCodeSetting}) {
-		t.Errorf("send all with a changed grid code wrote grid settings %v, %v; want 81 only", grid(rep), err)
+	if rep, err = writeSettings(ctxT(t), s, d, true, nil); rep != nil || !errors.Is(err, gridcode.ErrDeviceWrite) {
+		t.Errorf("send all with a changed grid code = %+v, %v; want refused", rep, err)
 	}
-	if d.Dirty(vebus.SettingID(gridCodeSetting)) || len(d.ChangedIDs()) != 0 {
-		t.Errorf("after send all, changed = %v", d.ChangedIDs())
-	}
-	if v := deviceValue(t, s, gridCodeSetting); v != 2 {
-		t.Errorf("device grid code = %d, want 2", v)
+	if v := deviceValue(t, s, gridCodeSetting); v != 0 {
+		t.Errorf("device grid code = %d, want 0 (nothing sent)", v)
 	}
 }
 
+// gridInfoTail returns invented bytes for the end of a file's setting-info
+// section: undecoded bytes, n access bytes and a grid-info table (format
+// 3) in which grid code c has the parameter-set version versions[c].
+func gridInfoTail(n int, versions []byte) []byte {
+	table := []byte{0, 0, 3, byte(len(versions)), 8}
+	table = append(table, make([]byte, 2*len(versions))...)
+	for c, v := range versions {
+		binary.LittleEndian.PutUint16(table[5+2*c:], uint16(len(table)))
+		table = append(table, v, 0, 0) // version, flags
+		table = append(table, make([]byte, 16)...)
+	}
+	binary.LittleEndian.PutUint16(table, uint16(len(table)-5))
+	tail := append([]byte{0x50, 0, 0, 0}, bytes.Repeat([]byte{0x81}, n)...)
+	tail = binary.LittleEndian.AppendUint16(tail, uint16(len(table)))
+	return append(tail, table...)
+}
+
+// gridFile returns a synthetic one-unit file of a gridProfile device with
+// a grid-info table where code 17 has version 2 and every other code 0,
+// and the checker words a and b.
+func gridFile(a, b uint16) rvsctest.File {
+	spec := rvsctest.FromProfile(gridProfile(2699481), 192, 0x0A0B0C0D, "ZZ0001TEST")
+	versions := make([]byte, 33)
+	versions[17] = 2
+	spec.InfoTail = gridInfoTail(192, versions)
+	spec.Units[0].Settings[128], spec.Units[0].Settings[191] = a, b
+	return spec
+}
+
+// TestGridSaveFile saves grid changes into a file: the checker words are
+// stamped from the file's pair, the new grid code and its version in the
+// file's grid-info table, and every other byte stays as it was.
 func TestGridSaveFile(t *testing.T) {
 	u := newTestUI(t)
-	newGridTab(u)
-	spec := rvsctest.FromProfile(gridProfile(2699481), 192, 0x0A0B0C0D, "ZZ0001TEST")
+	g := newGridTab(u)
+	spec := gridFile(0x0300, 0x0300)
 	sf, err := parseSettingsFile("grid.rvsc", spec.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
 	loadSettingsFile(u, sf)
-	d := u.settings.dev
-	if err := d.SetRaw(vebus.SettingID(gridCodeSetting), 17); err != nil {
-		t.Fatal(err)
+	if text := labelTexts(g.params); !strings.Contains(text, "fit the grid code.") {
+		t.Errorf("check word status not shown as consistent: %q", text)
 	}
-	data, err := sf.save(d)
-	if err != nil {
-		t.Fatalf("saving a changed grid code: %v", err)
+	save := func(what string, want rvsctest.File) {
+		t.Helper()
+		data, err := sf.save(u.settings.dev)
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		if !bytes.Equal(data, want.Bytes()) {
+			t.Errorf("%s: saved file is not the original with the expected changes", what)
+		}
+		loadSettingsFile(u, sf) // as saveSettingsFile does
 	}
+
+	// Grid code 0 to 17 (version 2): next generation 4.
+	selectCode(t, g, 17)
 	spec.Units[0].Settings[gridCodeSetting] = 17
-	if !bytes.Equal(data, spec.Bytes()) {
-		t.Error("saved file differs from the original with only the grid code changed")
+	spec.Units[0].Settings[128], spec.Units[0].Settings[191] = 0x0411, 0x0413
+	save("grid code changed", spec)
+	if text := labelTexts(g.params); !strings.Contains(text, "fit the grid code.") {
+		t.Errorf("after saving, check word status %q", text)
 	}
-	if err := d.SetRaw(vebus.SettingID(150), 1); err != nil {
+
+	// A parameter word: generation 5, same code.
+	if err := u.settings.dev.SetRaw(vebus.SettingID(150), 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sf.save(d); err == nil || !strings.Contains(err.Error(), "cannot be sent or saved yet") {
-		t.Errorf("saving a changed grid parameter = %v, want refused", err)
+	spec.Units[0].Settings[150] = 1
+	spec.Units[0].Settings[128], spec.Units[0].Settings[191] = 0x0511, 0x0513
+	save("grid parameter changed", spec)
+
+	// No grid change: the checker words stay.
+	if err := u.settings.dev.SetRaw(vebus.SettingID(44), 181); err != nil {
+		t.Fatal(err)
+	}
+	spec.Units[0].Settings[44] = 181
+	save("other setting changed", spec)
+
+	// The file's pair's generation is next: one more (an interrupted write).
+	spec = gridFile(0x0300, 0x0400)
+	if sf, err = parseSettingsFile("grid.rvsc", spec.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	loadSettingsFile(u, sf)
+	if text := labelTexts(g.params); !strings.Contains(text, "do not fit the grid code") {
+		t.Errorf("inconsistent pair: check word status %q", text)
+	}
+	selectCode(t, g, 1)
+	spec.Units[0].Settings[gridCodeSetting] = 1
+	spec.Units[0].Settings[128], spec.Units[0].Settings[191] = 0x0501, 0x0501
+	save("grid code changed after an interrupted write", spec)
+}
+
+// TestGridCheckStatusDevice: for a device the parameter-set version is
+// not known, so only the rest of the check is made.
+func TestGridCheckStatusDevice(t *testing.T) {
+	_, _, g, _ := gridSetup(t, 2699481)
+	if text := labelTexts(g.params); !strings.Contains(text, "fit the grid code. Their parameter-set version is not checked") {
+		t.Errorf("check word status %q", text)
+	}
+	if text := labelTexts(g.params); !strings.Contains(text, "saved to a settings file") {
+		t.Errorf("grid page notes %q", text)
 	}
 }
 

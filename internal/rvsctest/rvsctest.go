@@ -86,6 +86,7 @@ func unit(u Unit) []byte {
 	for i := 0x0c; i < 0x22; i++ { // undecoded bytes: an invented pattern
 		b = append(b, byte(0x40+i))
 	}
+	binary.LittleEndian.PutUint16(b[0x13:], 6) // 6 extra bytes: the system record starts at 0x1c
 	b = append(b, u.Phase, u.AssistantFlag, u.Index)
 	b = binary.LittleEndian.AppendUint16(b, uint16(len(u.Serial)))
 	serial := make([]byte, 11)
