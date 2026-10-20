@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // The fixtures below are synthetic: every value is invented. The builder

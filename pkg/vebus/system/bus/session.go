@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus/system"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/vebus/system"
 )
 
 // Try counts and timing. Reverse-engineered (#53) unless marked as ours.

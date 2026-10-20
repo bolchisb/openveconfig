@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // All values in these tests are synthetic.

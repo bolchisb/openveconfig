@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus/system"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/vebus/system"
 )
 
 // WriteOptions are the confirmations of a writing operation. The zero

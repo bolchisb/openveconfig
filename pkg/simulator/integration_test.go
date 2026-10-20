@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // start runs a Simulator with idle 'V' frames disabled (unless cfg sets

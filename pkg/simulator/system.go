@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // VE.Bus system units.

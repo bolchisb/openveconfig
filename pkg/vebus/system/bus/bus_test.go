@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/simulator"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus/system"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus/system/bus"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/simulator"
+	"github.com/bolchisb/openveconfig/pkg/vebus/system"
+	"github.com/bolchisb/openveconfig/pkg/vebus/system/bus"
 )
 
 // The tests run real mk2.Clients against simulated buses, with short

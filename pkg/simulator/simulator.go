@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // DefaultVersion is the MK2 version reported by 'V' unless Config.Version

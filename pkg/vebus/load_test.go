@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/simulator"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/simulator"
 )
 
-// simDevices are the devices of the simulator that "veconfig-cli
+// simDevices are the devices of the simulator that "openveconfig-cli
 // --simulator" uses; testdata/dump-simulator-addr*.json were written by
-// "veconfig-cli --simulator --baud 2400 [--address 1] dump" against it.
+// "openveconfig-cli --simulator --baud 2400 [--address 1] dump" against it.
 func simDevices() []simulator.Device {
 	return []simulator.Device{
 		{Address: 0, Profile: simulator.Synthetic12V230()},

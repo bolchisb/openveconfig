@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/simulator"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/simulator"
 )
 
 // countingPort records the Winmon commands the host sends, so tests can
