@@ -9,6 +9,7 @@ import (
 
 	"github.com/bolchisb/openveconfig/pkg/assistant"
 	"github.com/bolchisb/openveconfig/pkg/assistant/asm"
+	"github.com/bolchisb/openveconfig/pkg/assistant/vap"
 	"github.com/bolchisb/openveconfig/pkg/assistant/wizard"
 	"github.com/bolchisb/openveconfig/pkg/rvsc"
 )
@@ -30,14 +31,54 @@ var essAnswers = [][]int64{
 	{5000, 5000},             // PV inverter power, PV panel power, W
 }
 
-// essLabels is the environment for that unit, as far as it is known: the
-// battery's nominal voltage (hwDC, reverse-engineered, #8) and the AC
-// voltage (inferred).
-func essLabels() map[string]asm.Value {
-	return map[string]asm.Value{
-		"hwDC": asm.IntVal(48),
-		"hwAC": asm.IntVal(230),
+// settingNames are the names the sources use for the unit's settings, as
+// far as the spec gives them (addendum §8.4); the original's full table of
+// names is not in it.
+var settingNames = map[int]string{64: "eestBatteryCapacity", 81: "eecvGridCode"}
+
+// essDevice describes the unit for the composer (spec addendum §8.4): the
+// firmware version from the file, the settings with their metadata from
+// the file, the package folder's index, and the values the spec gives.
+// Choices made where the spec says UNKNOWN or INFERRED:
+//   - cDeviceInfo = 1 (HasNTC, bit 5, unknown: no NTC assumed);
+//   - cVLLVersion = 7, cVLLSystem = 0 (the version-reply bytes are
+//     unknown; any version >= 7 with system 0 should give the same bytes);
+//   - cRatedPower = 10000 (inferred from the product name);
+//   - cMultiSubVersion is left undefined (unknown).
+func essDevice(t *testing.T, dir string, f *rvsc.File, u *rvsc.Unit) assistant.Device {
+	d := assistant.Device{
+		MultiVersion:   int64(u.Firmware()),
+		PNominal:       8300,
+		DCCode:         24,
+		ACVolts:        230,
+		WinmonIDOffset: 4,
+		Extra: map[string]asm.Value{
+			"cDeviceInfo": asm.IntVal(1),
+			"cVLLVersion": asm.IntVal(7),
+			"cVLLSystem":  asm.IntVal(0),
+			"cRatedPower": asm.IntVal(10000),
+		},
 	}
+	var err error
+	if d.PackageVersion, d.DownloadedBy, err = vap.ReadIndex(dir); err != nil {
+		t.Logf("package index: %v", err)
+	}
+	info, err := f.SettingInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, raw := range u.Settings() {
+		name, ok := settingNames[id]
+		if !ok || id >= len(info.Settings) {
+			continue
+		}
+		si := info.Settings[id]
+		d.Settings = append(d.Settings, assistant.DeviceSetting{
+			ID: id, Name: name, Scale: int64(si.Sc), Offset: int64(si.Offset),
+			Default: int64(si.Default), Min: int64(si.Min), Max: int64(si.Max), Value: int64(raw),
+		})
+	}
+	return d
 }
 
 // realImage returns the assistant image of the first unit in
@@ -78,7 +119,7 @@ func realImage(t *testing.T) ([]byte, *assistant.Composer) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Labels = essLabels()
+	c.Labels = assistant.Labels(essDevice(t, dir, f, units[0]))
 	return img, c
 }
 
