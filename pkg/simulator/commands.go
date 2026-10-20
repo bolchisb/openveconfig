@@ -2,6 +2,7 @@ package simulator
 
 import (
 	"encoding/binary"
+	"time"
 
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
 )
@@ -35,6 +36,8 @@ type device struct {
 
 	snapshot    []uint16 // values taken with 'F' 6
 	hasSnapshot bool
+
+	sys *unit // nil unless the device is a system unit
 }
 
 func newDevice(d Device) *device {
@@ -47,7 +50,11 @@ func newDevice(d Device) *device {
 		ram:      map[uint16]uint16{},
 		state:    d.Profile.State,
 	}
-	for _, st := range d.Profile.Settings {
+	if d.System != nil {
+		dev.sys = newUnit(d)
+		dev.p.Settings = withExternalBF(d.Profile.Settings, d.System.ExternalBF)
+	}
+	for _, st := range dev.p.Settings {
 		dev.settings[st.ID] = st
 		dev.values[st.ID] = st.Default
 	}
@@ -59,10 +66,13 @@ func newDevice(d Device) *device {
 }
 
 // sendVersion sends the 'V' frame (§3.4). <Mode> is the address set with
-// 'A', or 'B' if none is set.
+// 'A', or 'B' if none is set; 'W' with Config.NineBit.
 func (s *Simulator) sendVersion() {
 	mode := s.addr
-	if mode == mk2.AddressNone {
+	switch {
+	case s.nineBit:
+		mode = mk2.VersionModeRS485
+	case mode == mk2.AddressNone:
 		mode = mk2.VersionModeNoAddress
 	}
 	d := binary.LittleEndian.AppendUint32(nil, s.version)
@@ -194,11 +204,12 @@ func (s *Simulator) cmdFrame(_ *Line, req mk2.Frame) {
 		d = append(d, byte(m.ram[ramInverterPeriod]))
 		s.send(mk2.Frame{VEBus: true, Command: mk2.FrameInfo, Data: d})
 	case 1, 2, 3, 4:
-		phases := min(len(s.devices), 4)
+		devs := s.live(time.Now())
+		phases := min(len(devs), 4)
 		if int(typ) > phases {
 			return
 		}
-		dev := s.devices[typ-1]
+		dev := devs[typ-1]
 		phase := byte(9) - typ // L2 0x07, L3 0x06, L4 0x05
 		if typ == 1 {
 			phase = mk2.PhaseL1Of1 + byte(phases-1)

@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -52,13 +53,26 @@ type Config struct {
 	// gets no reply, which is how an MK2 is expected (not documented) to
 	// behave.
 	HighSpeed bool
+	// NineBit makes the MK report the VE 9-bit RS485 protocol ('W' in the
+	// 'V' frame, §3.4). It then ignores raw frames (see SystemUnit).
+	NineBit bool
+	// ResetDuration is how long system units stay silent after the system
+	// reset frame (see SystemUnit). 0 means DefaultResetDuration; a
+	// negative value means no silent time.
+	ResetDuration time.Duration
 }
 
 // Device is one VE.Bus device on the simulated bus.
 type Device struct {
-	// Address is the device address, 0 to mk2.MaxAddress (§7.1).
+	// Address is the device address, 0 to mk2.MaxAddress (§7.1). For a
+	// system unit it is the active short address and must equal the short
+	// address in its record (byte 8).
 	Address byte
 	Profile Profile
+	// System, if set, makes the device a unit of a VE.Bus system that
+	// answers the raw system frames. Several system units may share an
+	// address (see SystemUnit).
+	System *SystemUnit
 }
 
 // Handler handles one MK2 command frame from the host. It runs with the
@@ -99,8 +113,10 @@ type Simulator struct {
 
 	version   uint32
 	access    byte
+	nineBit   bool
+	resetDur  time.Duration
 	handlers  map[byte]Handler
-	devices   []*device // sorted by address; devices[0] is the master
+	devices   []*device // sorted by address, then long ID
 	faults    []FaultRule
 	fault     Fault // fault applied to the request being handled
 	addr      byte  // set with 'A' (§7.1)
@@ -111,17 +127,23 @@ type Simulator struct {
 }
 
 // New returns a running Simulator; it has already sent its power-up 'V'
-// frame (§3.4). It panics if two devices share an address or an address is
-// above mk2.MaxAddress. Close its Port to stop it.
+// frame (§3.4). It panics if two devices share an address (unless both are
+// system units) or an address is above mk2.MaxAddress, and on an invalid
+// SystemUnit (see SystemUnit). Close its Port to stop it.
 func New(cfg Config) *Simulator {
 	s := &Simulator{
 		baud:     DefaultBaudRate,
 		hostBaud: DefaultBaudRate,
 		version:  cfg.Version,
 		access:   cfg.AccessLevel,
+		nineBit:  cfg.NineBit,
+		resetDur: cfg.ResetDuration,
 		interval: cfg.VersionInterval,
 		addr:     mk2.AddressNone,
 		sw:       mk2.SwitchOn,
+	}
+	if s.resetDur == 0 {
+		s.resetDur = DefaultResetDuration
 	}
 	s.cond = sync.NewCond(&s.mu)
 	s.port = &Port{s: s}
@@ -139,12 +161,22 @@ func New(cfg Config) *Simulator {
 		if d.Address > mk2.MaxAddress {
 			panic(fmt.Sprintf("simulator: device address 0x%02X above 0x%02X", d.Address, mk2.MaxAddress))
 		}
-		if s.device(d.Address) != nil {
-			panic(fmt.Sprintf("simulator: two devices at address 0x%02X", d.Address))
+		for _, o := range s.devices {
+			if o.addr == d.Address && (o.sys == nil || d.System == nil) {
+				panic(fmt.Sprintf("simulator: two devices at address 0x%02X", d.Address))
+			}
 		}
-		s.devices = append(s.devices, newDevice(d))
+		dev := newDevice(d)
+		if dev.sys != nil {
+			for _, o := range s.devices {
+				if o.sys != nil && o.sys.LongID == dev.sys.LongID {
+					panic(fmt.Sprintf("simulator: two units with long ID 0x%08X", dev.sys.LongID))
+				}
+			}
+		}
+		s.devices = append(s.devices, dev)
 	}
-	slices.SortFunc(s.devices, func(a, b *device) int { return int(a.addr) - int(b.addr) })
+	s.sortDevices()
 	if m := s.master(); m != nil {
 		s.limit = m.p.InputLimit
 	}
@@ -207,22 +239,54 @@ func (s *Simulator) SetRAMVar(addr byte, id uint16, value uint16) bool {
 	return true
 }
 
+// device returns the device that answers at addr: the only one there that
+// is switched on and not restarting. When several system units answer at
+// the same address their replies would collide, so it returns nil, as for
+// an empty address (a simulator choice; the real behaviour is unknown).
 func (s *Simulator) device(addr byte) *device {
-	for _, d := range s.devices {
+	var found *device
+	now := time.Now()
+	for _, d := range s.live(now) {
 		if d.addr == addr {
-			return d
+			if found != nil {
+				return nil
+			}
+			found = d
 		}
+	}
+	return found
+}
+
+// live returns the devices that answer at time now, in address order.
+// Devices that are not system units always answer.
+func (s *Simulator) live(now time.Time) []*device {
+	var ds []*device
+	for _, d := range s.devices {
+		if d.answers(now) {
+			ds = append(ds, d)
+		}
+	}
+	return ds
+}
+
+// master is the device that answers system-wide requests ('L', 'F'): the
+// live one with the lowest address. It is nil on an empty bus.
+func (s *Simulator) master() *device {
+	if ds := s.live(time.Now()); len(ds) > 0 {
+		return ds[0]
 	}
 	return nil
 }
 
-// master is the device that answers system-wide requests ('L', 'F'): the
-// one with the lowest address. It is nil on an empty bus.
-func (s *Simulator) master() *device {
-	if len(s.devices) == 0 {
-		return nil
-	}
-	return s.devices[0]
+// sortDevices sorts the devices by address, then long ID. System units
+// change address when they restart.
+func (s *Simulator) sortDevices() {
+	slices.SortStableFunc(s.devices, func(a, b *device) int {
+		if a.addr != b.addr {
+			return int(a.addr) - int(b.addr)
+		}
+		return cmp.Compare(a.longID(), b.longID())
+	})
 }
 
 // receive feeds bytes from the host to the MK2. s.mu is held.
@@ -236,20 +300,23 @@ func (s *Simulator) receive(b []byte) {
 			s.in = nil // a handler changed the speed; the rest is noise
 			return
 		}
-		adv, tok, _ := mk2.ScanMK2Frames(s.in, false)
+		adv, tok, _ := mk2.ScanHostFrames(s.in, false)
 		if tok == nil {
 			s.in = s.in[adv:]
 			return
 		}
-		f, err := mk2.Decode(tok)
 		s.in = s.in[adv:]
-		if err == nil {
+		if tok[1] != mk2.Marker {
+			s.raw(tok)
+			continue
+		}
+		if f, err := mk2.Decode(tok); err == nil {
 			s.dispatch(f)
 		}
 	}
 }
 
-// dispatch handles one request frame, applying any matching fault.
+// dispatch handles one MK2 request frame, applying any matching fault.
 func (s *Simulator) dispatch(f mk2.Frame) {
 	s.fault = s.takeFault(f)
 	defer func() { s.fault = 0 }()

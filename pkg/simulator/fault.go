@@ -38,8 +38,15 @@ type FaultRule struct {
 	// WCmd is the Winmon command to match; 0 matches any. A non-zero WCmd
 	// matches Winmon requests only.
 	WCmd byte
+	// Raw makes the rule match raw system frames (see SystemUnit) whose
+	// sub-command is SysCmd, such as mk2.SysReadConfig, instead of MK2
+	// frames; Cmd and WCmd are then ignored. Rules without Raw never match
+	// raw frames.
+	Raw    bool
+	SysCmd byte
 	// Fault is the fault to inject. Unsupported and AccessLevel only match
-	// Winmon requests.
+	// Winmon requests. On a raw frame, Drop loses the frame, NoReply loses
+	// the units' replies and Corrupt garbles them.
 	Fault Fault
 	// Count is how many matching requests get the fault; 0 means all of
 	// them until ClearFaults.
@@ -71,9 +78,24 @@ func (s *Simulator) takeFault(f mk2.Frame) Fault {
 			wcmd = r.Cmd
 		}
 	}
-	for i, r := range s.faults {
+	return s.take(func(r FaultRule) bool {
 		winmonOnly := r.WCmd != 0 || r.Fault == Unsupported || r.Fault == AccessLevel
-		if (r.Cmd != 0 && r.Cmd != cmd) || (winmonOnly && cmd != mk2.CmdWinmon) || (r.WCmd != 0 && r.WCmd != wcmd) {
+		return !r.Raw && (r.Cmd == 0 || r.Cmd == cmd) && (!winmonOnly || cmd == mk2.CmdWinmon) && (r.WCmd == 0 || r.WCmd == wcmd)
+	})
+}
+
+// takeRawFault is takeFault for a raw system frame with sub-command sub.
+func (s *Simulator) takeRawFault(sub byte) Fault {
+	return s.take(func(r FaultRule) bool {
+		return r.Raw && r.SysCmd == sub && r.Fault != Unsupported && r.Fault != AccessLevel
+	})
+}
+
+// take returns the fault of the first rule that match accepts, or 0, and
+// uses up one count of that rule. s.mu is held.
+func (s *Simulator) take(match func(FaultRule) bool) Fault {
+	for i, r := range s.faults {
+		if !match(r) {
 			continue
 		}
 		if r.Count > 0 {
