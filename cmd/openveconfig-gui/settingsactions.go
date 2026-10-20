@@ -964,7 +964,7 @@ func openSettingsFile(u *ui) {
 }
 
 func chooseSettingsFile(u *ui) {
-	dlg := dialog.NewFileOpen(func(r fyne.URIReadCloser, err error) {
+	showFileOpen(u.win, rvscFilter, func(r fyne.URIReadCloser, err error) {
 		if err != nil {
 			showError(u, err)
 			return
@@ -972,9 +972,7 @@ func chooseSettingsFile(u *ui) {
 		if r != nil {
 			readSettingsFile(u, r)
 		}
-	}, u.win)
-	dlg.SetFilter(rvscFilter)
-	dlg.Show()
+	})
 }
 
 // openRecentFile opens the settings file at uri, as openSettingsFile does
@@ -1056,7 +1054,7 @@ func saveSettingsFile(u *ui) {
 		return
 	}
 	d, sf := m.dev, m.file
-	dlg := dialog.NewFileSave(func(w fyne.URIWriteCloser, err error) {
+	showFileSave(u.win, "", rvscFilter, sf.name, func(w fyne.URIWriteCloser, err error) {
 		if err != nil {
 			showError(u, err)
 			return
@@ -1078,8 +1076,5 @@ func saveSettingsFile(u *ui) {
 		sf.name = w.URI().Name()
 		addRecent(u, w.URI())
 		loadSettingsFile(u, sf)
-	}, u.win)
-	dlg.SetFilter(rvscFilter)
-	dlg.SetFileName(sf.name)
-	dlg.Show()
+	})
 }

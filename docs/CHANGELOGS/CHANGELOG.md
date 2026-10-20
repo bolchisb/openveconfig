@@ -4,6 +4,10 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 
 ## 2026-10-20
 
+### GUI: system file dialogs
+
+- **The file dialogs are the system's own** (`cmd/openveconfig-gui/filedialog.go`, through `github.com/ncruces/zenity` v0.10.15; Fyne 2.8 has none on Windows and macOS): Load and Save settings, open and save `.vms`, Update a backup file, the export `.txt` and the assistant folder. They keep the extension filters, the suggested file name and the overwrite question, and are attached to the app window. Fyne's dialog is still used where there is no system one (Linux without zenity or kdialog, and the tests). `golang.org/x/text`, `x/image` and `x/sys` move up to the versions zenity needs.
+
 ### M4: Assistants, phase 2 (compiler, in progress)
 
 - **`pkg/assistant/vap`** (#32): reads the user's assistant packages (`.vap`/`.dvap`: a zlib stream whose words sum to 0, then the member files); `List`/`Latest` list a folder; `DefaultDir` is where VEConfigure downloads them on Windows. No package is shipped.

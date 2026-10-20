@@ -18,7 +18,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -203,7 +202,7 @@ func exportSettings(u *ui) {
 		u.app.Clipboard().SetContent(text)
 	})
 	save := widget.NewButtonWithIcon(tr("Save…"), theme.DocumentSaveIcon(), func() {
-		dlg := dialog.NewFileSave(func(w fyne.URIWriteCloser, err error) {
+		showFileSave(u.win, tr("Select file to save exported settings"), storage.NewExtensionFileFilter([]string{".txt"}), "settings.txt", func(w fyne.URIWriteCloser, err error) {
 			if err == nil && w != nil {
 				_, err = w.Write([]byte(text))
 				err = errors.Join(err, w.Close())
@@ -211,11 +210,7 @@ func exportSettings(u *ui) {
 			if err != nil {
 				showError(u, err)
 			}
-		}, u.win)
-		dlg.SetTitleText(tr("Select file to save exported settings"))
-		dlg.SetFilter(storage.NewExtensionFileFilter([]string{".txt"}))
-		dlg.SetFileName("settings.txt")
-		dlg.Show()
+		})
 	})
 	content := container.NewBorder(nil, container.NewHBox(copyText, save), nil, nil, container.NewScroll(list))
 	showTableDialog(u, tr("Export"), content, tableDialogSize, tr("Close"), nil, nil)

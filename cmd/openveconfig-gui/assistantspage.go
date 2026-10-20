@@ -10,7 +10,6 @@ package main
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -19,9 +18,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -196,19 +193,13 @@ func (ap *assistantsPage) availableCard() fyne.CanvasObject {
 
 // chooseFolder asks for the package folder and reads it.
 func (ap *assistantsPage) chooseFolder() {
-	d := dialog.NewFolderOpen(func(l fyne.ListableURI, err error) {
+	showFolderOpen(ap.u.win, ap.folder.Text, func(l fyne.ListableURI, err error) {
 		if err != nil || l == nil {
 			return
 		}
 		ap.u.app.Preferences().SetString(prefAssistantFolder, l.Path())
 		ap.setDir(l.Path())
-	}, ap.u.win)
-	if st, err := os.Stat(ap.folder.Text); err == nil && st.IsDir() {
-		if l, err := storage.ListerForURI(storage.NewFileURI(ap.folder.Text)); err == nil {
-			d.SetLocation(l)
-		}
-	}
-	d.Show()
+	})
 }
 
 // showAvailable lists the assistants of the folder read last.
