@@ -312,7 +312,7 @@ func (p *pill) set(text string, colour fyne.ThemeColorName, solid bool) {
 }
 
 // pillTint is the opacity of the background of a pill that is not solid.
-const pillTint = 0x14
+const pillTint = 0x40
 
 // onColour returns the theme colour of text on a solid background of c.
 func onColour(c fyne.ThemeColorName) fyne.ThemeColorName {
@@ -368,8 +368,9 @@ func (r *pillRenderer) Refresh() {
 		r.bg.FillColor = c
 		r.text.Color = th.Color(onColour(r.p.colour), v)
 	} else {
+		// Text stays in the text colour; the status colour is the tint.
 		r.bg.FillColor = withAlpha(color.NRGBAModel.Convert(c).(color.NRGBA), pillTint)
-		r.text.Color = c
+		r.text.Color = th.Color(theme.ColorNameForeground, v)
 	}
 	r.text.Text = r.p.text
 	r.text.TextSize = th.Size(theme.SizeNameCaptionText)

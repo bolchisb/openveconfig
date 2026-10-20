@@ -135,17 +135,17 @@ func newRemotePanel(u *ui, s *session) *remotePanel {
 
 	chargeLEDs := []fyne.CanvasObject{
 		mutedText(tr("Charger")),
-		p.newLED(mk2.LEDMains, tr("Mains"), theme.ColorNameSuccess),
-		p.newLED(mk2.LEDBulk, tr("Bulk"), theme.ColorNameWarning),
-		p.newLED(mk2.LEDAbsorption, tr("Absorption"), theme.ColorNameWarning),
-		p.newLED(mk2.LEDFloat, tr("Float"), theme.ColorNameWarning),
+		p.newLED(mk2.LEDMains, tr("Mains"), colorNameLEDGreen),
+		p.newLED(mk2.LEDBulk, tr("Bulk"), colorNameLEDAmber),
+		p.newLED(mk2.LEDAbsorption, tr("Absorption"), colorNameLEDAmber),
+		p.newLED(mk2.LEDFloat, tr("Float"), colorNameLEDAmber),
 	}
 	inverterLEDs := []fyne.CanvasObject{
 		mutedText(tr("Inverter")),
-		p.newLED(mk2.LEDInverter, tr("Inverter"), theme.ColorNameSuccess),
-		p.newLED(mk2.LEDOverload, tr("Overload"), theme.ColorNameError),
-		p.newLED(mk2.LEDLowBattery, tr("Low battery"), theme.ColorNameError),
-		p.newLED(mk2.LEDTemperature, tr("Temperature"), theme.ColorNameError),
+		p.newLED(mk2.LEDInverter, tr("Inverter"), colorNameLEDGreen),
+		p.newLED(mk2.LEDOverload, tr("Overload"), colorNameLEDRed),
+		p.newLED(mk2.LEDLowBattery, tr("Low battery"), colorNameLEDRed),
+		p.newLED(mk2.LEDTemperature, tr("Temperature"), colorNameLEDRed),
 	}
 	ledCard := widget.NewCard(tr("Status"), "", container.NewGridWithColumns(2,
 		container.NewVBox(chargeLEDs...), container.NewVBox(inverterLEDs...)))
