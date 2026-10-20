@@ -121,7 +121,7 @@ type plotLabel struct {
 // Opacity of the tints of the charts.
 const (
 	tintPhase = 0x18 // a phase band of the charge profile
-	tintZone  = 0x40 // a zone of a voltage scale
+	tintZone  = 0x80 // a zone of a voltage scale; half opacity keeps the zones apart for colour-blind readers
 )
 
 // scaleX returns the position of v on a scale from lo to hi.
@@ -406,19 +406,19 @@ func acInputChart(d *vebus.Device) *chartSpec {
 	pad := 0.12 * (hi - lo)
 	lo, hi = lo-pad, hi+pad
 	zones := []scaleZone{
-		{lo, lowOff, theme.ColorNameError},
-		{lowOff, lowOn, theme.ColorNameWarning},
-		{lowOn, highOn, theme.ColorNameSuccess},
-		{highOn, highOff, theme.ColorNameWarning},
-		{highOff, hi, theme.ColorNameError},
+		{lo, lowOff, colorNameZoneOff},
+		{lowOff, lowOn, colorNameZoneWarn},
+		{lowOn, highOn, colorNameZoneOK},
+		{highOn, highOff, colorNameZoneWarn},
+		{highOff, hi, colorNameZoneOff},
 	}
 	s := &chartSpec{
 		title: tr("AC input voltage window"),
 		plot:  scaleScene(lo, hi, zones, marks),
 		legend: []legendItem{
-			{theme.ColorNameSuccess, tr("Accepted")},
-			{theme.ColorNameWarning, tr("Accepted until a disconnect")},
-			{theme.ColorNameError, tr("Disconnected")},
+			{colorNameZoneOK, tr("Accepted")},
+			{colorNameZoneWarn, tr("Accepted until a disconnect")},
+			{colorNameZoneOff, tr("Disconnected")},
 		},
 		caption: tr("The AC input is used while its voltage stays between the disconnect levels. After a disconnect it is used again once the voltage is back between the reconnect levels."),
 	}
@@ -472,17 +472,17 @@ func batteryChart(d *vebus.Device) *chartSpec {
 	lo, hi = lo-pad, hi+pad
 	low = max(low, shut)
 	zones := []scaleZone{
-		{lo, shut, theme.ColorNameError},
-		{shut, low, theme.ColorNameWarning},
-		{low, hi, theme.ColorNameSuccess},
+		{lo, shut, colorNameZoneOff},
+		{shut, low, colorNameZoneWarn},
+		{low, hi, colorNameZoneOK},
 	}
 	return &chartSpec{
 		title: tr("Battery voltage levels"),
 		plot:  scaleScene(lo, hi, zones, marks),
 		legend: []legendItem{
-			{theme.ColorNameError, tr("Inverter off")},
-			{theme.ColorNameWarning, tr("Low battery")},
-			{theme.ColorNameSuccess, tr("Normal")},
+			{colorNameZoneOff, tr("Inverter off")},
+			{colorNameZoneWarn, tr("Low battery")},
+			{colorNameZoneOK, tr("Normal")},
 		},
 		caption: tr("The inverter shuts down when the battery voltage falls to the shut-down level and starts again once it rises to the restart level. Float and absorption are shown for comparison."),
 	}

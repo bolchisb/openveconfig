@@ -170,7 +170,7 @@ func TestACInputChart(t *testing.T) {
 	}
 	var accepted *plotArea
 	for i, a := range s.plot.areas {
-		if a.colour == theme.ColorNameSuccess {
+		if a.colour == colorNameZoneOK {
 			accepted = &s.plot.areas[i]
 		}
 	}
@@ -224,7 +224,7 @@ func TestBatteryChart(t *testing.T) {
 	}
 	var low *plotArea
 	for i, a := range s.plot.areas {
-		if a.colour == theme.ColorNameWarning {
+		if a.colour == colorNameZoneWarn {
 			low = &s.plot.areas[i]
 		}
 	}
