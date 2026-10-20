@@ -18,11 +18,11 @@ func gridLabels() map[string]string {
 		"Italy (CEI 0-21)":                                                      tr("CEI grid code settings (CEI 0-21)"),
 		"Germany, variant A (VDE-AR-N 4105, short form)":                        tr("VDE grid code settings (VDE-AR-N 4105, variant A)"),
 		"Germany, variant B (VDE-AR-N 4105, full form)":                         tr("VDE grid code settings (VDE-AR-N 4105, variant B)"),
-		"Australia/New Zealand (AS/NZS 4777.2:2015)":                            tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2015)"),
-		"Australia/New Zealand (AS/NZS 4777.2:2015, parameter set 1 and later)": tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2015)"),
+		"Australia/New Zealand (AS/NZS 4777.2:2015)":                            tr("AS/NZS 4777 grid code settings"),
+		"Australia/New Zealand (AS/NZS 4777.2:2015, parameter set 1 and later)": tr("AS/NZS 4777 grid code settings"),
 		"South Africa (NRS 097-2-1)":                                            tr("NRS097 grid code settings (NRS 097-2-1)"),
 		"France (UTE C15-712-1)":                                                tr("UTE C15 grid code settings (UTE C15-712-1)"),
-		"Spain (RD 1699/2011)":                                                  tr("RD1699 grid code settings (RD 1699/2011)"),
+		"Spain (RD 1699/2011)":                                                  tr("RD1699 grid code settings"),
 		"Belgium (C10/11)":                                                      tr("C10/11 grid code settings"),
 		"Austria (TOR-D4)":                                                      tr("TOR-D4 grid code settings"),
 		"Chile (NTG-BT)":                                                        tr("NTG-BT grid code settings"),
@@ -30,7 +30,7 @@ func gridLabels() map[string]string {
 		"Europe (EN 50549-1)":                                                   tr("European grid code settings (EN 50549-1)"),
 		// The original sets this page's caption by grid code (Page.Title).
 		"Australia/New Zealand, stand-alone (AS/NZS 4777.2:2020 appendix M)": tr("Australia/New Zealand, stand-alone (AS/NZS 4777.2:2020 appendix M)"),
-		"Poland":    tr("Polish grid code settings (EU 2016/631)"),
+		"Poland":    tr("Polish grid code settings"),
 		"Microgrid": tr("Microgrid related settings"),
 
 		// Captions the original gives a page for some grid codes.

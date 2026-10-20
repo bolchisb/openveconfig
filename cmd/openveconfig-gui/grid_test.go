@@ -598,6 +598,41 @@ func TestGridRomaniaPage(t *testing.T) {
 	}
 }
 
+// TestGridPolandPage checks the Poland page: the start frequency in the
+// high byte of its word with three decimals, written to both bytes, and
+// the LFSM-O box that switches it off (0xFFFF) and greys it and the droop.
+func TestGridPolandPage(t *testing.T) {
+	u, _, g, d := gridSetup(t, 2699481)
+	for id, v := range map[uint16]uint16{gridCodeSetting: 32, 142: 0x0E0E, 144: 60, 148: 0} {
+		if err := d.SetRaw(vebus.SettingID(id), v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u.settings.load(d, nil)
+	if want := "Polish grid code settings"; g.paramsItem.Text != want {
+		t.Errorf("tab %q, want %q", g.paramsItem.Text, want)
+	}
+	start := paramRowOf(t, g, "Over-frequency power reduction: start frequency")
+	droop := paramRowOf(t, g, "Over-frequency power reduction: droop")
+	box := paramRowOf(t, g, "Limited frequency-sensitive mode (over-frequency) enabled").control.(*widget.Check)
+	if got := start.control.(*numberEntry).Text; got != "50.350" || !box.Checked {
+		t.Errorf("start frequency %q, LFSM-O ticked %t; want 50.350, ticked", got, box.Checked)
+	}
+	start.control.(*numberEntry).commit("50.2")
+	if w, _ := d.Raw(vebus.SettingID(142)); w != 0x0808 {
+		t.Errorf("setting 142 = %#04x, want 0x0808", w)
+	}
+	box.SetChecked(false)
+	if w, _ := d.Raw(vebus.SettingID(142)); w != 0xFFFF || !start.control.(*numberEntry).Disabled() || !droop.control.(*numberEntry).Disabled() {
+		t.Errorf("LFSM-O off: setting 142 = %#04x, start frequency and droop greyed %t, %t", w,
+			start.control.(*numberEntry).Disabled(), droop.control.(*numberEntry).Disabled())
+	}
+	box.SetChecked(true)
+	if w, _ := d.Raw(vebus.SettingID(142)); w != 0x0808 || start.control.(*numberEntry).Disabled() {
+		t.Errorf("LFSM-O on: setting 142 = %#04x, start frequency greyed %t", w, start.control.(*numberEntry).Disabled())
+	}
+}
+
 // madeUpGridTable returns a made-up grid-info table, as a device sends it:
 // format 3, grid codes 0 to 9 with version 0, except France (9) at version 2.
 func madeUpGridTable() []byte {

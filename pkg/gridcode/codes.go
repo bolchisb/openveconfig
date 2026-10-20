@@ -32,7 +32,7 @@ var codes = []CodeInfo{
 	{7, "New Zealand", "AS/NZS 4777.2:2015", "2015 inverter rule"},
 	{8, "South Africa", "NRS 097-2-1:2017", "South African rule for small-scale embedded generation"},
 	{9, "France", "UTE C15-712-1:2013-07", "French guide for PV installations"},
-	{10, "Spain", "RD 1699/2011 | UNE 206007-1:2013", "Spanish connection decree"},
+	{10, "Spain", "RD 1699/2011 | UNE 206007-1:2013IN", "Spanish connection decree"}, // "IN" as in the original's list
 	{11, "Belgium", "C10/11", "Belgian connection rule"},
 	{12, "Austria", "TOR-D4 V2.3:2016-7; No reactive power control", "Austrian rule, without reactive-power control"},
 	{13, "Chile", "NTG-BT 2014", "Chilean low-voltage rule"},

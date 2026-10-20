@@ -75,10 +75,15 @@ type Param struct {
 	// original's 255.3 V.
 	High, HighMask uint16
 	// NeedsWord and NeedsMask, if NeedsMask is not 0, are a field that
-	// switches p on: the original greys p's control while that field is 0,
-	// or, with NeedsClear, while it is not 0.
+	// switches p on: the original greys p's control while that field is
+	// NeedsOff (normally 0), or, with NeedsClear, while it is not 0.
 	NeedsWord, NeedsMask uint16
+	NeedsOff             int
 	NeedsClear           bool
+	// Twin, if not 0, are other bits of Word that the original writes with
+	// a copy of the field (it reads only Mask). Reverse-engineered: the
+	// Poland start frequency is kept in both bytes of its word.
+	Twin uint16
 	// ShowWord and ShowMask, if ShowMask is not 0, are a field that
 	// selects p: the original shows p only while that field is ShowValue.
 	ShowWord, ShowMask uint16
@@ -95,7 +100,7 @@ type Param struct {
 	// maximum. With a negative Scale or Reciprocal, Min > Max.
 	Min, Max int
 	// Decimals, if not 0, is the number of decimals the original shows,
-	// where one step of the field would need more.
+	// where one step of the field would need more; negative is none.
 	Decimals int
 	// TripDelay marks a delay the original converts with its own handler
 	// instead of Scale and Offset: the field counts ticks of 26.2144 ms
@@ -123,6 +128,10 @@ type Param struct {
 
 	// Checkbox only: Inverted means ticked when the field is 0.
 	Inverted bool
+	// Checkbox only: Values, if not nil, are the field values of an
+	// unticked and of a ticked box; a field of any other value than
+	// Values[0] shows ticked.
+	Values *[2]int
 	// Choice only: the allowed field values and this project's names for
 	// them.
 	Choices map[int]string
@@ -172,6 +181,12 @@ func (p Param) Value(field int) float64 {
 		}
 		return v
 	case Checkbox:
+		if p.Values != nil {
+			if field == p.Values[0] {
+				return 0
+			}
+			return 1
+		}
 		if (field != 0) != p.Inverted {
 			return 1
 		}
@@ -187,6 +202,19 @@ func (p Param) Unpack(word uint16) float64 { return p.Value(p.Field(word)) }
 // Shown reports whether p is shown while setting p.ShowWord holds w.
 func (p Param) Shown(w uint16) bool {
 	return p.ShowMask == 0 || Param{Mask: p.ShowMask}.Field(w) == p.ShowValue
+}
+
+// Enabled reports whether p can be changed (is not greyed) while setting
+// p.NeedsWord holds w.
+func (p Param) Enabled(w uint16) bool {
+	if p.NeedsMask == 0 {
+		return true
+	}
+	f := Param{Mask: p.NeedsMask}.Field(w)
+	if p.NeedsClear {
+		return f == 0
+	}
+	return f != p.NeedsOff
 }
 
 // FieldWords extracts p's field from word and high, the values of settings
@@ -226,10 +254,10 @@ func (p Param) PackWords(word, high uint16, v float64) (uint16, uint16, error) {
 		high&^p.HighMask | uint16(f>>p.width())<<h.shift()&p.HighMask, nil
 }
 
-// Pack returns word with p's field set to display value v; the other bits
-// of word are unchanged. A number is rounded to the nearest field value
-// and must lie within p's limits; a checkbox takes 0 or 1; a choice takes
-// one of its Choices. On error word is returned unchanged.
+// Pack returns word with p's field (and its Twin) set to display value v;
+// the other bits of word are unchanged. A number is rounded to the nearest
+// field value and must lie within p's limits; a checkbox takes 0 or 1; a
+// choice takes one of its Choices. On error word is returned unchanged.
 func (p Param) Pack(word uint16, v float64) (uint16, error) {
 	if p.High != 0 {
 		return word, fmt.Errorf("gridcode: %s spans two words; use PackWords", p.Name)
@@ -238,7 +266,11 @@ func (p Param) Pack(word uint16, v float64) (uint16, error) {
 	if err != nil {
 		return word, err
 	}
-	return word&^p.Mask | uint16(f)<<p.shift()&p.Mask, nil
+	word = word&^p.Mask | uint16(f)<<p.shift()&p.Mask
+	if p.Twin != 0 {
+		word = word&^p.Twin | uint16(f)<<bits.TrailingZeros16(p.Twin)&p.Twin
+	}
+	return word, nil
 }
 
 func (p Param) field(v float64) (int, error) {
@@ -246,6 +278,9 @@ func (p Param) field(v float64) (int, error) {
 	case Checkbox:
 		if v != 0 && v != 1 {
 			return 0, fmt.Errorf("gridcode: %s: %g is not 0 or 1", p.Name, v)
+		}
+		if p.Values != nil {
+			return p.Values[int(v)], nil
 		}
 		if (v == 1) != p.Inverted {
 			return int(p.Mask >> p.shift()), nil

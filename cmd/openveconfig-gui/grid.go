@@ -297,7 +297,7 @@ func (g *gridTabView) update(rebuild bool) {
 		r.update()
 		g.mark(r)
 		if r.p.NeedsMask != 0 {
-			r.setEnabled((g.word(r.p.NeedsWord)&r.p.NeedsMask != 0) != r.p.NeedsClear)
+			r.setEnabled(r.p.Enabled(g.word(r.p.NeedsWord)))
 		}
 		if show := r.p.Shown(g.word(r.p.ShowWord)); show != r.root.Visible() {
 			if show {
@@ -737,7 +737,8 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 			if p.High != 0 {
 				err = d.SetRaw(vebus.SettingID(p.High), g.word(p.High)&^p.HighMask|g.loaded[p.High]&p.HighMask)
 			}
-			g.apply(errors.Join(err, d.SetRaw(vebus.SettingID(p.Word), g.word(p.Word)&^p.Mask|g.loaded[p.Word]&p.Mask)))
+			m := p.Mask | p.Twin
+			g.apply(errors.Join(err, d.SetRaw(vebus.SettingID(p.Word), g.word(p.Word)&^m|g.loaded[p.Word]&m)))
 		}
 	}
 	if entry != nil {
@@ -800,8 +801,8 @@ func (g *gridTabView) undoChanges() {
 // paramDecimals returns the number of decimals that shows one step of p,
 // or the number the original shows (Param.Decimals).
 func paramDecimals(p gridcode.Param) int {
-	if p.Decimals > 0 {
-		return p.Decimals
+	if p.Decimals != 0 {
+		return max(p.Decimals, 0)
 	}
 	step := math.Abs(p.Value(p.Min+1) - p.Value(p.Min))
 	if step <= 0 || step >= 1 || math.IsNaN(step) || math.IsInf(step, 0) {

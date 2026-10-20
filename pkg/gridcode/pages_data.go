@@ -56,7 +56,13 @@ func (p Param) signed() Param { p.Signed = true; return p }
 func (p Param) high(word, mask uint16) Param { p.High, p.HighMask = word, mask; return p }
 
 // decimals sets the number of decimals the original shows for p.
-func (p Param) decimals(n int) Param { p.Decimals = n; return p }
+func (p Param) decimals(n int) Param {
+	p.Decimals = n
+	if n == 0 {
+		p.Decimals = -1 // none
+	}
+	return p
+}
 
 // needs makes p usable only while the field mask of word is not 0.
 // tripDelay is a TOR-D4 trip delay of 0-180 s (see Param.TripDelay), 0 s
@@ -155,14 +161,19 @@ var pageGermanyB = &Page{
 	),
 }
 
+// pageAUNZ2015 is the page of the AS/NZS 4777.2:2015 codes at
+// parameter-set version 0. Its other values are not stored as fields: the
+// original keeps the ramp as a rate that depends on a value it reads from
+// the device, and writes derived words with the volt-watt points (the
+// slopes between them) and with the cut-off frequency.
 var pageAUNZ2015 = &Page{
 	Name: "Australia/New Zealand (AS/NZS 4777.2:2015)",
 	Params: params(group("",
 		overVoltage(4880000, 5160000, 5100000),
-		num("Power ramp: time for a 0-100 % change", 131, 0xFFFF, 1, 0, "s", 60, 1200, 360),
 		check("Demand-response mode 0 enabled", 146, 0x1, 1),
 	)),
 	Unsupported: []string{
+		"Power ramp: time for a 0-100 % change",
 		"Volt-watt curve voltage 1",
 		"Volt-watt curve voltage 2",
 		"Volt-watt curve voltage 3",
@@ -182,25 +193,25 @@ var pageAUNZ2015B = &Page{
 	Params: params(
 		group("",
 			overVoltage(4880000, 5160000, 5100000),
-			num("Power ramp: time for a 0-100 % change", 146, 0xFFFF, 0.0262144, 0, "s", 2289, 45776, 13733),
+			num("Power ramp: time for a 0-100 % change", 146, 0xFFFF, 0.0262144, 0, "s", 2289, 45776, 13733).decimals(0),
 			check("Demand-response mode 0 enabled", 147, 0x1, 1),
 		),
 		group("Sustained over-frequency",
-			num("Sustained over-frequency: cut-off frequency", 143, 0xFFFF, hzStep, 43164, "Hz", 645, 1504, 1504),
+			num("Sustained over-frequency: cut-off frequency", 143, 0xFFFF, hzStep, 43164, "Hz", 645, 1504, 1504).decimals(2),
 		),
 		group("Volt-watt curve",
-			num("Volt-watt curve voltage 1", 131, 0xFFFF, 0.01, 0, "V", 20300, 21500, 20700),
+			num("Volt-watt curve voltage 1", 131, 0xFFFF, 0.01, 0, "V", 20300, 21500, 20700).decimals(1),
 			choice("Volt-watt point 1 applies to", 132, 0x8000, none, appliesTo),
-			num("Volt-watt curve power at voltage 1", 132, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
-			num("Volt-watt curve voltage 2", 133, 0xFFFF, 0.01, 0, "V", 21600, 23000, 22000),
+			num("Volt-watt curve power at voltage 1", 132, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0).decimals(0),
+			num("Volt-watt curve voltage 2", 133, 0xFFFF, 0.01, 0, "V", 21600, 23000, 22000).decimals(1),
 			choice("Volt-watt point 2 applies to", 134, 0x8000, none, appliesTo),
-			num("Volt-watt curve power at voltage 2", 134, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
-			num("Volt-watt curve voltage 3", 135, 0xFFFF, 0.01, 0, "V", 23500, 25500, 25000),
+			num("Volt-watt curve power at voltage 2", 134, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0).decimals(0),
+			num("Volt-watt curve voltage 3", 135, 0xFFFF, 0.01, 0, "V", 23500, 25500, 25000).decimals(1),
 			choice("Volt-watt point 3 applies to", 136, 0x8000, none, appliesTo),
-			num("Volt-watt curve power at voltage 3", 136, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
-			num("Volt-watt curve voltage 4", 137, 0xFFFF, 0.01, 0, "V", 24400, 26500, 26500),
+			num("Volt-watt curve power at voltage 3", 136, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0).decimals(0),
+			num("Volt-watt curve voltage 4", 137, 0xFFFF, 0.01, 0, "V", 24400, 26500, 26500).decimals(1),
 			choice("Volt-watt point 4 applies to", 138, 0x8000, none, appliesTo),
-			num("Volt-watt curve power at voltage 4", 138, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
+			num("Volt-watt curve power at voltage 4", 138, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0).decimals(0),
 		),
 	),
 }
@@ -388,16 +399,34 @@ var pageAUNZM = &Page{
 	),
 }
 
+// pagePoland. The start frequency is the high byte of word 142; the
+// original writes it to both bytes. The LFSM-O box is ticked unless that
+// byte is 0xFF; unticking writes 0xFFFF, ticking the default start
+// frequency (INFERRED: the original sets its default, and also the droop's,
+// which is not modelled), and the two values are greyed while it is not
+// ticked.
 var pagePoland = &Page{
 	Name: "Poland",
 	Params: params(group("",
 		check("Use auxiliary input 1 as feed-in inhibit", 148, 0x4, none).inverted(),
-		num("Over-frequency power reduction: start frequency", 142, 0xFFFF, 0.025, 2000, "Hz", 8, 20, 8),
-		num("Over-frequency power reduction: droop", 144, 0xFF, 0.05, 0, "%", 20, 250, 100),
+		polandLFSMO(),
+		num("Over-frequency power reduction: start frequency", 142, 0xFF00, 0.025, 2000, "Hz", 8, 20, 8).decimals(3).twin(0xFF).lfsmo(),
+		num("Over-frequency power reduction: droop", 144, 0xFF, 0.05, 0, "%", 20, 250, 100).lfsmo(),
 	)),
-	// A checkbox of the original bound to no word; its effect is not known.
-	Unsupported: []string{"Limited frequency-sensitive mode (over-frequency) enabled"},
 }
+
+// polandLFSMO is the Poland page's LFSM-O box.
+func polandLFSMO() Param {
+	p := check("Limited frequency-sensitive mode (over-frequency) enabled", 142, 0xFF00, none).twin(0xFF)
+	p.Values = &[2]int{0xFF, 8}
+	return p
+}
+
+// lfsmo makes p greyed while the Poland page's LFSM-O box is not ticked.
+func (p Param) lfsmo() Param { p.NeedsWord, p.NeedsMask, p.NeedsOff = 142, 0xFF00, 0xFF; return p }
+
+// twin makes the bits mask of p's word a copy of its field (Param.Twin).
+func (p Param) twin(mask uint16) Param { p.Twin = mask; return p }
 
 // pageMicrogrid uses words 129-149, which the grid-code pages use too, so
 // its parameters and a grid code's parameters cannot both be meaningful.

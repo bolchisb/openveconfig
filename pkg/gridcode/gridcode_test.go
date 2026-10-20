@@ -8,15 +8,20 @@ import (
 	"testing"
 )
 
-// put stores field f under p's mask in word, as the device would hold it.
+// put stores field f under p's mask (and its twin) in word, as the device
+// would hold it.
 func put(p Param, word uint16, f int) uint16 {
-	return word&^p.Mask | uint16(f)<<p.shift()&p.Mask
+	word = word&^p.Mask | uint16(f)<<p.shift()&p.Mask
+	return word&^p.Twin | uint16(f)<<bits.TrailingZeros16(p.Twin)&p.Twin
 }
 
 // fieldValues returns the field values a round trip covers for p.
 func fieldValues(p Param) []int {
 	switch p.Kind {
 	case Checkbox:
+		if p.Values != nil {
+			return p.Values[:]
+		}
 		return []int{0, int(p.Mask >> p.shift())}
 	case Choice:
 		var fs []int
@@ -87,7 +92,7 @@ func TestRoundTrip(t *testing.T) {
 					}
 					// Packing into any word changes only the field's bits.
 					got, err = p.Pack(^base, v)
-					if err != nil || got&^p.Mask != ^base&^p.Mask || p.Field(got) != f {
+					if m := p.Mask | p.Twin; err != nil || got&^m != ^base&^m || p.Field(got) != f {
 						t.Errorf("%s / %s: Pack(%#04x, %g) = %#04x, %v", pg.Name, p.Name, ^base, v, got, err)
 					}
 				}
@@ -175,6 +180,9 @@ func TestKnownValues(t *testing.T) {
 		{pageMicrogrid, "Active power at reference frequency (P0)", -100, 1024},
 		{pageMicrogrid, "Fixed black-start retry delay", 0, 0xFF00},
 		{pageAUNZ2015, "Demand-response mode 0 enabled", 1, 1},
+		{pagePoland, "Over-frequency power reduction: start frequency", 50.35, 0x0E0E}, // both bytes
+		{pagePoland, "Limited frequency-sensitive mode (over-frequency) enabled", 0, 0xFFFF},
+		{pagePoland, "Limited frequency-sensitive mode (over-frequency) enabled", 1, 0x0808},
 		{pageUK, "Use auxiliary input 1 as feed-in inhibit", 1, 0}, // inverted
 		{pageUK, "Use auxiliary input 1 as feed-in inhibit", 0, 4},
 	} {
@@ -185,6 +193,25 @@ func TestKnownValues(t *testing.T) {
 		}
 		if v := p.Unpack(tc.word); math.Abs(v-tc.v) > 1e-4*math.Max(1, math.Abs(tc.v)) {
 			t.Errorf("%s: Unpack(%#04x) = %g, want %g", tc.name, tc.word, v, tc.v)
+		}
+	}
+}
+
+// TestEnabled checks when the original greys a parameter.
+func TestEnabled(t *testing.T) {
+	pu := Param{NeedsWord: 148, NeedsMask: 0x18}
+	lock := Param{NeedsWord: 148, NeedsMask: 0x20, NeedsClear: true}
+	start := Param{}.lfsmo()
+	for _, tc := range []struct {
+		p    Param
+		w    uint16
+		want bool
+	}{
+		{Param{}, 0, true}, {pu, 0xFFE7, false}, {pu, 0x08, true}, {lock, 0x20, false}, {lock, 0xFFDF, true},
+		{start, 0xFFFF, false}, {start, 0xFF00, false}, {start, 0x0808, true}, {start, 0xFE00, true},
+	} {
+		if got := tc.p.Enabled(tc.w); got != tc.want {
+			t.Errorf("%+v: Enabled(%#04x) = %t, want %t", tc.p, tc.w, got, tc.want)
 		}
 	}
 }
@@ -226,7 +253,11 @@ func TestTables(t *testing.T) {
 					t.Errorf("%s: default %d outside its limits", name, p.Default)
 				}
 			case Checkbox:
-				if bits.OnesCount16(p.Mask) != 1 {
+				if p.Values != nil {
+					if !fits(p.Values[0]) || !fits(p.Values[1]) || p.Values[0] == p.Values[1] {
+						t.Errorf("%s: checkbox values %v", name, *p.Values)
+					}
+				} else if bits.OnesCount16(p.Mask) != 1 {
 					t.Errorf("%s: checkbox mask %#04x is not one bit", name, p.Mask)
 				}
 				if p.HasDefault && p.Default != 0 && p.Default != 1 {
@@ -276,9 +307,17 @@ func TestNoOverlap(t *testing.T) {
 		}
 		return m
 	}
+	// switches reports whether p is a box that switches q off through q's
+	// own field (Param.Values).
+	switches := func(p, q Param) bool {
+		return p.Values != nil && p.Word == q.Word && p.Mask == q.Mask && p.Twin == q.Twin
+	}
 	for _, pg := range testPages() {
 		for i, p := range pg.Params {
 			for _, q := range pg.Params[i+1:] {
+				if switches(p, q) || switches(q, p) {
+					continue
+				}
 				for w, m := range parts(p) {
 					if shared := m & parts(q)[w]; shared != 0 && together(p, q) {
 						t.Errorf("%s: %q and %q share bits %#04x of word %d", pg.Name, p.Name, q.Name, shared, w)
