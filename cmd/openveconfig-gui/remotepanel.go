@@ -135,7 +135,7 @@ func newRemotePanel(u *ui, s *session) *remotePanel {
 
 	chargeLEDs := []fyne.CanvasObject{
 		mutedText(tr("Charger")),
-		p.newLED(mk2.LEDMains, tr("Mains"), colorNameLEDGreen),
+		p.newLED(mk2.LEDMains, tr("Mains on"), colorNameLEDGreen),
 		p.newLED(mk2.LEDBulk, tr("Bulk"), colorNameLEDAmber),
 		p.newLED(mk2.LEDAbsorption, tr("Absorption"), colorNameLEDAmber),
 		p.newLED(mk2.LEDFloat, tr("Float"), colorNameLEDAmber),
@@ -188,7 +188,7 @@ func newRemotePanel(u *ui, s *session) *remotePanel {
 	p.status = widget.NewLabel("")
 	p.status.Wrapping = fyne.TextWrapWord
 
-	limitCard := widget.NewCard(tr("AC input current limit"), "", container.NewVBox(
+	limitCard := widget.NewCard(tr("Input current limiter"), "", container.NewVBox(
 		p.limitText, p.limit, container.NewBorder(nil, nil, p.limitMin, p.limitMax), p.limitNote))
 	p.win.SetContent(container.NewStack(newColourRect(colorNamePage, fyne.Size{}, ""),
 		container.New(layout.NewCustomPaddedLayout(8, 8, 12, 12), container.NewVBox(

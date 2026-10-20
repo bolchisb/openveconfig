@@ -369,7 +369,7 @@ func onOff(v float64) string {
 }
 
 // readError is the value text of a value that could not be read.
-func readError() string { return tr("read error") }
+func readError() string { return tr("Error during read") }
 
 // stateText names a device state reported by CommandGetSetDeviceState or
 // the AC info frame (Â§7.3.2, Â§6.1), in our own words.
@@ -458,12 +458,12 @@ func newPanel(u *ui) *panel {
 		outI:      newField(tr("Current")),
 		outF:      newField(tr("Frequency")),
 		batV:      newField(tr("Voltage")),
-		batRipple: newField(tr("Ripple")),
+		batRipple: newField(tr("Udc ripple")),
 		batI:      newField(tr("Current")),
 		state:     newField(tr("Device state")),
 		vswitch:   newField(tr("Virtual switch")),
 		ignoreAC:  newField(tr("Ignore AC input")),
-		relay:     newField(tr("Relay")),
+		relay:     newField(tr("Aux. relay")),
 	}
 	p.status.Wrapping = fyne.TextWrapWord
 	p.chips = []*statusChip{

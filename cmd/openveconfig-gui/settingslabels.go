@@ -18,77 +18,77 @@ func settingLabels() map[vebus.ID]string {
 	s, f := vebus.SettingID, vebus.FlagID
 	return map[vebus.ID]string{
 		// General.
-		s(6):  tr("Input current limit, AC input 1"),
-		s(49): tr("Input current limit, AC input 2"),
-		f(30): tr("Remote panel may override the AC input 1 limit"),
-		f(15): tr("Remote panel may override the AC input 2 limit"),
-		f(28): tr("Generator-friendly dynamic current limit"),
-		f(38): tr("External current sensor fitted"),
-		f(2):  tr("Output frequency"),
-		s(64): tr("Battery bank capacity"),
-		s(65): tr("State of charge after bulk"),
+		s(6):  tr("AC1 input current limit"),
+		s(49): tr("AC2 input current limit"),
+		f(30): tr("Overruled by remote"),
+		f(15): tr("Overruled by remote"),
+		f(28): tr("Dynamic current limiter"),
+		f(38): tr("External current sensor connected (see manual)"),
+		f(2):  tr("System frequency"),
+		s(64): tr("Battery capacity"),
+		s(65): tr("State of charge when Bulk finished"),
 		s(72): tr("Charge efficiency"),
 		s(74): tr("State of charge after absorption"),
 
 		// Inverter.
-		s(5):  tr("AC output voltage"),
-		s(11): tr("Shut down at low DC voltage"),
-		s(12): tr("Restart after a low DC voltage shutdown"),
-		s(63): tr("Low DC voltage pre-alarm"),
-		f(13): tr("Use the neutral-to-earth bonding relay"),
-		f(5):  tr("Allow PowerAssist"),
-		s(48): tr("Assist boost factor"),
-		s(73): tr("Inverter current limit while assisting"),
-		f(8):  tr("Low-load power saving on"),
-		f(31): tr("Power saving method"),
-		s(50): tr("Enter power saving below"),
-		s(51): tr("Margin to leave power saving"),
-		s(83): tr("Shut down at state of charge"),
-		s(84): tr("Restart at state of charge"),
+		s(5):  tr("Inverter output voltage"),
+		s(11): tr("DC input low shut-down"),
+		s(12): tr("DC input low restart"),
+		s(63): tr("DC input low pre-alarm"),
+		f(13): tr("Ground relay"),
+		f(5):  tr("PowerAssist"),
+		s(48): tr("Assist current boost factor"),
+		s(73): tr("Maximum inverter current"),
+		f(8):  tr("Enable AES"),
+		f(31): tr("AES type"),
+		s(50): tr("Start AES when load lower than"),
+		s(51): tr("Stop AES when load higher than start level"),
+		s(83): tr("SOC low shut-down"),
+		s(84): tr("SOC low restart"),
 
 		// Charger.
-		f(6):  tr("Charger on"),
-		f(36): tr("Lithium battery"),
-		f(39): tr("Battery managed by a VE.Bus BMS"),
-		s(10): tr("Charge algorithm"),
-		f(11): tr("Reduced-float storage phase"),
-		f(29): tr("Traction battery charge curve"),
+		f(6):  tr("Enable charger"),
+		f(36): tr("Lithium batteries"),
+		f(39): tr("Configured for VE.Bus BMS"),
+		s(10): tr("Charge curve"),
+		f(11): tr("Storage mode"),
+		f(29): tr("Use equalization (tubular plate traction battery curve)"),
 		s(2):  tr("Absorption voltage"),
 		s(3):  tr("Float voltage"),
-		s(4):  tr("Bulk charge current"),
-		s(7):  tr("Repeated absorption length"),
+		s(4):  tr("Charge current"),
+		s(7):  tr("Repeated absorption time"),
 		s(8):  tr("Repeated absorption interval"),
 		s(9):  tr("Absorption time"),
 		s(75): tr("Battery current that ends absorption"),
-		f(4):  tr("Stop bulk charging after its safety time"),
-		f(14): tr("Accept a distorted AC input"),
-		f(40): tr("Ignore the battery voltage sense input"),
-		s(86): tr("Block charging below temperature"),
+		f(4):  tr("Stop after excessive bulk"),
+		f(14): tr("Weak AC input"),
+		f(40): tr("Disable VSense (for diagnostic purposes)"),
+		s(86): tr("Stop charger below"),
 		s(87): tr("Temperature compensation"),
 
 		// Virtual switch: usage and options.
 		s(15): tr("Specify virtual switch usage"),
 		f(26): tr("Invert virtual switch usage"),
-		s(43): tr("Minimum on time"),
-		f(34): tr("Shift the inverter frequency while on"),
-		s(62): tr("Inverter period while shifted"),
-		f(35): tr("Shift the inverter frequency with the DC voltage"),
-		s(66): tr("Frequency shift: start above DC voltage"),
-		s(67): tr("Frequency shift: start delay"),
-		s(68): tr("Frequency shift: stop below DC voltage"),
-		s(69): tr("Frequency shift: stop delay"),
+		s(43): tr("Minimum VS on time"),
+		f(34): tr("Change inverter period time when virtual switch is on"),
+		s(62): tr("Inverter period time"),
+		f(35): tr("Change inverter period time on Udc"),
+		s(66): tr("High DC level for frequency change start"),
+		s(67): tr("\"High DC level\" delay for frequency change start"),
+		s(68): tr("Low DC level for normal frequency"),
+		s(69): tr("\"Low DC level\" delay for normal frequency"),
 
 		// Virtual switch: on conditions.
-		s(16): tr("Load above"),
-		s(19): tr("Load above, for"),
+		s(16): tr("High power limit for VS on"),
+		s(19): tr("\"High power limit\" VS on delay"),
 		s(17): tr("DC voltage above"),
 		s(20): tr("DC voltage above, for"),
 		s(18): tr("DC voltage below"),
 		s(21): tr("DC voltage below, for"),
-		s(22): tr("Not charging, for"),
-		s(23): tr("Fan running, for"),
-		f(16): tr("When the bulk safety time ends"),
-		f(25): tr("On a general failure"),
+		s(22): tr("\"Not charging\" VS on delay"),
+		s(23): tr("\"Fan on\" VS on delay"),
+		f(16): tr("Set VS on when bulk protection is activated"),
+		f(25): tr("Set VS on when general system failure occurs"),
 		f(17): tr("Temperature alarm level"),
 		s(24): tr("Temperature alarm, for"),
 		f(18): tr("Low battery alarm level"),
@@ -99,17 +99,17 @@ func settingLabels() map[vebus.ID]string {
 		s(27): tr("DC ripple alarm, for"),
 
 		// Virtual switch: off conditions.
-		s(28): tr("Load below"),
-		s(31): tr("Load below, for"),
+		s(28): tr("Low power limit for VS off"),
+		s(31): tr("\"Low power limit\" VS off delay"),
 		s(29): tr("DC voltage above"),
 		s(32): tr("DC voltage above, for"),
 		s(30): tr("DC voltage below"),
 		s(33): tr("DC voltage below, for"),
-		s(34): tr("Charging, for"),
-		s(35): tr("Fan stopped, for"),
-		s(36): tr("Bulk finished, for"),
-		s(37): tr("No on condition, for"),
-		s(38): tr("No AC input, for"),
+		s(34): tr("\"Charging\" VS off delay"),
+		s(35): tr("\"Fan off\" VS off delay"),
+		s(36): tr("\"Bulk finished\" VS off delay"),
+		s(37): tr("\"No VS on\" VS off delay"),
+		s(38): tr("\"No AC input\" VS off delay"),
 		f(21): tr("Temperature alarm level"),
 		s(39): tr("Temperature alarm gone, for"),
 		f(22): tr("Low battery alarm level"),
@@ -129,21 +129,21 @@ func settingLabels() map[vebus.ID]string {
 		s(57): tr("Stop: load below, for"),
 		s(58): tr("Stop: DC voltage above or charge stage (coded value)"),
 		s(59): tr("Stop: DC voltage or charge stage, for"),
-		f(32): tr("Stop when AC input is available"),
-		f(33): tr("Invert the second switch"),
+		f(32): tr("Stop generator when AC2 available"),
+		f(33): tr("Invert driving of auxiliary relay"),
 
 		// Advanced.
 		s(71): tr("Temperature compensation used by assistants"),
-		f(41): tr("Give renewable energy priority"),
+		f(41): tr("Limit internal charger to prioritize other energy sources"),
 		s(88): tr("Sustain voltage"),
 
 		// Grid.
-		s(44): tr("Disconnect AC input below"),
-		s(45): tr("Reconnect AC input above"),
-		s(46): tr("Disconnect AC input above"),
-		s(47): tr("Reconnect AC input below"),
-		f(3):  tr("Turn off fast AC input voltage detection"),
-		f(27): tr("Accept a wide AC input frequency range"),
+		s(44): tr("AC low disconnect"),
+		s(45): tr("AC low connect"),
+		s(46): tr("AC high disconnect"),
+		s(47): tr("AC high connect"),
+		f(3):  tr("UPS function"),
+		f(27): tr("Accept wide input frequency range (45-65 Hz)"),
 	}
 }
 
@@ -159,8 +159,8 @@ func settingHelp() map[vebus.ID]string {
 		s(74): tr("The battery monitor jumps to this value when absorption ends."),
 		s(48): tr("Leave it at the default unless you know you need another value."),
 		s(84): tr("0 turns the state-of-charge shutdown off."),
-		s(51): tr("Added to the entry load, so that the inverter does not toggle."),
-		s(9):  tr("With an adaptive algorithm, the longest absorption time."),
+		s(51): tr("Added to the start level, so that the inverter does not toggle."),
+		s(9):  tr("With an adaptive charge curve, the longest absorption time."),
 		s(7):  tr("A short absorption, repeated at the interval below while floating."),
 		s(75): tr("Absorption also ends when the battery current falls below this."),
 		f(14): tr("Lets the charger run on a distorted supply, such as a small generator."),
@@ -223,7 +223,7 @@ var valueSwitches = map[string]uint16{"Battery monitor": 64, "State of charge sh
 func valueSwitchHint(n uint16) string {
 	switch n {
 	case 64:
-		return tr("Enter the battery bank capacity to turn the battery monitor on.")
+		return tr("Enter the battery capacity to turn the battery monitor on.")
 	case 86:
 		return tr("Enter the temperature below which charging stops.")
 	}
@@ -310,7 +310,7 @@ func batteryMonitorOff(d *vebus.Device) error {
 func groupLabel(group string) string {
 	switch group {
 	case "AC input current":
-		return tr("Input current limits")
+		return tr("Shore limit")
 	case "System frequency":
 		return tr("System frequency")
 	case "Battery monitor":
@@ -322,9 +322,9 @@ func groupLabel(group string) string {
 	case "PowerAssist":
 		return tr("PowerAssist")
 	case "AES":
-		return tr("Low-load power saving")
+		return tr("Enable AES")
 	case "State of charge shutdown":
-		return tr("Low state of charge shutdown")
+		return tr("Shut-down on SOC")
 	case "Battery type":
 		return tr("Battery type")
 	case "Charge voltages and current":
@@ -336,7 +336,7 @@ func groupLabel(group string) string {
 	case "Temperature":
 		return tr("Temperature")
 	case "Low-temperature charge block":
-		return tr("Stop charging at low temperature")
+		return tr("Stop charger below")
 	case "Usage":
 		return tr("Usage")
 	case "On conditions":
@@ -347,10 +347,8 @@ func groupLabel(group string) string {
 		return tr("VS options")
 	case "Virtual switch 2":
 		return tr("Second switch")
-	case "Assistants":
-		return tr("Assistants")
 	case "Renewable energy priority":
-		return tr("Renewable energy priority")
+		return tr("Limit internal charger to prioritize other energy sources")
 	case "AC input voltage limits":
 		return tr("AC input voltage limits")
 	case "UPS function":
@@ -380,12 +378,12 @@ func choiceLabels() map[uint16]map[uint16]string {
 func usageLabels() map[uint16]string {
 	return map[uint16]string{
 		0: tr("Do not use VS"),
-		1: tr("drive multifunctional (aux.) relay: VS on=open; VS off=close"),
-		2: tr("ignore AC input: VS on=ignore; VS off=do not ignore"),
-		3: tr("dedicated ignore AC input"),
-		4: tr("dedicated generator control"),
-		5: tr("drive aux. relay (VS on=open) + dedicated ignore AC input"),
-		6: tr("ignore AC input (VS on=ignore) + dedicated generator control"),
+		1: tr("Drive multifunctional (aux.) relay: VS on=open; VS off=close"),
+		2: tr("Ignore AC input: VS on=ignore; VS off=do not ignore"),
+		3: tr("Dedicated ignore AC input"),
+		4: tr("Dedicated generator control"),
+		5: tr("Drive aux. relay (VS on=open) + dedicated ignore AC input"),
+		6: tr("Ignore AC input (VS on=ignore) + dedicated generator control"),
 	}
 }
 
@@ -418,7 +416,7 @@ func flagChoices() map[uint16][2]string {
 	ripple := [2]string{tr("Udc ripple alarm"), tr("Udc ripple pre-alarm")}
 	return map[uint16][2]string{
 		2:  {tr("50 Hz"), tr("60 Hz")},
-		31: {tr("Low-power modified sine"), tr("Search mode (pulses)")},
+		31: {tr("Modified sine wave"), tr("Search mode")},
 		17: temperature, 18: lowBattery, 19: overload, 20: ripple,
 		21: temperature, 22: lowBattery, 23: overload, 24: ripple,
 	}

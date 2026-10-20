@@ -76,3 +76,41 @@ func (f *File) Layout(known []*system.Unit) (*system.Layout, error) {
 	}
 	return l, nil
 }
+
+// FromLayout returns a new file of layout l, the inverse of Layout: every
+// unit with its cell, in the layout's order, and the display fields set by
+// Arrange. A placed unit stores the record the layout gives it
+// (Records(false)), an unplaced one its current record.
+//
+// A dual-input unit gets a pseudo unit for its second input, with the
+// unit's identity and record and no name (ours: what the original stores
+// there is not known; Layout does not read it).
+func FromLayout(l *system.Layout) *File {
+	f := &File{SetupType: byte(l.Setup), L2Option: byte(l.L2), ACInputs: uint32(l.ACInputs), SelectedCell: NoCell}
+	for i, g := range l.Grouped {
+		if g {
+			f.GroupMask |= 1 << i
+		}
+	}
+	recs := map[*system.Unit]system.Record{}
+	for _, r := range l.Records(false) {
+		recs[r.Unit] = r.Record
+	}
+	for _, u := range l.Units() {
+		rec, ok := recs[u]
+		if !ok {
+			rec = u.Record
+		}
+		c, _, _ := l.CellOf(u)
+		fu := &Unit{LongID: u.LongID, VersionWord: u.VersionWord, SystemRecord: rec, ResponseChar: u.ResponseChar,
+			Letter: u.Letter, ConfigProtocol: u.ConfigProtocol, ExternalBF: u.ExternalBF, Name: u.Name, Cell: uint32(c.Code())}
+		if u.DualInput() {
+			second := *fu
+			second.Name = ""
+			fu.Second, fu.SecondCell = &second, uint32(l.SecondCell(u).Code())
+		}
+		f.Units = append(f.Units, fu)
+	}
+	f.Arrange()
+	return f
+}

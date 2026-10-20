@@ -26,7 +26,7 @@ func overviewContent(u *ui) fyne.CanvasObject {
 	}
 	unitBox := container.NewGridWrap(fyne.NewSize(200, units.MinSize().Height), units)
 	get := widget.NewButtonWithIcon(tr("Get settings"), theme.DownloadIcon(), func() { getSettings(u) })
-	connect := widget.NewButton(tr("Connect…"), func() { u.conn.show() })
+	connect := widget.NewButton(tr("Com port…"), func() { u.conn.show() })
 	connect.Importance = widget.HighImportance
 	empty := emptyState(theme.ComputerIcon(), tr("No live values"),
 		tr("Live values are shown here while a device is connected."))

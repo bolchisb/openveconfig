@@ -196,7 +196,8 @@ var defaultEntries = []Entry{
 	setting(68, "Frequency shift Ubat stop", "V", TabVirtualSwitch, "Options", srcCommSet),
 	setting(69, "Frequency shift stop delay", "", TabVirtualSwitch, "Options", srcCommSet),
 	setting(70, "VS2 on SOC level", "", TabVirtualSwitch, "Virtual switch 2", srcCommSet),
-	setting(71, "Assistant temp compensation", "", TabAdvanced, "Assistants", srcCommSet),
+	// Not on the original tool's Advanced tab: it is for assistants to use.
+	setting(71, "Assistant temp compensation", "", TabNone, "Assistants", srcCommSet),
 	setting(72, "Charge efficiency", "", TabGeneral, "Battery monitor", srcCommSet),
 	setting(73, "Inverter current limit during assist", "A", TabInverter, "PowerAssist", srcCommSet),
 	setting(74, "SOC reset value when switching from absorption to float", "", TabGeneral, "Battery monitor", srcCommSet),

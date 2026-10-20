@@ -134,7 +134,7 @@ func TestReviewChanges(t *testing.T) {
 			t.Errorf("review dialog does not show %q", want)
 		}
 	}
-	send := findButton(t, dlg, "Send to device")
+	send := findButton(t, dlg, "Send settings")
 	if !send.Disabled() {
 		t.Error("Send to device is enabled with an invalid value")
 	}
@@ -189,7 +189,7 @@ func TestReviewFileRevertAll(t *testing.T) {
 	if text := dialogTexts(dlg); !strings.Contains(text, "In file") || !strings.Contains(text, "test.rvsc") {
 		t.Errorf("file review dialog shows %q", text)
 	}
-	if findButton(t, dlg, "Save file").Disabled() {
+	if findButton(t, dlg, "Save settings").Disabled() {
 		t.Error("Save file is disabled")
 	}
 	test.Tap(findButton(t, dlg, "Revert all"))
@@ -231,7 +231,7 @@ func TestSendResult(t *testing.T) {
 
 	sendSettings(u)
 	dlg := u.win.Canvas().Overlays().Top()
-	if text := dialogTexts(dlg); !strings.Contains(text, "5 changes · 1 needs a device reset") || !strings.Contains(text, "Battery bank capacity") {
+	if text := dialogTexts(dlg); !strings.Contains(text, "5 changes · 1 needs a device reset") || !strings.Contains(text, "Battery capacity") {
 		t.Errorf("send dialog shows %q", text)
 	}
 	if findButton(t, dlg, "Send").Disabled() {

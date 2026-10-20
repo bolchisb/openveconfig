@@ -46,35 +46,35 @@ func (p *settingsPage) vsCards(d *vebus.Device, group string) []fyne.CanvasObjec
 	case "On conditions":
 		cards = []fyne.CanvasObject{
 			b.card("",
-				b.cond(tr("when load higher than"), 16, 19, sec, nil),
-				b.cond(tr("when Udc lower than"), 18, 21, sec, nil),
-				b.cond(tr("when Udc higher than"), 17, 20, sec, nil),
-				b.cond(tr("when not charging for"), 0, 22, sec, nil),
-				b.cond(tr("when fan on for"), 0, 23, sec, nil),
-				b.check(16, tr("set VS on when bulk protection is activated"), tr("(charger stopped after 10Hr bulk)")),
-				b.check(25, tr("set VS on when general system failure occurs"), "")),
-			b.card(tr("when the following LED alarms are active:"),
+				b.cond(tr("When load higher than"), 16, 19, sec, nil),
+				b.cond(tr("When Udc lower than"), 18, 21, sec, nil),
+				b.cond(tr("When Udc higher than"), 17, 20, sec, nil),
+				b.cond(tr("When not charging for"), 0, 22, sec, nil),
+				b.cond(tr("When fan on for"), 0, 23, sec, nil),
+				b.check(16, tr("Set VS on when bulk protection is activated"), tr("(charger stopped after 10Hr bulk)")),
+				b.check(25, tr("Set VS on when general system failure occurs"), "")),
+			b.card(tr("When the following LED alarms are active"),
 				b.alarm(17, 24), b.alarm(18, 25), b.alarm(19, 26), b.alarm(20, 27)),
 		}
 	case "Off conditions":
 		cards = []fyne.CanvasObject{
 			b.card("",
-				b.cond(tr("when load lower than"), 28, 31, sec, nil),
-				b.cond(tr("when Udc lower than"), 30, 33, sec, nil),
-				b.cond(tr("when Udc higher than"), 29, 32, sec, nil),
-				b.cond(tr("when charging for"), 0, 34, sec, nil),
-				b.cond(tr("when fan off for"), 0, 35, sec, nil),
-				b.cond(tr("when bulk charge finished for"), 0, 36, minutes, nil),
-				b.cond(tr("when no VS ON condition for"), 0, 37, minutes, nil),
-				b.cond(tr("when no AC input for"), 0, 38, sec, nil)),
-			b.card(tr("when the following LED alarms are IN-active:"),
+				b.cond(tr("When load lower than"), 28, 31, sec, nil),
+				b.cond(tr("When Udc lower than"), 30, 33, sec, nil),
+				b.cond(tr("When Udc higher than"), 29, 32, sec, nil),
+				b.cond(tr("When charging for"), 0, 34, sec, nil),
+				b.cond(tr("When fan off for"), 0, 35, sec, nil),
+				b.cond(tr("When bulk charge finished for"), 0, 36, minutes, nil),
+				b.cond(tr("When no VS ON condition for"), 0, 37, minutes, nil),
+				b.cond(tr("When no AC input for"), 0, 38, sec, nil)),
+			b.card(tr("When the following LED alarms are IN-active"),
 				b.alarm(21, 39), b.alarm(22, 40), b.alarm(23, 41), b.alarm(24, 42)),
 		}
 	case "Options":
 		period := func() bool { return flagOn(d, 34) || flagOn(d, 35) }
 		shift := func() bool { return flagOn(d, 35) }
-		higher := b.cond(tr("when Udc higher than"), 66, 67, sec, shift)
-		lower := b.cond(tr("when Udc lower than"), 68, 69, sec, shift)
+		higher := b.cond(tr("When Udc higher than"), 66, 67, sec, shift)
+		lower := b.cond(tr("When Udc lower than"), 68, 69, sec, shift)
 		var back, compensated fyne.CanvasObject
 		if lower != nil {
 			back = b.normalPeriod(shift)
@@ -405,7 +405,7 @@ func (b *vsBuilder) normalPeriod(on func() bool) fyne.CanvasObject {
 			if sixty {
 				f = 60
 			}
-			text = tr("Back to the normal period of {{.Period}} ms ({{.Frequency}} Hz)",
+			text = tr("Make period time {{.Period}} ms (={{.Frequency}} Hz) again",
 				args{"Period": formatNumber(1000/f, 3), "Frequency": formatNumber(f, 0)})
 		}
 		if t.Text != text {

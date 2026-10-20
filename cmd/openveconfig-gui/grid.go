@@ -189,7 +189,7 @@ func newGridTab(u *ui) *gridTabView {
 	g.params = container.NewStack()
 	g.paramsItem = container.NewTabItem(tr("Grid parameters"), g.params)
 	g.subTabs = container.NewAppTabs(
-		container.NewTabItem(tr("Grid code and AC input"), g.ordinary.content),
+		container.NewTabItem(tr("Grid code selection"), g.ordinary.content),
 		g.paramsItem)
 	g.pg = newPage(tr("Grid"), tr("The grid code, and the limits within which the AC input is accepted."),
 		theme.LoginIcon(), vebus.TabGrid, withVisual(g.subTabs, pageVisual(u, vebus.TabGrid)))

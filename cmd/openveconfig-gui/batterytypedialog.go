@@ -53,7 +53,7 @@ func batteryTypeCard(u *ui) fyne.CanvasObject {
 			name.SetText(types[i].name)
 		} else {
 			name.Importance = widget.LowImportance
-			name.SetText(tr("No matching type (custom values)"))
+			name.SetText(tr("No corresponding default"))
 		}
 		card.Show()
 	}
@@ -176,7 +176,7 @@ func showBatteryTypes(u *ui, closed func()) {
 		if len(own) == 0 {
 			own = append(own, mutedText(tr("You have no types of your own yet. When the current values match no type, you can save them as one.")))
 		}
-		save := widget.NewButtonWithIcon(tr("Save current values as a type…"), theme.ContentAddIcon(), func() { saveTypeDialog(u, d, rebuild) })
+		save := widget.NewButtonWithIcon(tr("Create new type…"), theme.ContentAddIcon(), func() { saveTypeDialog(u, d, rebuild) })
 		saveRow := []fyne.CanvasObject{container.NewHBox(save)}
 		status := summaryLine(theme.NewColoredResource(theme.InfoIcon(), theme.ColorNamePlaceHolder), tr("The current values match no type (custom values)."))
 		if matched >= 0 {

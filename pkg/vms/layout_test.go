@@ -2,6 +2,7 @@ package vms
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/bolchisb/openveconfig/pkg/vebus/system"
@@ -85,5 +86,66 @@ func TestLayoutUnplacedAndErrors(t *testing.T) {
 		if _, err := f.Layout(known); !errors.Is(err, ErrFormat) {
 			t.Errorf("%s: err %v, want ErrFormat", name, err)
 		}
+	}
+}
+
+func TestFromLayoutRoundTrip(t *testing.T) {
+	quattro := &system.Unit{LongID: 0x30, VersionWord: 2699481, ResponseChar: system.ResponseDualInput, Name: "Q"}
+	multi := &system.Unit{LongID: 0x31, VersionWord: 2699481, ResponseChar: 0x02, Name: "M"}
+	loose := &system.Unit{LongID: 0x32, VersionWord: 2699481, ResponseChar: 0x02, Record: system.Record{8: 7}}
+	l := system.NewLayout()
+	if err := l.Reshape(system.Dual180, 2); err != nil {
+		t.Fatal(err)
+	}
+	l.L2, l.Grouped = system.Floating, [4]bool{true, false, false, false}
+	for _, u := range []*system.Unit{quattro, multi, loose} {
+		l.Add(u)
+	}
+	l.Place(multi, system.Cell{Phase: 0, AC: 0})
+	l.Place(quattro, system.Cell{Phase: 0, AC: 0})
+	f := FromLayout(l)
+	if f.SetupType != SetupDual180 || f.L2Option != L2Floating || f.ACInputs != 2 || f.GroupMask != 1 {
+		t.Errorf("header %+v", f)
+	}
+	b, err := f.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := g.Layout(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Setup != l.Setup || back.ACInputs != l.ACInputs || back.L2 != l.L2 || back.Grouped != l.Grouped {
+		t.Errorf("setup %v %d %v %v", back.Setup, back.ACInputs, back.L2, back.Grouped)
+	}
+	label := func(es []system.Entry) []string {
+		var s []string
+		for _, e := range es {
+			n := e.Unit.Label()
+			if e.Second {
+				n += "/2"
+			}
+			s = append(s, n)
+		}
+		return s
+	}
+	for _, c := range []system.Cell{{Phase: 0, AC: 0}, {Phase: 0, AC: 1}, system.Unconfigured} {
+		if got, want := label(back.Entries(c)), label(l.Entries(c)); !slices.Equal(got, want) {
+			t.Errorf("%v: %v, want %v", c, got, want)
+		}
+	}
+	// Placed units store their layout record, unplaced ones their own.
+	for _, r := range l.Records(false) {
+		i := slices.IndexFunc(g.Units, func(u *Unit) bool { return u.LongID == r.Unit.LongID })
+		if system.Record(g.Units[i].SystemRecord) != r.Record {
+			t.Errorf("%s stores %X, want %s", r.Unit.Label(), g.Units[i].SystemRecord, r.Record.Hex())
+		}
+	}
+	if i := slices.IndexFunc(g.Units, func(u *Unit) bool { return u.LongID == 0x32 }); g.Units[i].SystemRecord[8] != 7 {
+		t.Errorf("unplaced unit stores %X", g.Units[i].SystemRecord)
 	}
 }

@@ -207,7 +207,7 @@ func chargeChart(d *vebus.Device) *chartSpec {
 				name = e.Choices[raw]
 			}
 			if name != "" {
-				s.subtitle = tr("Charge algorithm: {{.Algorithm}}", args{"Algorithm": name})
+				s.subtitle = tr("Charge curve: {{.Algorithm}}", args{"Algorithm": name})
 			}
 			adaptive = raw >= 2
 		}

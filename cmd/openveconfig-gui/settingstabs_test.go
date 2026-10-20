@@ -202,7 +202,7 @@ func TestVirtualSwitchSubTabs(t *testing.T) {
 	// The usages are a list of all seven, in the original tool's words.
 	row := rowOf(t, usagePage, vebus.SettingID(15))
 	radio := row.control.(*widget.RadioGroup)
-	if len(radio.Options) != 7 || radio.Options[0] != "Do not use VS" || !strings.HasPrefix(radio.Options[1], "drive multifunctional (aux.) relay") {
+	if len(radio.Options) != 7 || radio.Options[0] != "Do not use VS" || !strings.HasPrefix(radio.Options[1], "Drive multifunctional (aux.) relay") {
 		t.Errorf("usages %q", radio.Options)
 	}
 }

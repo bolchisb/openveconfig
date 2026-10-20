@@ -117,46 +117,46 @@ func builtinTypes() []batteryType {
 		// settings": 14.2 V absorption and 13.5 V float for a 12.8 V battery
 		// (it advises 2 h absorption, not 1 h).
 		// https://www.victronenergy.com/media/pg/Lithium_Battery_Smart/en/installation.html
-		lithium(tr("LFP lithium, generic"),
+		lithium(tr("Lithium Iron Phosphate (LiFePo4) batteries"),
 			tr("Lithium iron phosphate (LiFePO4) batteries without a VE.Bus BMS."), 14.2, 13.5, 95, keep, 0),
 		// As above. The VE.Bus BMS stops charging in the cold itself, so the
 		// type turns the device's own stop off. On a device without the VE.Bus
 		// BMS setting the BMS needs an assistant: "VE.Bus BMS" manual, §3.2,
 		// https://www.victronenergy.com/upload/documents/Manual-VE-BUS-BMS-EN-NL-FR-DE-SE-.pdf
-		lithium(tr("LFP lithium with a VE.Bus BMS"),
+		lithium(tr("Victron Smart Lithium batteries, i.c.w. with VE.Bus BMS"),
 			tr("For example Victron Lithium Battery Smart batteries managed by a VE.Bus BMS."), 14.2, 13.5, 95, stopOff, 1),
 		// MultiPlus 12 V 500-1200 VA 120 Vac manual, "5. Configuration", DIP
 		// switch table: 14.1 V / 13.8 V, 8 h for long-life gel.
 		// https://www.victronenergy.com/media/pg/MultiPlus_12V_500-1200VA_120Vac/en/configuration.html
-		lead(tr("Gel, long-life (low voltage)"),
+		lead(tr("Gel MK Battery"),
 			tr("Long-life gel batteries charged at a lower voltage, for example MK gel or OPzV."), 14.1, 8),
 		// Exide "Handbook for Gel-VRLA-Batteries Part 2", §6.1-§6.4: charging
 		// up to 2.40 V per cell, so 14.2 V is within range; its float figure
 		// is lower (2.27 V per cell). https://pdfcoffee.com/gel-handbook-part-2-pdf-free.html
-		lead(tr("Gel, long-life (A400-class)"),
+		lead(tr("Gel Exide A400"),
 			tr("For example Exide/Sonnenschein A400 gel batteries."), 14.2, 8),
 		// MultiPlus manual DIP switch table (above): 14.4 V / 13.8 V, 8 h.
 		// Victron "Gel and AGM Batteries" datasheet, §13 and §14: the same
 		// voltages (it gives a steeper temperature compensation).
 		// https://www.victronenergy.com/upload/documents/Datasheet-GEL-and-AGM-Batteries-EN.pdf
-		lead(tr("Gel/AGM deep-cycle, standard"),
+		lead(tr("Gel/AGM, Victron Energy, Gel Exide A200"),
 			tr("For example Victron gel or AGM deep-cycle batteries and Exide/Sonnenschein A200."), 14.4, 8),
 		// Reverse-engineered only; no public source found.
-		lead(tr("Flooded flat-plate deep-cycle"),
+		lead(tr("Flooded deep discharge flat plate lead antimony"),
 			tr("Flooded flat-plate deep-cycle batteries (lead-antimony)."), 14.4, 5),
 		// MultiPlus manual DIP switch table (above): 14.7 V / 13.8 V, 5 h;
 		// Gel and AGM datasheet (above): 14.6-14.9 V for the fastest recharge.
-		lead(tr("AGM fast recharge, tubular semi-float, spiral AGM"),
+		lead(tr("AGM Victron Deep Discharge (fastest recharge), Tubular plate batteries (semi float use), AGM spiral cell"),
 			tr("AGM deep-cycle batteries recharged fast, tubular-plate (OPzS) batteries in semi-float use, and spiral-cell AGM."), 14.7, 5),
 		// COMMUNITY: a 48 V Quattro set to this type got 60 V absorption and
 		// 85 % at the end of bulk.
 		// https://communityarchive.victronenergy.com/questions/55796/how-to-change-state-of-charge-when-bulk-finished-v.html
-		lead(tr("Flooded tubular-plate"),
+		lead(tr("Flooded tubular plate"),
 			tr("Flooded tubular-plate (OPzS) batteries in cyclic use."), 15.0, 6),
 		// Reverse-engineered only; Victron's Redflow ZCell page says the
 		// battery's own BMS controls charging over CAN.
 		// https://www.victronenergy.com/live/battery_compatibility:redflow_zcell
-		lithium(tr("Zinc-bromine flow battery"),
+		lithium(tr("Redflow ZCell"),
 			tr("For example Redflow ZCell."), 14.25, 14.25, 80, stopOff, 0),
 	}
 }

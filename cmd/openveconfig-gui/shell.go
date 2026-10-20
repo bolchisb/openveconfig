@@ -114,7 +114,8 @@ func newSidebar(u *ui) fyne.CanvasObject {
 	}
 	tools := container.NewVBox(widget.NewSeparator(), mutedText(tr("Tools")),
 		tool(tr("Remote panel"), theme.ComputerIcon(), func() { showRemotePanel(u) }),
-		tool(tr("VE.Bus monitor"), theme.VisibilityIcon(), func() { showVEBusMonitor(u) }))
+		tool(tr("VE.Bus monitor"), theme.VisibilityIcon(), func() { showVEBusMonitor(u) }),
+		tool(tr("System Configurator"), theme.GridIcon(), func() { showSystemConfigurator(u) }))
 	return container.NewStack(newColourRect(colorNameSurface, fyne.NewSize(sidebarWidth, 0), ""),
 		container.NewPadded(container.NewBorder(nil, tools, nil, nil, u.sidebar)))
 }
@@ -166,7 +167,7 @@ func (h *header) update(u *ui) {
 	switch {
 	case s == nil:
 		h.conn.Hide()
-		h.connect.SetText(tr("Connect…"))
+		h.connect.SetText(tr("Com port…"))
 	case s.demo:
 		h.conn.set(tr("Demo · simulated devices"), theme.ColorNameWarning, true)
 		h.conn.Show()
@@ -249,13 +250,13 @@ func (b *changesBar) update(u *ui) {
 func primaryAction(u *ui, c changeCounts) (label string, do func(), reason string) {
 	m, s := u.settings, u.sess
 	if m.file != nil {
-		label, do = tr("Save file"), func() { saveSettingsFile(u) }
+		label, do = tr("Save settings"), func() { saveSettingsFile(u) }
 		if c.invalid > 0 {
 			reason = tr("Correct the invalid values to save.")
 		}
 		return label, do, reason
 	}
-	label, do = tr("Send to device"), func() { sendSettings(u) }
+	label, do = tr("Send settings"), func() { sendSettings(u) }
 	switch {
 	case s == nil:
 		reason = tr("Connect to the device these settings were read from to send them.")

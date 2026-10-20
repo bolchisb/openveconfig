@@ -117,7 +117,7 @@ func newPhaseView(n int) *phaseView {
 		grid.Add(container.NewStack(in[i].value))
 		grid.Add(container.NewStack(out[i].value))
 	}
-	v.card = widget.NewCard(tr("Phase L{{.Phase}}", args{"Phase": n}), "", grid)
+	v.card = widget.NewCard(tr("L{{.Phase}}", args{"Phase": n}), "", grid)
 	return v
 }
 
@@ -140,9 +140,9 @@ func newBusView() *busView {
 	v := &busView{
 		status: widget.NewLabel(tr("Reading...")),
 		batV:   newField(tr("Voltage")),
-		batI:   newField(tr("Net current")),
-		invI:   newField(tr("Used by inverting units")),
-		chgI:   newField(tr("From charging units")),
+		batI:   newField(tr("Idc")),
+		invI:   newField(tr("Idc invert")),
+		chgI:   newField(tr("Idc charge")),
 	}
 	v.status.Wrapping = fyne.TextWrapWord
 	row := container.NewHBox()

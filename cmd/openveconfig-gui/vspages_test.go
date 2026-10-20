@@ -69,7 +69,7 @@ func TestVSConditionLine(t *testing.T) {
 	if l == nil || delay.line != l {
 		t.Fatal("load level and its delay are not on one line")
 	}
-	if l.label.Text != "when load higher than" || level.entry.Text != "2300" || delay.entry.Text != "-1" {
+	if l.label.Text != "When load higher than" || level.entry.Text != "2300" || delay.entry.Text != "-1" {
 		t.Errorf("line %q [%s] for [%s], want when load higher than [2300] for [-1]", l.label.Text, level.entry.Text, delay.entry.Text)
 	}
 	if !isDisabled(level.entry) || isDisabled(delay.entry) || l.label.Importance != widget.LowImportance {

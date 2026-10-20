@@ -156,7 +156,7 @@ func TestPanelUnsupported(t *testing.T) {
 	// are still read.
 	sim.InjectFault(simulator.FaultRule{Cmd: mk2.CmdWinmon, WCmd: mk2.WCmdReadRAMVar, Fault: simulator.NoReply, Count: 1})
 	p.show(readOnce(t, s, r.read), nil)
-	if got := p.mainsV.value.Text; got != "read error" {
+	if got := p.mainsV.value.Text; got != "Error during read" {
 		t.Errorf("input voltage after a lost reply = %q, want the error placeholder", got)
 	}
 	if got := p.outI.value.Text; got != "18.3 A" {
