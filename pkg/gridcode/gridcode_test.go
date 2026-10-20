@@ -203,10 +203,11 @@ func TestTables(t *testing.T) {
 			}
 			w := int(p.width())
 			if p.High != 0 {
-				if p.Mask != 0xFFFF || p.High < 129 || p.High > 190 || p.High == p.Word {
-					t.Errorf("%s: invalid two-word field (high word %d)", name, p.High)
+				h := p.HighMask >> bits.TrailingZeros16(p.HighMask)
+				if p.HighMask == 0 || h&(h+1) != 0 || p.High < 129 || p.High > 190 || p.High == p.Word {
+					t.Errorf("%s: invalid two-word field (high word %d, mask %#04x)", name, p.High, p.HighMask)
 				}
-				w = 32
+				w += bits.OnesCount16(p.HighMask)
 			}
 			lo, hi := 0, 1<<w-1
 			if p.Signed {
@@ -267,11 +268,67 @@ func TestNoOverlap(t *testing.T) {
 		}
 		return false
 	}
+	// parts returns the bits of each word p is stored in.
+	parts := func(p Param) map[uint16]uint16 {
+		m := map[uint16]uint16{p.Word: p.Mask}
+		if p.High != 0 {
+			m[p.High] |= p.HighMask
+		}
+		return m
+	}
 	for _, pg := range testPages() {
 		for i, p := range pg.Params {
 			for _, q := range pg.Params[i+1:] {
-				if p.Word == q.Word && p.Mask&q.Mask != 0 && together(p, q) {
-					t.Errorf("%s: %q and %q share bits %#04x of word %d", pg.Name, p.Name, q.Name, p.Mask&q.Mask, p.Word)
+				for w, m := range parts(p) {
+					if shared := m & parts(q)[w]; shared != 0 && together(p, q) {
+						t.Errorf("%s: %q and %q share bits %#04x of word %d", pg.Name, p.Name, q.Name, shared, w)
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestSplitField checks fields split over the high bits of one word and
+// the bits of another, with made-up words.
+func TestSplitField(t *testing.T) {
+	signed := Param{Name: "signed", Kind: Number, Word: 129, Mask: 0xF000, High: 130, HighMask: 0xF000,
+		Signed: true, Scale: 1, Min: -128, Max: 127}
+	unsigned := Param{Name: "unsigned", Kind: Number, Word: 133, Mask: 0xFF00, High: 132, HighMask: 0xF000,
+		Scale: 1, Max: 4095}
+	for _, tc := range []struct {
+		p                Param
+		word, high       uint16
+		field            int
+		wantWord, wantHi uint16 // after packing the field into 0x0ABC, 0x0DEF
+	}{
+		{signed, 0x3000, 0x2000, 0x23, 0x3ABC, 0x2DEF},
+		{signed, 0xFFFF, 0xEFFF, -1 - 0x10, 0xFABC, 0xEDEF},
+		{signed, 0x0FFF, 0x8FFF, -128, 0x0ABC, 0x8DEF},
+		{unsigned, 0x5800, 0x2000, 0x258, 0x58BC, 0x2DEF},
+		{unsigned, 0x00FF, 0x0FFF, 0, 0x00BC, 0x0DEF},
+	} {
+		if f := tc.p.FieldWords(tc.word, tc.high); f != tc.field {
+			t.Errorf("%s: FieldWords(%#04x, %#04x) = %d, want %d", tc.p.Name, tc.word, tc.high, f, tc.field)
+		}
+		w, h, err := tc.p.PackWords(0x0ABC, 0x0DEF, tc.p.Value(tc.field))
+		if err != nil || w != tc.wantWord || h != tc.wantHi {
+			t.Errorf("%s: PackWords(%d) = %#04x, %#04x, %v; want %#04x, %#04x", tc.p.Name, tc.field, w, h, err, tc.wantWord, tc.wantHi)
+		}
+	}
+	if w, h, err := unsigned.PackWords(1, 2, 4096); err == nil || w != 1 || h != 2 {
+		t.Errorf("PackWords(4096) = %d, %d, %v; want an error and the words unchanged", w, h, err)
+	}
+	// Every split field of the pages comes back the same through its words.
+	for _, pg := range testPages() {
+		for _, p := range pg.Params {
+			if p.High == 0 {
+				continue
+			}
+			for _, f := range fieldValues(p) {
+				w, h, err := p.PackWords(0x5A5A, 0xA5A5, p.Value(f))
+				if err != nil || p.FieldWords(w, h) != f || w&^p.Mask != 0x5A5A&^p.Mask || h&^p.HighMask != 0xA5A5&^p.HighMask {
+					t.Errorf("%s / %s: field %d packed as %#04x, %#04x, %v", pg.Name, p.Name, f, w, h, err)
 				}
 			}
 		}

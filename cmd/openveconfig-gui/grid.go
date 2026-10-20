@@ -182,18 +182,30 @@ func newGridTab(u *ui) *gridTabView {
 		if err := d.SetRaw(id, g.codeValues[i]); err != nil {
 			showError(u, err)
 		}
+		// A newly chosen code gets its defaults, as in the original.
+		var words map[uint16]uint16
+		if g.codeValues[i] != old {
+			var err error
+			if words, err = loadCodeDefaults(d, u.settings.grid, gridcode.Code(g.codeValues[i])); err != nil {
+				showError(u, err)
+			}
+		}
 		u.settings.changed()
 		// A code that needs a password asks for one, as in the original,
 		// which also checks it here; this program only hands it to the
 		// device when the settings are sent (accesspassword.go). Without
-		// one the choice is undone.
+		// one the choice, and the defaults it loaded, are undone.
 		s := u.sess
 		if !passwordsEnabled(s) || len(s.passwords) > 0 || gridcode.SelectableWithoutPassword(gridcode.Code(g.codeValues[i]), d.Firmware) {
 			return
 		}
 		askAccessPasswords(u, s, func(ok bool) {
 			if !ok && u.settings.dev == d {
-				if err := d.SetRaw(id, old); err != nil {
+				errs := []error{d.SetRaw(id, old)}
+				for w, v := range words {
+					errs = append(errs, d.SetRaw(vebus.SettingID(w), v))
+				}
+				if err := errors.Join(errs...); err != nil {
 					showError(u, err)
 				}
 				u.settings.changed()
@@ -318,6 +330,38 @@ func (g *gridTabView) update(rebuild bool) {
 		g.undo.Disable()
 		g.undo.Hide()
 	}
+}
+
+// loadCodeDefaults sets grid words 129-190 of d to the defaults the
+// grid-info table of m gives grid code c, as the original does when a
+// grid code is chosen; a word the table gives no default for gets 0xFFFF
+// (gridcode.Defaults). Without defaults (no table known, or one without
+// them) the words stay as they are; the original then uses defaults of
+// its own, which are not known. It returns the words' values from before.
+func loadCodeDefaults(d *vebus.Device, m gridcode.Model, c gridcode.Code) (map[uint16]uint16, error) {
+	if !m.Known {
+		return nil, nil
+	}
+	defs, err := gridcode.Defaults(m.Table, c)
+	if defs == nil || err != nil {
+		return nil, err
+	}
+	before := map[uint16]uint16{}
+	var errs []error
+	for w := firstGridWord + 1; w < lastGridWord; w++ {
+		sid := vebus.SettingID(w)
+		old, err := d.Raw(sid)
+		if err != nil {
+			continue // not reported by the device
+		}
+		v, ok := defs[w]
+		if !ok {
+			v = 0xFFFF
+		}
+		before[w] = old
+		errs = append(errs, d.SetRaw(sid, v))
+	}
+	return before, errors.Join(errs...)
 }
 
 // rawCode returns the grid code of the loaded model.
@@ -691,7 +735,7 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 		if d := g.u.settings.dev; d != nil {
 			var err error
 			if p.High != 0 {
-				err = d.SetRaw(vebus.SettingID(p.High), g.loaded[p.High])
+				err = d.SetRaw(vebus.SettingID(p.High), g.word(p.High)&^p.HighMask|g.loaded[p.High]&p.HighMask)
 			}
 			g.apply(errors.Join(err, d.SetRaw(vebus.SettingID(p.Word), g.word(p.Word)&^p.Mask|g.loaded[p.Word]&p.Mask)))
 		}

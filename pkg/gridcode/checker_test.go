@@ -218,8 +218,18 @@ func TestEditMask(t *testing.T) {
 	if d, err := Defaults(table, 1); err != nil || len(d) != 3 || d[148] != 0 || d[149] != 0 || d[190] != 0 {
 		t.Errorf("Defaults of code 1: %v, %v", d, err)
 	}
-	if d, err := Defaults(table, 0); err != nil || len(d) != 0 {
-		t.Errorf("Defaults of an empty entry: %v, %v", d, err)
+	// An empty entry and a code outside the table have no defaults (every
+	// word 0xFFFF in the original); a table without defaults gives nil.
+	for _, g := range []Code{0, 3} {
+		if d, err := Defaults(table, g); err != nil || d == nil || len(d) != 0 {
+			t.Errorf("Defaults of code %d: %v, %v; want an empty map", g, d, err)
+		}
+	}
+	if d, err := Defaults(gridTable(1, []byte{0}, []int{0}), 0); err != nil || d != nil {
+		t.Errorf("Defaults of a format 1 table: %v, %v; want nil", d, err)
+	}
+	if d, err := Defaults(nil, 0); err != nil || d != nil {
+		t.Errorf("Defaults without a table: %v, %v; want nil", d, err)
 	}
 	if _, ok, err := EditMask(nil, 1, 148); ok || err != nil {
 		t.Error("no table: want not ok")

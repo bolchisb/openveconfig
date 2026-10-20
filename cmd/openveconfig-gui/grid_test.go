@@ -363,6 +363,100 @@ func TestGridSaveFile(t *testing.T) {
 	save("grid code changed after an interrupted write", spec)
 }
 
+// defaultsTailTable returns a made-up grid-info table (format 3) for codes
+// 0-17: code 17 (version 1) uses words 128, 129, 150 and 191, with the
+// defaults 0x1234 for 129 and 0x0042 for 150; every other code has an
+// empty entry.
+func defaultsTailTable() []byte {
+	const codes = 18
+	b := []byte{0, 0, 3, codes, 8}
+	empty := len(b) + 2*codes
+	for c := range codes {
+		off := empty
+		if c == 17 {
+			off = empty + 3 + 16
+		}
+		b = binary.LittleEndian.AppendUint16(b, uint16(off))
+	}
+	b = append(b, make([]byte, 3+16)...) // empty entry: version, u16, two bitmaps
+	e := append([]byte{1, 0, 0}, make([]byte, 16)...)
+	for _, w := range []int{128, 129, 150, 191} {
+		e[3+8+(w-128)/8] |= 1 << ((w - 128) % 8)
+	}
+	e = binary.LittleEndian.AppendUint16(e, 0x1234) // word 129
+	e = binary.LittleEndian.AppendUint16(e, 0x0042) // word 150
+	b = append(append(b, e...), 0)                  // no masks
+	binary.LittleEndian.PutUint16(b, uint16(len(b)-5))
+	return b
+}
+
+// TestGridCodeDefaults: choosing a grid code in a file loads the defaults
+// its grid-info table gives the code, as the original does, and 0xFFFF in
+// the words without one; the checker words are left to be stamped. The
+// same code chosen again, or a model without a known table, changes no
+// word.
+func TestGridCodeDefaults(t *testing.T) {
+	u := newTestUI(t)
+	g := newGridTab(u)
+	spec := gridFile(0x0300, 0x0300)
+	table := defaultsTailTable()
+	tail := append([]byte{0x50, 0, 0, 0}, bytes.Repeat([]byte{0x81}, 192)...)
+	tail = binary.LittleEndian.AppendUint16(tail, uint16(len(table)))
+	spec.InfoTail = append(tail, table...)
+	sf, err := parseSettingsFile("grid.rvsc", spec.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadSettingsFile(u, sf)
+	d := u.settings.dev
+	if !u.settings.grid.Known {
+		t.Fatal("the file's grid-info table is not known")
+	}
+	word := func(w uint16) uint16 {
+		v, _ := d.Raw(vebus.SettingID(w))
+		return v
+	}
+
+	selectCode(t, g, 17)
+	for w := uint16(128); w <= 191; w++ {
+		want := uint16(0xFFFF)
+		switch w {
+		case 128, 191:
+			want = 0x0300 // stamped when saved
+		case 129:
+			want = 0x1234
+		case 150:
+			want = 0x0042
+		}
+		if got := word(w); got != want {
+			t.Errorf("code 17: word %d = %#04x, want %#04x", w, got, want)
+		}
+	}
+	if !paramRowOf(t, g, "Over-voltage trip on 10-minute running average").changed {
+		t.Error("a word changed by the defaults is not marked as changed")
+	}
+
+	// The same code again: nothing is loaded.
+	if err := d.SetRaw(vebus.SettingID(150), 7); err != nil {
+		t.Fatal(err)
+	}
+	g.code.onChanged(g.code.SelectedIndex())
+	if word(150) != 7 {
+		t.Errorf("code 17 chosen again: word 150 = %#04x, want it kept", word(150))
+	}
+
+	// A code with an empty entry: every word 0xFFFF.
+	selectCode(t, g, 3)
+	if word(129) != 0xFFFF || word(150) != 0xFFFF {
+		t.Errorf("code 3: words 129, 150 = %#04x, %#04x; want 0xFFFF", word(129), word(150))
+	}
+
+	// No known table: the words stay.
+	if before, err := loadCodeDefaults(d, gridcode.Model{}, 17); before != nil || err != nil || word(129) != 0xFFFF {
+		t.Errorf("no table: %v, %v, word 129 = %#04x", before, err, word(129))
+	}
+}
+
 // TestGridCheckStatusDevice: for a device the parameter-set version is
 // not known, so only the rest of the check is made.
 func TestGridCheckStatusDevice(t *testing.T) {

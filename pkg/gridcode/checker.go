@@ -210,15 +210,23 @@ func EditMask(table []byte, g Code, w uint16) (mask uint16, ok bool, err error) 
 
 // Defaults returns the default values the grid-info table gives grid code
 // g for the grid words it uses, except the checker words 128 and 191; nil
-// when the table has no entry for g or no defaults (format below 2).
+// when there is no table or it has no defaults (format below 2), an empty
+// map when the table has no entry for g or an empty one. The original
+// gives every grid word it has no default for here 0xFFFF.
 // Reverse-engineered: on a real file they are the values VEConfigure
 // shows after choosing the code.
 func Defaults(table []byte, g Code) (map[uint16]uint16, error) {
+	if len(table) <= tableOffFormat || table[tableOffFormat] < 2 {
+		return nil, nil
+	}
 	e, ok, err := entryOf(table, g)
-	if !ok || err != nil || e.values == nil {
+	if err != nil {
 		return nil, err
 	}
 	d := map[uint16]uint16{}
+	if !ok {
+		return d, nil
+	}
 	i := 0
 	for w := CheckerWordA + 1; w < CheckerWordB && 2*i+2 <= len(e.values); w++ {
 		if e.uses(w) {

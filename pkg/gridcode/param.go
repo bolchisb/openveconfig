@@ -66,12 +66,14 @@ type Param struct {
 	// the field's bits, which are contiguous.
 	Word uint16
 	Mask uint16
-	// High, if not 0, is the setting that holds the high 16 bits of a
-	// 32-bit field; Word then holds the low 16 bits and Mask is 0xFFFF.
-	// Reverse-engineered: the original reads such a value from two words;
-	// the order is INFERRED from a real file, where 59728 in Word and 77 in
-	// High (77 << 16 | 59728 = 5106000) show as the original's 255.3 V.
-	High uint16
+	// High, if not 0, is the setting that holds the high bits of a field
+	// split over two words: the bits HighMask selects in High, above the
+	// bits Mask selects in Word. Reverse-engineered: the original reads
+	// such values from two words. For the 32-bit over-voltage values (both
+	// masks 0xFFFF) the order is INFERRED from a real file, where 59728 in
+	// Word and 77 in High (77 << 16 | 59728 = 5106000) show as the
+	// original's 255.3 V.
+	High, HighMask uint16
 	// NeedsWord and NeedsMask, if NeedsMask is not 0, are a field that
 	// switches p on: the original greys p's control while that field is 0,
 	// or, with NeedsClear, while it is not 0.
@@ -188,12 +190,18 @@ func (p Param) Shown(w uint16) bool {
 }
 
 // FieldWords extracts p's field from word and high, the values of settings
-// p.Word and p.High; high is ignored when p.High is 0.
+// p.Word and p.High; high is ignored when p.High is 0. A signed field's
+// sign bit is the top bit of its high part.
 func (p Param) FieldWords(word, high uint16) int {
 	if p.High == 0 {
 		return p.Field(word)
 	}
-	return int(high)<<16 | int(word)
+	h := Param{Mask: p.HighMask}
+	f := h.Field(high)<<p.width() | int(word&p.Mask)>>p.shift()
+	if w := p.width() + h.width(); p.Signed && f >= 1<<(w-1) {
+		f -= 1 << w
+	}
+	return f
 }
 
 // UnpackWords returns p's display value from the values of settings p.Word
@@ -201,8 +209,9 @@ func (p Param) FieldWords(word, high uint16) int {
 func (p Param) UnpackWords(word, high uint16) float64 { return p.Value(p.FieldWords(word, high)) }
 
 // PackWords returns word and high, the values of settings p.Word and
-// p.High, with p's field set to display value v, as Pack does. When p.High
-// is 0, high is returned unchanged.
+// p.High, with p's field set to display value v, as Pack does; the other
+// bits of both are unchanged. When p.High is 0, high is returned
+// unchanged.
 func (p Param) PackWords(word, high uint16, v float64) (uint16, uint16, error) {
 	if p.High == 0 {
 		w, err := p.Pack(word, v)
@@ -212,7 +221,9 @@ func (p Param) PackWords(word, high uint16, v float64) (uint16, uint16, error) {
 	if err != nil {
 		return word, high, err
 	}
-	return uint16(f), uint16(f >> 16), nil
+	h := Param{Mask: p.HighMask}
+	return word&^p.Mask | uint16(f)<<p.shift()&p.Mask,
+		high&^p.HighMask | uint16(f>>p.width())<<h.shift()&p.HighMask, nil
 }
 
 // Pack returns word with p's field set to display value v; the other bits

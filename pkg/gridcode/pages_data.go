@@ -45,11 +45,18 @@ func choice(name string, word, mask uint16, def int, choices map[int]string) Par
 // field values of its limits and default (V x 20000).
 func overVoltage(min, max, def int) Param {
 	p := num(overVoltage10Min, 129, 0xFFFF, 5e-05, 0, "V", min, max, def)
-	p.High, p.Decimals = 130, 1
+	p.High, p.HighMask, p.Decimals = 130, 0xFFFF, 1
 	return p
 }
 
 func (p Param) signed() Param { p.Signed = true; return p }
+
+// high makes the bits mask of word the high part of p's field (see
+// Param.High).
+func (p Param) high(word, mask uint16) Param { p.High, p.HighMask = word, mask; return p }
+
+// decimals sets the number of decimals the original shows for p.
+func (p Param) decimals(n int) Param { p.Decimals = n; return p }
 
 // needs makes p usable only while the field mask of word is not 0.
 // tripDelay is a TOR-D4 trip delay of 0-180 s (see Param.TripDelay), 0 s
@@ -85,7 +92,7 @@ var (
 	puReduction = map[int]string{0: "off", 1: "reduce relative to nominal power", 2: "reduce relative to present power"}
 )
 
-// Unsupported on several pages.
+// On several pages.
 const overVoltage10Min = "Over-voltage trip on 10-minute running average"
 
 // 5000000 / 2^32 Hz per step, used by several frequency fields.
@@ -276,7 +283,9 @@ var pageRomania = &Page{
 
 // pageEurope. The two wait times have a negative scale on a 12-bit field:
 // the stored field is the low 12 bits of (14 - seconds), so it is read
-// back as two's complement (Signed). Not yet checked on a device.
+// back as two's complement (Signed). Not yet checked on a device. The
+// decimals are those the original shows (its frequencies with three, its
+// % Un values with two).
 var pageEurope = &Page{
 	Name: "Europe (EN 50549-1)",
 	Params: params(
@@ -288,47 +297,54 @@ var pageEurope = &Page{
 		group("First connection",
 			num("First connection: wait time", 166, 0xFFF, -1, -14, "s", -1, -1186, -46).signed(),
 			num("First connection: power ramp time for 0-100 %", 165, 0xFFF, 0.5, 0, "s", 0, 2400, 0),
-			num("First connection: lowest frequency allowed", 168, 0xFF, -0.025, -2000, "Hz", 200, 0, 20),
-			num("First connection: highest frequency allowed", 168, 0xFF00, 0.025, 2000, "Hz", 0, 200, 4),
-			num("First connection: lowest voltage allowed", 167, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed(),
-			num("First connection: highest voltage allowed", 167, 0xFF00, 0.25, 400, "% of Un", 0, 120, 40).signed(),
+			num("First connection: lowest frequency allowed", 168, 0xFF, -0.025, -2000, "Hz", 200, 0, 20).decimals(3),
+			num("First connection: highest frequency allowed", 168, 0xFF00, 0.025, 2000, "Hz", 0, 200, 4).decimals(3),
+			num("First connection: lowest voltage allowed", 167, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed().decimals(2),
+			num("First connection: highest voltage allowed", 167, 0xFF00, 0.25, 400, "% of Un", 0, 120, 40).signed().decimals(2),
 		),
 		group("Reconnection after a protection trip",
 			num("After trip: wait time before reconnecting", 130, 0xFFF, -1, -14, "s", -1, -1186, -46).signed(),
 			num("After trip: power ramp time for 0-100 %", 129, 0xFFF, 0.5, 0, "s", 0, 2400, 1200),
-			num("After trip: lowest frequency allowed to reconnect", 147, 0xFF, -0.025, -2000, "Hz", 200, 0, 20),
-			num("After trip: highest frequency allowed to reconnect", 147, 0xFF00, 0.025, 2000, "Hz", 0, 200, 8),
-			num("After trip: lowest voltage allowed to reconnect", 146, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed(),
-			num("After trip: highest voltage allowed to reconnect", 146, 0xFF00, 0.25, 400, "% of Un", 0, 120, 40).signed(),
+			num("After trip: lowest frequency allowed to reconnect", 147, 0xFF, -0.025, -2000, "Hz", 200, 0, 20).decimals(3),
+			num("After trip: highest frequency allowed to reconnect", 147, 0xFF00, 0.025, 2000, "Hz", 0, 200, 8).decimals(3),
+			num("After trip: lowest voltage allowed to reconnect", 146, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed().decimals(2),
+			num("After trip: highest voltage allowed to reconnect", 146, 0xFF00, 0.25, 400, "% of Un", 0, 120, 40).signed().decimals(2),
 		),
+		// The 10-minute value is a signed byte whose low half is the top 4
+		// bits of word 129 and whose high half the top 4 bits of word 130;
+		// each stage-1 frequency trip delay is 12 bits, the top 4 bits of
+		// word 131 or 132 above a byte of word 133.
 		group("Interface (grid) protection, stage 1",
-			num("Stage 1 under-voltage: trip level", 159, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed(),
+			num(overVoltage10Min, 129, 0xF000, 0.25, 400, "% of Un", 0, 100, 40).signed().high(130, 0xF000).decimals(2),
+			num("Stage 1 under-voltage: trip level", 159, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed().decimals(2),
 			num("Stage 1 under-voltage: trip delay", 131, 0xFFF, 0.05, 0, "s", 0, 4000, 10),
-			num("Stage 1 over-voltage: trip level", 159, 0xFF00, 0.25, 400, "% of Un", 0, 100, 60).signed(),
+			num("Stage 1 over-voltage: trip level", 159, 0xFF00, 0.25, 400, "% of Un", 0, 100, 60).signed().decimals(2),
 			num("Stage 1 over-voltage: trip delay", 132, 0xFFF, 0.05, 0, "s", 0, 4000, 10),
-			num("Stage 1 under-frequency: trip level", 160, 0xFF, -0.025, -2000, "Hz", 196, 0, 100),
-			num("Stage 1 over-frequency: trip level", 160, 0xFF00, 0.025, 2000, "Hz", 0, 196, 108),
+			num("Stage 1 under-frequency: trip level", 160, 0xFF, -0.025, -2000, "Hz", 196, 0, 100).decimals(3),
+			num("Stage 1 under-frequency: trip delay", 133, 0xFF, 0.05, 0, "s", 0, 4000, 600).high(131, 0xF000),
+			num("Stage 1 over-frequency: trip level", 160, 0xFF00, 0.025, 2000, "Hz", 0, 196, 108).decimals(3),
+			num("Stage 1 over-frequency: trip delay", 133, 0xFF00, 0.05, 0, "s", 0, 4000, 600).high(132, 0xF000),
 		),
 		group("Interface (grid) protection, stage 2",
-			num("Stage 2 under-voltage: trip level", 161, 0xFF00, 0.25, 400, "% of Un", -89, 0, -80).signed(),
+			num("Stage 2 under-voltage: trip level", 161, 0xFF00, 0.25, 400, "% of Un", -89, 0, -80).signed().decimals(2),
 			num("Stage 2 under-voltage: trip delay", 161, 0xFF, 0.05, 0, "s", 0, 130, 4),
-			num("Stage 2 over-voltage: trip level", 162, 0xFF00, 0.25, 400, "% of Un", 0, 120, 80).signed(),
+			num("Stage 2 over-voltage: trip level", 162, 0xFF00, 0.25, 400, "% of Un", 0, 120, 80).signed().decimals(2),
 			num("Stage 2 over-voltage: trip delay", 162, 0xFF, 0.05, 0, "s", 0, 130, 4),
-			num("Stage 2 under-frequency: trip level", 163, 0xFF00, -0.025, -2000, "Hz", 200, 0, 120),
+			num("Stage 2 under-frequency: trip level", 163, 0xFF00, -0.025, -2000, "Hz", 200, 0, 120).decimals(3),
 			num("Stage 2 under-frequency: trip delay", 163, 0xFF, 0.05, 0, "s", 0, 130, 4),
-			num("Stage 2 over-frequency: trip level", 164, 0xFF00, 0.025, 2000, "Hz", 0, 200, 120),
+			num("Stage 2 over-frequency: trip level", 164, 0xFF00, 0.025, 2000, "Hz", 0, 200, 120).decimals(3),
 			num("Stage 2 over-frequency: trip delay", 164, 0xFF, 0.05, 0, "s", 0, 130, 4),
 		),
 		group("Power-versus-frequency response",
-			num("Over-frequency response: start frequency", 142, 0xFF00, 0.025, 2000, "Hz", 0, 200, 8),
-			num("Over-frequency response: end frequency", 142, 0xFF, 0.025, 2000, "Hz", 0, 200, 8),
-			num("Over-frequency response: start delay", 143, 0xF800, 0.1, 0, "s", 0, 31, 0),
-			num("Over-frequency response: end delay", 143, 0x7FF, 0.5, 0, "s", 0, 1200, 60),
+			num("Over-frequency response: start frequency", 142, 0xFF00, 0.025, 2000, "Hz", 0, 200, 8).decimals(3),
+			num("Over-frequency response: end frequency", 142, 0xFF, 0.025, 2000, "Hz", 0, 200, 8).decimals(3),
+			num("Over-frequency response: start delay", 143, 0xF800, 0.1, 0, "s", 0, 31, 0).decimals(2),
+			num("Over-frequency response: end delay", 143, 0x7FF, 0.5, 0, "s", 0, 1200, 60).decimals(2),
 			num("Over-frequency response: droop", 144, 0xFF, 0.05, 0, "%", 20, 250, 100),
-			num("Under-frequency response: start frequency", 140, 0xFF00, -0.025, -2000, "Hz", 200, 0, 8),
-			num("Under-frequency response: end frequency", 140, 0xFF, -0.025, -2000, "Hz", 200, 0, 8),
-			num("Under-frequency response: start delay", 141, 0xF800, 0.1, 0, "s", 0, 31, 0),
-			num("Under-frequency response: end delay", 141, 0x7FF, 0.5, 0, "s", 0, 1200, 60),
+			num("Under-frequency response: start frequency", 140, 0xFF00, -0.025, -2000, "Hz", 200, 0, 8).decimals(3),
+			num("Under-frequency response: end frequency", 140, 0xFF, -0.025, -2000, "Hz", 200, 0, 8).decimals(3),
+			num("Under-frequency response: start delay", 141, 0xF800, 0.1, 0, "s", 0, 31, 0).decimals(2),
+			num("Under-frequency response: end delay", 141, 0x7FF, 0.5, 0, "s", 0, 1200, 60).decimals(2),
 			num("Under-frequency response: droop", 144, 0xFF00, 0.05, 0, "%", 20, 250, 100),
 		),
 		// The original disables the points and the filter time while the
@@ -337,26 +353,21 @@ var pageEurope = &Page{
 			choice("P(U) reduction method", 148, 0x18, none, map[int]string{
 				0: "off", 1: "reduce feed-in relative to nominal power", 2: "reduce feed-in relative to present power",
 			}),
-			num("P(U) point 1: voltage", 135, 0xFF, 0.25, 400, "% of Un", -120, 120, -40).signed().needs(148, 0x18),
+			num("P(U) point 1: voltage", 135, 0xFF, 0.25, 400, "% of Un", -120, 120, -40).signed().decimals(2).needs(148, 0x18),
 			choice("P(U) point 1 applies to", 135, 0x8000, 1, appliesTo).needs(148, 0x18),
 			num("P(U) point 1: power limit", 135, 0x7F00, 1, 0, "%", 0, 100, 0).needs(148, 0x18),
-			num("P(U) point 2: voltage", 136, 0xFF, 0.25, 400, "% of Un", -120, 120, -17).signed().needs(148, 0x18),
+			num("P(U) point 2: voltage", 136, 0xFF, 0.25, 400, "% of Un", -120, 120, -17).signed().decimals(2).needs(148, 0x18),
 			choice("P(U) point 2 applies to", 136, 0x8000, none, appliesTo).needs(148, 0x18),
 			num("P(U) point 2: power limit", 136, 0x7F00, 1, 0, "%", 0, 100, 100).needs(148, 0x18),
-			num("P(U) point 3: voltage", 137, 0xFF, 0.25, 400, "% of Un", -120, 120, 35).signed().needs(148, 0x18),
+			num("P(U) point 3: voltage", 137, 0xFF, 0.25, 400, "% of Un", -120, 120, 35).signed().decimals(2).needs(148, 0x18),
 			choice("P(U) point 3 applies to", 137, 0x8000, none, appliesTo).needs(148, 0x18),
 			num("P(U) point 3: power limit", 137, 0x7F00, 1, 0, "%", 0, 100, 100).needs(148, 0x18),
-			num("P(U) point 4: voltage", 138, 0xFF, 0.25, 400, "% of Un", -120, 120, 61).signed().needs(148, 0x18),
+			num("P(U) point 4: voltage", 138, 0xFF, 0.25, 400, "% of Un", -120, 120, 61).signed().decimals(2).needs(148, 0x18),
 			choice("P(U) point 4 applies to", 138, 0x8000, none, appliesTo).needs(148, 0x18),
 			num("P(U) point 4: power limit", 138, 0x7F00, 1, 0, "%", 0, 100, 20).needs(148, 0x18),
-			num("P(U) set-point response time constant", 139, 0xFFFF, 7.276008090921e-05, 0, "s", 13744, 229, 4165).reciprocal().needs(148, 0x18),
+			num("P(U) set-point response time constant", 139, 0xFFFF, 7.276008090921e-05, 0, "s", 13744, 229, 4165).reciprocal().decimals(1).needs(148, 0x18),
 		),
 	),
-	Unsupported: []string{
-		overVoltage10Min,
-		"Stage 1 under-frequency: trip delay",
-		"Stage 1 over-frequency: trip delay",
-	},
 }
 
 var pageAUNZM = &Page{
