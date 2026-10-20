@@ -6,7 +6,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // NotApplicable is the raw setting value that marks a setting the device

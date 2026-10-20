@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus/system"
+	"github.com/bolchisb/openveconfig/pkg/vebus/system"
 )
 
 // Kind says what went wrong in an operation, and so what the user should

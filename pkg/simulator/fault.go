@@ -3,7 +3,7 @@ package simulator
 import (
 	"slices"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // Fault is a fault injected into the handling of one request.

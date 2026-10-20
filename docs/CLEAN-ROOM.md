@@ -7,7 +7,7 @@ It applies to everything in the repository and on the project's GitHub pages: co
 ## Allowed sources
 
 - **Victron's public documents**, for example "Interfacing with VE.Bus products – MK2 Protocol 3.14", product manuals, the VEConfigure manual and the data communication whitepaper. Cite the document and section.
-- **Observations of our own hardware**, for example serial traffic captured with this project's own tool (`veconfig-cli --verbose`) on equipment we own.
+- **Observations of our own hardware**, for example serial traffic captured with this project's own tool (`openveconfig-cli --verbose`) on equipment we own.
 - **MIT-compatible community code**, with attribution (see [Third-party code](#third-party-code)).
 - **Public community findings** (forum posts, project write-ups), cited by URL and marked as community-reported where they are not confirmed by Victron.
 

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus/system"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/vebus/system"
 )
 
 // ScanReport is what a scan found.

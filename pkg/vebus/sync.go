@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // Reading and writing a whole device.

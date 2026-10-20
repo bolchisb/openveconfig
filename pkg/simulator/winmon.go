@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"slices"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // cmdWinmon handles the Winmon commands 'W', 'X/Y/Z' and 'x/y/z' (§7.3).

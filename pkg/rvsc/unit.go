@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // BareSettingInfo payload layout (kylehart FORMAT.md §2, mk2vsc/schema.py):

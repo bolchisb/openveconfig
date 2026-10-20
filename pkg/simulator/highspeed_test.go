@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 func TestNegotiateBaud(t *testing.T) {
