@@ -230,12 +230,33 @@ func (p *settingsPage) build() {
 				order = append(order, e.Group)
 			}
 			byGroup[e.Group] = append(byGroup[e.Group], e)
-			if !isMasterFlag(e) {
-				texts = append(texts, entryName(e, labels))
+		}
+		// Groups shown as the two columns of one card, each with its own
+		// label column.
+		paired := map[string]string{}
+		for _, g := range order {
+			if r, ok := cardPairs[g]; ok && len(byGroup[r]) > 0 {
+				paired[g], paired[r] = r, ""
+			}
+		}
+		for _, g := range order {
+			if _, ok := paired[g]; ok {
+				continue
+			}
+			for _, e := range byGroup[g] {
+				if !isMasterFlag(e) {
+					texts = append(texts, entryName(e, labels))
+				}
 			}
 		}
 		p.cols.fit(texts)
 		for _, g := range order {
+			if r, ok := paired[g]; ok {
+				if r != "" {
+					cards = append(cards, p.pairCard(g, r, byGroup, labels))
+				}
+				continue
+			}
 			head := cardTitle(groupLabel(g))
 			if n, ok := valueSwitches[g]; ok && slices.ContainsFunc(byGroup[g], func(e vebus.Entry) bool { return e.ID() == vebus.SettingID(n) }) {
 				head = p.newValueSwitch(g, n).head.root
@@ -246,7 +267,7 @@ func (p *settingsPage) build() {
 				if isMasterFlag(e) {
 					title = groupLabel(g)
 				}
-				r := p.newRow(e, entryName(e, labels), title)
+				r := p.newRow(p.cols, e, entryName(e, labels), title)
 				p.rows = append(p.rows, r)
 				if r.header {
 					head = r.root
@@ -343,6 +364,27 @@ func (p *settingsPage) update() {
 	}
 }
 
+// pairCard returns the card that shows the groups left and right as two
+// columns, which share a narrower label column of their own.
+func (p *settingsPage) pairCard(left, right string, byGroup map[string][]vebus.Entry, labels map[vebus.ID]string) fyne.CanvasObject {
+	cols := &formColumns{control: pairControlWidth}
+	var texts []string
+	for _, e := range append(slices.Clone(byGroup[left]), byGroup[right]...) {
+		texts = append(texts, entryName(e, labels))
+	}
+	cols.fitWithin(texts, pairLabelWidth)
+	column := func(g string) fyne.CanvasObject {
+		var rows []fyne.CanvasObject
+		for _, e := range byGroup[g] {
+			r := p.newRow(cols, e, entryName(e, labels), "")
+			p.rows = append(p.rows, r)
+			rows = append(rows, r.root)
+		}
+		return container.NewVBox(rows...)
+	}
+	return newFormCard(cardTitle(pairTitle(left)), newTwoColumns(column(left), column(right)))
+}
+
 // setShown shows or hides o.
 func setShown(o fyne.CanvasObject, shown bool) {
 	if o.Visible() != shown {
@@ -423,7 +465,7 @@ type settingRow struct {
 // or an enumerated setting with up to three values, a choice list for one
 // with more, else an entry for a number. With a title, the row is the
 // header of a card of that title.
-func (p *settingsPage) newRow(e vebus.Entry, label, title string) *settingRow {
+func (p *settingsPage) newRow(cols *formColumns, e vebus.Entry, label, title string) *settingRow {
 	u, d, id := p.u, p.u.settings.dev, e.ID()
 	r := &settingRow{e: e}
 	// set applies an edit made with a control and shows its result.
@@ -516,9 +558,9 @@ func (p *settingsPage) newRow(e vebus.Entry, label, title string) *settingRow {
 		control, width, r.focus = r.entry, numberWidth, r.entry
 	}
 	if title != "" {
-		r.formRow = newFormHeader(p.cols, title, control)
+		r.formRow = newFormHeader(cols, title, control)
 	} else {
-		r.formRow = newFormRow(p.cols, label, settingHelp()[id], control, width, "")
+		r.formRow = newFormRow(cols, label, settingHelp()[id], control, width, "")
 	}
 	r.revert.OnTapped = func() { set(revertEntry(d, id)) }
 	if r.entry != nil {

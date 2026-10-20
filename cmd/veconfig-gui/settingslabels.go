@@ -208,6 +208,19 @@ func valueSwitchHint(n uint16) string {
 	return tr("Enter the restart level to turn the shutdown on.")
 }
 
+// cardPairs are groups shown as the two columns of one card: the key's
+// group on the left, the value's on the right.
+var cardPairs = map[string]string{"Charge voltages and current": "Absorption"}
+
+// pairTitle returns the title of the card of the pair whose left group is
+// left.
+func pairTitle(left string) string {
+	if left == "Charge voltages and current" {
+		return tr("Charge voltages and times")
+	}
+	return groupLabel(left)
+}
+
 // The Charger page hides lithiumHidden while the lithium flag (36) is on, and
 // shows lithiumOnly only then; with lithium the charge algorithm offers no
 // gradual-absorption variant (3). Reverse-engineered (#6).

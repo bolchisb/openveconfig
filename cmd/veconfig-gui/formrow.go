@@ -19,7 +19,7 @@ import (
 const (
 	// formMaxWidth is the widest a form gets, so that its controls stay
 	// near their labels in a wide window.
-	formMaxWidth = 720
+	formMaxWidth = 800
 	// labelMinWidth and labelMaxWidth bound the label column; a longer
 	// label wraps.
 	labelMinWidth, labelMaxWidth = 140, 280
@@ -41,8 +41,18 @@ const (
 	visualMinWidth, visualMaxWidth = 300, 480
 )
 
-// formColumns is the label column width shared by the rows of one page.
-type formColumns struct{ label float32 }
+// formColumns is the label column width shared by the rows of one page, or
+// of one column of a two-column card, and the width kept for the control
+// (controlWidth when 0).
+type formColumns struct{ label, control float32 }
+
+// controlWidth returns the width kept for the control.
+func (c *formColumns) controlWidth() float32 {
+	if c.control > 0 {
+		return c.control
+	}
+	return controlWidth
+}
 
 // fit sets the label column to the widest of labels, within labelMinWidth
 // and labelMaxWidth. A label is measured bold, as it is shown when changed.
@@ -54,6 +64,12 @@ func (c *formColumns) fit(labels []string) {
 		w = max(w, fyne.MeasureText(l, size, fyne.TextStyle{Bold: true}).Width+2*pad)
 	}
 	c.label = min(w, labelMaxWidth)
+}
+
+// fitWithin is fit with the label column at most maxWidth wide.
+func (c *formColumns) fitWithin(labels []string, maxWidth float32) {
+	c.fit(labels)
+	c.label = min(c.label, maxWidth)
 }
 
 // formRow is one row of a form: a dot shown while the value differs from
@@ -276,7 +292,7 @@ func (l *rowLayout) errWidth(controlX float32) float32 {
 	if w <= 0 {
 		w = formMaxWidth
 	}
-	return max(w-controlX, controlWidth)
+	return max(w-controlX, l.r.cols.controlWidth())
 }
 
 func (l *rowLayout) Layout(_ []fyne.CanvasObject, size fyne.Size) {
@@ -311,7 +327,7 @@ func (l *rowLayout) Layout(_ []fyne.CanvasObject, size fyne.Size) {
 	r.errText.Resize(fyne.NewSize(ew, eh))
 
 	ts := r.trail.MinSize()
-	r.trail.Move(fyne.NewPos(controlX+max(controlWidth, mainW)+pad, (firstH-ts.Height)/2))
+	r.trail.Move(fyne.NewPos(controlX+max(r.cols.controlWidth(), mainW)+pad, (firstH-ts.Height)/2))
 	r.trail.Resize(ts)
 }
 
@@ -341,7 +357,7 @@ func (l *rowLayout) MinSize([]fyne.CanvasObject) fyne.Size {
 	if r.errText.Visible() {
 		right = y + fitHeight(r.errText, l.errWidth(controlX))
 	}
-	w := controlX + max(controlWidth, r.main.MinSize().Width) + pad + r.trail.MinSize().Width
+	w := controlX + max(r.cols.controlWidth(), r.main.MinSize().Width) + pad + r.trail.MinSize().Width
 	return fyne.NewSize(w, max(left, right))
 }
 
@@ -401,6 +417,64 @@ func (m maxWidth) MinSize(objs []fyne.CanvasObject) fyne.Size {
 		s = s.Max(o.MinSize())
 	}
 	return s
+}
+
+// Columns of a two-column card: the label column at most pairLabelWidth wide
+// and pairControlWidth kept for the control, so that two fit side by side
+// in a form.
+const pairLabelWidth, pairControlWidth = 170, 150
+
+// newTwoColumns returns left and right side by side when they fit the
+// width, else right under left.
+func newTwoColumns(left, right fyne.CanvasObject) fyne.CanvasObject {
+	return container.New(&twoColumns{}, left, right)
+}
+
+// twoColumns lays out two columns side by side when both fit, else one
+// under the other.
+type twoColumns struct {
+	// width is the width of the last layout, which decides in MinSize
+	// whether the columns are side by side.
+	width float32
+}
+
+func (l *twoColumns) gap() float32 { return 2 * theme.Current().Size(theme.SizeNamePadding) }
+
+func (l *twoColumns) sideBySide(objs []fyne.CanvasObject, width float32) bool {
+	return width >= objs[0].MinSize().Width+l.gap()+objs[1].MinSize().Width
+}
+
+func (l *twoColumns) Layout(objs []fyne.CanvasObject, size fyne.Size) {
+	left, right := objs[0], objs[1]
+	if l.width != size.Width {
+		l.width = size.Width
+		defer func() {
+			for _, o := range objs {
+				o.Refresh() // the scroll area asks MinSize again
+			}
+		}()
+	}
+	if l.sideBySide(objs, size.Width) {
+		w := (size.Width - l.gap()) / 2
+		left.Move(fyne.NewPos(0, 0))
+		left.Resize(fyne.NewSize(w, left.MinSize().Height))
+		right.Move(fyne.NewPos(w+l.gap(), 0))
+		right.Resize(fyne.NewSize(w, right.MinSize().Height))
+		return
+	}
+	lh := left.MinSize().Height
+	left.Move(fyne.NewPos(0, 0))
+	left.Resize(fyne.NewSize(size.Width, lh))
+	right.Move(fyne.NewPos(0, lh))
+	right.Resize(fyne.NewSize(size.Width, right.MinSize().Height))
+}
+
+func (l *twoColumns) MinSize(objs []fyne.CanvasObject) fyne.Size {
+	a, b := objs[0].MinSize(), objs[1].MinSize()
+	if l.sideBySide(objs, l.width) {
+		return fyne.NewSize(max(a.Width, b.Width), max(a.Height, b.Height))
+	}
+	return fyne.NewSize(max(a.Width, b.Width), a.Height+b.Height)
 }
 
 // withVisual returns content with visual (when not nil) to its right on a
