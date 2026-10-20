@@ -3,9 +3,13 @@ package rvsc_test
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bolchisb/openveconfig/internal/rvsctest"
+	"github.com/bolchisb/openveconfig/pkg/assistant"
 	"github.com/bolchisb/openveconfig/pkg/rvsc"
 	"github.com/bolchisb/openveconfig/pkg/vebus/system"
 )
@@ -144,4 +148,75 @@ func TestSetLayoutRefuses(t *testing.T) {
 			t.Errorf("%s: the file changed", name)
 		}
 	}
+}
+
+func TestAssistantImage(t *testing.T) {
+	data := backup(t, 1)
+	f, _ := rvsc.Parse(data)
+	units, _ := f.Units()
+	u := units[0]
+	// The builder's invented area (00 0B) is not in the run form.
+	if _, err := u.AssistantImage(); !errors.Is(err, assistant.ErrFormat) {
+		t.Fatalf("invented area: %v, want ErrFormat", err)
+	}
+	img := append([]byte{1, 2, 3, 4, 5, 6}, bytes.Repeat([]byte{0xFF}, 2810)...)
+	before, _ := u.Setting(1)
+	u.SetAssistantImage(img)
+	out, err := f.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := rvsc.Parse(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gu, _ := g.Units()
+	got, err := gu[0].AssistantImage()
+	if after, _ := gu[0].Setting(1); err != nil || !bytes.Equal(got, img) || after != before {
+		t.Errorf("after SetAssistantImage: %v, %d bytes, setting 1 %d (was %d)", err, len(got), after, before)
+	}
+}
+
+// TestRealAssistantAreas expands the assistant area of every unit of the
+// files in $RVSC_TESTDATA, if set (files are not committed, #2). Every
+// area, in device and upload form, must compact back to the same bytes.
+// It logs no identifiers.
+func TestRealAssistantAreas(t *testing.T) {
+	dir := os.Getenv("RVSC_TESTDATA")
+	if dir == "" {
+		t.Skip("RVSC_TESTDATA not set")
+	}
+	n := 0
+	filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		ext := strings.ToLower(filepath.Ext(p))
+		if err != nil || d.IsDir() || ext != ".rvsc" && ext != ".rvms" {
+			return err
+		}
+		data, _ := os.ReadFile(p)
+		f, err := rvsc.Parse(data)
+		if err != nil {
+			return nil // TestRealFiles reports it
+		}
+		units, _ := f.Units()
+		for i, u := range units {
+			n++
+			img, err := u.AssistantImage()
+			if err != nil {
+				t.Errorf("%s unit %d: %v", filepath.Base(p), i, err)
+				continue
+			}
+			t.Logf("%s unit %d: checksum OK %v", filepath.Base(p), i, assistant.ChecksumOK(img))
+			if len(img) != assistant.ImageSize {
+				t.Logf("%s unit %d: image of %d bytes", filepath.Base(p), i, len(img))
+			}
+			if !bytes.Equal(assistant.Compact(img), u.AssistantArea()) {
+				t.Errorf("%s unit %d (upload form %v): the area does not compact back to its bytes", filepath.Base(p), i, u.UploadForm)
+			}
+		}
+		return nil
+	})
+	if n == 0 {
+		t.Fatal("no units under RVSC_TESTDATA")
+	}
+	t.Logf("%d units", n)
 }
