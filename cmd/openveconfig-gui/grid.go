@@ -165,12 +165,31 @@ func gridPage(u *ui) *page { return newGridTab(u).pg }
 func newGridTab(u *ui) *gridTabView {
 	g := &gridTabView{u: u, pageCode: -1, paramCols: &formColumns{}}
 	g.code = newCodePicker(u.win, tr("Country / grid code standard"), func(i int) {
-		if !g.updating && i >= 0 && u.settings.dev != nil {
-			if err := u.settings.dev.SetRaw(vebus.SettingID(gridCodeSetting), g.codeValues[i]); err != nil {
-				showError(u, err)
-			}
-			u.settings.changed()
+		d := u.settings.dev
+		if g.updating || i < 0 || d == nil {
+			return
 		}
+		id := vebus.SettingID(gridCodeSetting)
+		old, _ := d.Raw(id)
+		if err := d.SetRaw(id, g.codeValues[i]); err != nil {
+			showError(u, err)
+		}
+		u.settings.changed()
+		// A code that needs a password asks for one, as in the original; the
+		// device checks it when the settings are sent. Without one the
+		// choice is undone.
+		s := u.sess
+		if !passwordsEnabled(s) || len(s.passwords) > 0 || gridcode.SelectableWithoutPassword(gridcode.Code(g.codeValues[i]), d.Firmware) {
+			return
+		}
+		askAccessPasswords(u, s, func(ok bool) {
+			if !ok && u.settings.dev == d {
+				if err := d.SetRaw(id, old); err != nil {
+					showError(u, err)
+				}
+				u.settings.changed()
+			}
+		})
 	})
 	g.codeNote = widget.NewLabel("")
 	g.codeNote.Wrapping = fyne.TextWrapWord

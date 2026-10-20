@@ -43,6 +43,14 @@ type Config struct {
 	// setting whose Setting.AccessLevel is higher with "access level
 	// required" (0x9B, §7.3.11).
 	AccessLevel byte
+	// AccessPasswords are made-up passwords the simulated devices accept
+	// with mk2.WCmdSendAccessPassword (0x3A, reverse-engineered, #9). An
+	// accepted one gives the host access level 0xFF; a refused one is
+	// answered with 0x9B, the simulator's own choice: the code a real
+	// device sends is not known. With passwords set, CommandWriteData is
+	// refused above the host's access level too, as CommandWriteViaID
+	// always is. Never put a real password here.
+	AccessPasswords []string
 	// HighSpeed makes the simulator an MK3 that accepts the baud-rate change
 	// 'N' (mk2.CmdBaudRate). This command is not in the MK2 document; its
 	// behaviour here follows the community reports cited at
@@ -113,6 +121,7 @@ type Simulator struct {
 
 	version   uint32
 	access    byte
+	passwords []string
 	nineBit   bool
 	resetDur  time.Duration
 	handlers  map[byte]Handler
@@ -132,15 +141,16 @@ type Simulator struct {
 // SystemUnit (see SystemUnit). Close its Port to stop it.
 func New(cfg Config) *Simulator {
 	s := &Simulator{
-		baud:     DefaultBaudRate,
-		hostBaud: DefaultBaudRate,
-		version:  cfg.Version,
-		access:   cfg.AccessLevel,
-		nineBit:  cfg.NineBit,
-		resetDur: cfg.ResetDuration,
-		interval: cfg.VersionInterval,
-		addr:     mk2.AddressNone,
-		sw:       mk2.SwitchOn,
+		baud:      DefaultBaudRate,
+		hostBaud:  DefaultBaudRate,
+		version:   cfg.Version,
+		access:    cfg.AccessLevel,
+		passwords: cfg.AccessPasswords,
+		nineBit:   cfg.NineBit,
+		resetDur:  cfg.ResetDuration,
+		interval:  cfg.VersionInterval,
+		addr:      mk2.AddressNone,
+		sw:        mk2.SwitchOn,
 	}
 	if s.resetDur == 0 {
 		s.resetDur = DefaultResetDuration

@@ -26,7 +26,10 @@ var (
 	ErrClosed       = errors.New("mk2: client closed")
 	ErrNotSupported = errors.New("mk2: not supported by device")
 	ErrAccessLevel  = errors.New("mk2: access level required")
-	ErrShortReply   = errors.New("mk2: reply too short")
+	// ErrPasswordRefused is returned when the device does not accept an
+	// access password (SendAccessPassword).
+	ErrPasswordRefused = errors.New("mk2: access password refused")
+	ErrShortReply      = errors.New("mk2: reply too short")
 )
 
 // UnknownCommandError is the Winmon "Unknown command" reply 0x80 (§7.3).

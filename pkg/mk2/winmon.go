@@ -21,6 +21,10 @@ const (
 	WCmdGetRAMVarInfo            = 0x36 // §7.3.9
 	WCmdWriteViaID               = 0x37 // §7.3.11, mode 2 only
 	WCmdReadSnapShot             = 0x38 // §7.3.12
+	// WCmdSendAccessPassword is not in the document: listed by community
+	// FINDINGS §12; its use is reverse-engineered (#9, see
+	// SendAccessPassword).
+	WCmdSendAccessPassword = 0x3A
 )
 
 // Winmon replies (§7.3).
@@ -44,6 +48,7 @@ const (
 	WReplyDeviceState          = 0x94
 	WReplySnapshot             = 0x99
 	WReplyAccessLevelRequired  = 0x9B
+	WReplyAccessPasswordOK     = 0x9C // reverse-engineered (#9)
 )
 
 // CommandWriteViaID <flags> bits (§7.3.11).
@@ -331,6 +336,9 @@ func (c *Client) writeData(ctx context.Context, cmd byte, id, value uint16, ok b
 			return err
 		}
 		return c.winmon(ctx, WCmdWriteData, le16(value), func(p []byte) (bool, bool, error) {
+			if p[0] == WReplyAccessLevelRequired { // not in §7.3.7; reverse-engineered (#9)
+				return true, true, ErrAccessLevel
+			}
 			return p[0] == ok, p[0] == ok, nil
 		})
 	})
@@ -358,6 +366,36 @@ func (c *Client) WriteViaID(ctx context.Context, flags, id byte, value uint16) e
 		})
 	})
 	return c.ackErr(err)
+}
+
+// SendAccessPassword hands an access password to the target device, which
+// checks it (reverse-engineered, #9): Winmon command 0x3A followed by the
+// password's characters; a reply starting with 0x9C means accepted. Any
+// other reply returns ErrPasswordRefused; which code a device sends for a
+// wrong password is not known. Only printable ASCII is accepted. The
+// password is never checked or kept here.
+func (c *Client) SendAccessPassword(ctx context.Context, password string) error {
+	if password == "" {
+		return errors.New("mk2: empty access password")
+	}
+	for _, r := range password {
+		if r < 0x20 || r > 0x7E {
+			return errors.New("mk2: an access password may only hold printable ASCII characters")
+		}
+	}
+	err := c.do(func() error {
+		return c.winmon(ctx, WCmdSendAccessPassword, []byte(password), func(p []byte) (bool, bool, error) {
+			if p[0] == WReplyAccessPasswordOK {
+				return true, true, nil
+			}
+			return true, true, ErrPasswordRefused
+		})
+	})
+	var uc *UnknownCommandError
+	if errors.As(err, &uc) {
+		return fmt.Errorf("%w (%w)", ErrPasswordRefused, err)
+	}
+	return err
 }
 
 func (c *Client) ackErr(err error) error {

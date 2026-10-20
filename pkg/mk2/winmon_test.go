@@ -311,3 +311,50 @@ func TestSplitWFrames(t *testing.T) {
 		t.Fatalf("SplitWFrames = %v", fs)
 	}
 }
+
+// TestSendAccessPassword checks the 0x3A frame and the replies: 0x9C is
+// accepted, any other reply (or "unknown command") is refused. The
+// passwords are made-up test values.
+func TestSendAccessPassword(t *testing.T) {
+	c, d := startDevice(t, nil, func(d *device, req Frame) {
+		switch string(req.Data[1:]) {
+		case "TEST1":
+			d.sendFrame(wReply(WReplyAccessPasswordOK, 0, 0))
+		case "OLD":
+			d.sendFrame(wReply(WReplyUnknownCommand, 0, 0))
+		default:
+			d.sendFrame(wReply(WReplyAccessLevelRequired, 0, 0))
+		}
+	})
+	ctx := context.Background()
+	if err := c.SendAccessPassword(ctx, "TEST1"); err != nil {
+		t.Fatalf("accepted password: %v", err)
+	}
+	if err := c.SendAccessPassword(ctx, "WRONG"); !errors.Is(err, ErrPasswordRefused) {
+		t.Errorf("wrong password: %v", err)
+	}
+	if err := c.SendAccessPassword(ctx, "OLD"); !errors.Is(err, ErrPasswordRefused) {
+		t.Errorf("unknown command: %v", err)
+	}
+	for _, bad := range []string{"", "pass word\x01", "parolă"} {
+		if err := c.SendAccessPassword(ctx, bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if got, want := d.requests()[0], withCS(t, "08 FF 'W 3A 'T 'E 'S 'T '1"); !bytes.Equal(got, want) {
+		t.Errorf("request % X, want % X", got, want)
+	}
+}
+
+// TestWriteDataAccessLevel checks that "access level required" in reply to
+// CommandWriteData is reported as ErrAccessLevel.
+func TestWriteDataAccessLevel(t *testing.T) {
+	c, _ := startDevice(t, &Options{WriteMethod: WriteMethodData}, func(d *device, req Frame) {
+		if req.Data[0] == WCmdWriteData {
+			d.sendFrame(wReply(WReplyAccessLevelRequired, 0, 0))
+		}
+	})
+	if err := c.WriteSetting(context.Background(), 13, 1); !errors.Is(err, ErrAccessLevel) {
+		t.Fatalf("WriteSetting: %v", err)
+	}
+}

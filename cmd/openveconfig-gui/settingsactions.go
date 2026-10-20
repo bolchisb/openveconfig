@@ -322,7 +322,14 @@ func writeSettings(ctx context.Context, s *session, d *vebus.Device, all bool, p
 	}
 	var rep *vebus.WriteReport
 	var werr error
+	var passwords []string
+	if passwordsEnabled(s) {
+		passwords = s.passwords
+	}
 	err := s.Do(ctx, func(ctx context.Context, c *mk2.Client) error {
+		if err := sendAccessPasswords(ctx, c, d.Address, passwords); err != nil {
+			return err
+		}
 		if all {
 			rep, werr = writeAllButGrid(ctx, c, d, progress)
 		} else {
@@ -331,9 +338,41 @@ func writeSettings(ctx context.Context, s *session, d *vebus.Device, all bool, p
 		return nil
 	})
 	if err != nil {
+		var ue *uiError
+		if errors.As(err, &ue) && errors.Is(err, mk2.ErrPasswordRefused) {
+			fyne.Do(func() { s.passwords = nil }) // asked again at the next send
+		}
 		return nil, err
 	}
 	return rep, werr
+}
+
+// withPasswords runs send, after asking for the access passwords when a
+// change of d needs one and none were given for s.
+func withPasswords(u *ui, s *session, d *vebus.Device, send func()) {
+	if !passwordsEnabled(s) || len(s.passwords) > 0 || !changesNeedPassword(d) {
+		send()
+		return
+	}
+	askAccessPasswords(u, s, func(ok bool) {
+		if ok {
+			send()
+		}
+	})
+}
+
+// askAndResend asks for the access passwords of s, then runs send.
+func askAndResend(u *ui, s *session, send func()) func() {
+	if !passwordsEnabled(s) {
+		return nil
+	}
+	return func() {
+		askAccessPasswords(u, s, func(ok bool) {
+			if ok {
+				send()
+			}
+		})
+	}
 }
 
 // sendSettings asks what to send and where, then sends: a model read from
@@ -431,7 +470,7 @@ func sendSettings(u *ui) {
 		sendAll := what.Selected == all
 		switch {
 		case m.file == nil:
-			sendToDevice(u, s, d, sendAll)
+			withPasswords(u, s, d, func() { sendToDevice(u, s, d, sendAll) })
 		case target == nil:
 			sendFile(u, s, d, m.file, s.devices[0], sendAll)
 		case target.SelectedIndex() >= 0:
@@ -455,7 +494,7 @@ func sendToDevice(u *ui, s *session, d *vebus.Device, all bool) {
 		}
 		fyne.Do(func() {
 			u.settings.changed()
-			showSendResult(u, d, before, rep, err)
+			showSendResult(u, d, before, rep, err, askAndResend(u, s, func() { sendToDevice(u, s, d, all) }))
 		})
 		return nil
 	})
@@ -542,15 +581,19 @@ func confirmFileSend(u *ui, s *session, fileDev, t *vebus.Device, match *vebus.M
 		if u.sess != s {
 			return
 		}
-		before := lastRead(t)
-		runWithProgress(u, tr("Sending the settings"), func(ctx context.Context, progress func(done, total int)) error {
-			rep, err := writeSettings(ctx, s, t, all, progress)
-			if rep == nil {
-				return err
-			}
-			fyne.Do(func() { showSendResult(u, t, before, rep, err) })
-			return nil
-		})
+		var send func()
+		send = func() {
+			before := lastRead(t)
+			runWithProgress(u, tr("Sending the settings"), func(ctx context.Context, progress func(done, total int)) error {
+				rep, err := writeSettings(ctx, s, t, all, progress)
+				if rep == nil {
+					return err
+				}
+				fyne.Do(func() { showSendResult(u, t, before, rep, err, askAndResend(u, s, send)) })
+				return nil
+			})
+		}
+		withPasswords(u, s, t, send)
 	})
 }
 
@@ -672,7 +715,9 @@ func showIssues(u *ui, d *vebus.Device, issues []vebus.Issue) {
 
 // showSendResult shows the outcome of each setting of a send of d, whose
 // values before the send before holds (lastRead), with what to do next.
-func showSendResult(u *ui, d, before *vebus.Device, rep *vebus.WriteReport, err error) {
+// When the device refused settings for want of an access password and
+// resend is not nil, it offers to enter one and send again.
+func showSendResult(u *ui, d, before *vebus.Device, rep *vebus.WriteReport, err error, resend func()) {
 	var sent, refused, failed, skipped int
 	for _, r := range rep.Results {
 		switch r.Status {
@@ -722,8 +767,17 @@ func showSendResult(u *ui, d, before *vebus.Device, rep *vebus.WriteReport, err 
 				tr("Until then the device keeps working with the old values. Restart it when its output may be interrupted, "+
 					"for example by switching it off and on again.")))
 	}
+	var again *widget.Button
+	if refused > 0 {
+		head.Add(callout(theme.NewWarningThemedResource(theme.WarningIcon()),
+			tr("Some settings could not be written because they require an access password!")))
+		if resend != nil {
+			again = widget.NewButtonWithIcon(tr("Enter access password…"), theme.AccountIcon(), nil)
+			again.Importance = widget.HighImportance
+		}
+	}
 	table := newChangeTable(tableColumns{old: tr("Before"), new: tr("New value"), notes: tr("Result")}, resultRows(u, d, before, rep), tr("Nothing needed to be sent."))
-	showTableDialog(u, tr("Send result"), container.NewBorder(head, nil, nil, nil, table), tableDialogSize, tr("Close"), nil, nil)
+	showTableDialog(u, tr("Send result"), container.NewBorder(head, nil, nil, nil, table), tableDialogSize, tr("Close"), again, resend)
 }
 
 // setAllToDefault sets the settings of the settings pages to the device

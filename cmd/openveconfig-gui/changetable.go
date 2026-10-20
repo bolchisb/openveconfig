@@ -367,7 +367,7 @@ func resultRows(u *ui, d, before *vebus.Device, rep *vebus.WriteReport) []change
 		}
 		for _, id := range ids {
 			r := newRow(u, d, id, entryValueText(before, id), entryValueText(d, id))
-			r.state, r.detail, r.detailError = resultState(res)
+			r.state, r.detail, r.detailError = resultState(res, passwordsEnabled(u.sess))
 			if res.ResetRequired && r.state == stateVerified && (len(ids) == 1 || d.ResetRequired(id)) {
 				r.marks = append(r.marks, resetMark())
 			}
@@ -377,14 +377,19 @@ func resultRows(u *ui, d, before *vebus.Device, rep *vebus.WriteReport) []change
 	return rows
 }
 
-// resultState returns the outcome of a write and its explanation.
-func resultState(r vebus.WriteResult) (rowState, string, bool) {
+// resultState returns the outcome of a write and its explanation;
+// passwords tells whether access passwords can be entered.
+func resultState(r vebus.WriteResult, passwords bool) (rowState, string, bool) {
 	switch r.Status {
 	case vebus.StatusVerified:
 		return stateVerified, "", false
 	case vebus.StatusUnchanged:
 		return stateUnchanged, "", false
 	case vebus.StatusFailed:
+		if errors.Is(r.Err, mk2.ErrAccessLevel) && passwords {
+			return stateRefused, tr("The device accepts a new value for this setting only after its password has been entered. " +
+				"The device keeps its old value."), true
+		}
 		if errors.Is(r.Err, mk2.ErrAccessLevel) {
 			return stateRefused, tr("The device accepts a new value for this setting only after its password has been entered, " +
 				"which this program cannot do. The device keeps its old value."), true
