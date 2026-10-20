@@ -40,9 +40,16 @@ const (
 	// long ID.
 	unitOffLongID = 0x04
 	// u32 firmware word; the low 24 bits are the seven-digit firmware
-	// number (kylehart FORMAT.md §3.3).
+	// number (kylehart FORMAT.md §3.3). Reverse-engineered (#56): the
+	// unit's version word; a high byte of 0xc7 marks an external BF.
 	unitOffFirmware = 0x08
-	// 0x0c..0x21: not decoded; preserved.
+	// 0x0c..0x24: read sequentially by readHeader, up to and including
+	// the system record. In a section of version 3 whose device-version
+	// extra bytes are 6 long, the record is at 0x1c..0x24 and its bytes
+	// 6, 7 and 8 are at the three offsets below (community, kylehart
+	// FORMAT.md §3.1.1). Phase, AssistantFlag and Index are read from the
+	// record wherever readHeader finds it.
+	unitOffHeader        = 0x0c
 	unitOffPhase         = 0x22 // 00 L1, 04 L2, 08 L3, 86 split-phase second leg (community, inferred)
 	unitOffAssistantFlag = 0x23 // high nibble e: configured for an assistant; f: bare
 	unitOffIndex         = 0x24 // unit index in the system
@@ -163,8 +170,16 @@ type Unit struct {
 	// device accepted files with older times (FORMAT.md §3.2); mk2vsc has
 	// a "file expired" error (58) whose rule is unknown.
 	SaveTime time.Time
+	// Reverse-engineered (#56): the letter index and config-protocol byte
+	// (0xff and 0 in sections older than version 3), the identify flag
+	// (1 normally) and the response char that precede the system record.
+	Letter         byte
+	ConfigProtocol byte
+	IdentifyFlag   byte
+	ResponseChar   byte
 
 	sec      *Section
+	record   int // payload offset of the system record
 	settings int // payload offset of setting 0
 	n        int // number of settings
 }
@@ -196,12 +211,12 @@ func newUnit(s *Section) (*Unit, error) {
 		SectionVersion: binary.LittleEndian.Uint32(p[unitOffVersion:]),
 		LongID:         binary.LittleEndian.Uint32(p[unitOffLongID:]),
 		FirmwareWord:   binary.LittleEndian.Uint32(p[unitOffFirmware:]),
-		Phase:          p[unitOffPhase],
-		AssistantFlag:  p[unitOffAssistantFlag],
-		Index:          p[unitOffIndex],
 		Serial:         string(bytes.TrimRight(p[unitOffSerial:unitOffSerial+unitSerialLen], "\x00")),
 		UploadForm:     !allZero(p[unitOffForm : unitOffForm+unitFormLen]),
 		sec:            s,
+	}
+	if err := u.readHeader(p); err != nil {
+		return nil, err
 	}
 	shift := 0
 	if u.UploadForm {
@@ -220,6 +235,38 @@ func newUnit(s *Section) (*Unit, error) {
 	return u, nil
 }
 
+// SystemRecordLen is the length of a unit's system record.
+const SystemRecordLen = 9
+
+// readHeader reads the fields between the version word and the system
+// record, sequentially. Reverse-engineered (#56): from 0x0c the payload
+// holds, in order, a u8 letter index and a u8 config-protocol byte (section
+// version 3 and later only), a u8 identify flag, a u32 firmware number, a
+// u16 length and that many device-version extra bytes, a u8 response char
+// and the 9-byte system record. Section versions 1 to 3 exist.
+func (u *Unit) readHeader(p []byte) error {
+	if u.SectionVersion < 1 || u.SectionVersion > 3 {
+		return fmt.Errorf("%w: %s section version %d is not supported", ErrFormat, SectionSettingData, u.SectionVersion)
+	}
+	pos := unitOffHeader
+	u.Letter, u.ConfigProtocol = 0xff, 0
+	if u.SectionVersion >= 3 {
+		u.Letter, u.ConfigProtocol = p[pos], p[pos+1]
+		pos += 2
+	}
+	u.IdentifyFlag = p[pos]
+	pos += 1 + 4 // identify flag, firmware number
+	pos += 2 + int(binary.LittleEndian.Uint16(p[pos:]))
+	if pos+1+SystemRecordLen > len(p) {
+		return fmt.Errorf("%w: %s system record beyond the payload", ErrFormat, SectionSettingData)
+	}
+	u.ResponseChar = p[pos]
+	u.record = pos + 1
+	rec := p[u.record:]
+	u.Phase, u.AssistantFlag, u.Index = rec[6], rec[7], rec[8]
+	return nil
+}
+
 func allZero(b []byte) bool {
 	for _, c := range b {
 		if c != 0 {
@@ -233,6 +280,25 @@ func allZero(b []byte) bool {
 // kylehart saw the high byte set (0xc7) on one file and reads it as not part
 // of the number (FORMAT.md §3.3, inferred from one file).
 func (u *Unit) Firmware() uint32 { return u.FirmwareWord & 0xFFFFFF }
+
+// ExternalBF reports whether the version word marks the unit as having an
+// external BF: its high byte is 0xc7 (reverse-engineered, #56).
+func (u *Unit) ExternalBF() bool { return u.FirmwareWord>>24 == 0xc7 }
+
+// SystemRecord returns the unit's 9-byte system record, undecoded.
+func (u *Unit) SystemRecord() [SystemRecordLen]byte {
+	var r [SystemRecordLen]byte
+	copy(r[:], u.sec.Payload[u.record:])
+	return r
+}
+
+// SetSystemRecord stores r as the unit's system record and updates Phase,
+// AssistantFlag and Index (its bytes 6, 7 and 8). Only those 9 bytes of the
+// section change; the section checksum follows when the file is written.
+func (u *Unit) SetSystemRecord(r [SystemRecordLen]byte) {
+	copy(u.sec.Payload[u.record:], r[:])
+	u.Phase, u.AssistantFlag, u.Index = r[6], r[7], r[8]
+}
 
 // NumSettings returns the number of setting values in the unit; setting IDs
 // are 0..NumSettings()-1.
