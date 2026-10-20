@@ -205,10 +205,13 @@ func newChangesBar(u *ui) *changesBar {
 	b.discard = widget.NewButtonWithIcon(tr("Discard"), theme.ContentUndoIcon(), func() { discardChanges(u) })
 	b.primary = widget.NewButton("", nil)
 	b.primary.Importance = widget.HighImportance
+	// The reason has a line of its own under the buttons, so that a long
+	// (translated) one does not run under the summary.
+	b.reason.Segments[0].(*widget.TextSegment).Style.Alignment = fyne.TextAlignTrailing
 	row := container.NewBorder(nil, nil, container.NewHBox(newPill("", colorNameChanged, true), b.summary),
-		container.NewHBox(b.reason, b.review, b.discard, b.primary))
+		container.NewHBox(b.review, b.discard, b.primary))
 	b.root = container.NewVBox(widget.NewSeparator(), container.NewStack(newColourRect(colorNameSurface, fyne.Size{}, ""),
-		container.New(layout.NewCustomPaddedLayout(4, 4, 8, 8), row)))
+		container.New(layout.NewCustomPaddedLayout(4, 4, 8, 8), container.NewVBox(row, b.reason))))
 	b.root.Hide()
 	return b
 }

@@ -338,3 +338,23 @@ func TestNewRejectsBadAddresses(t *testing.T) {
 		}()
 	}
 }
+
+// TestAccessPassword checks that an accepted access password (a made-up
+// one) lets the host write a setting that needs an access level.
+func TestAccessPassword(t *testing.T) {
+	ctx := context.Background()
+	_, c := start(t, Config{AccessPasswords: []string{"TEST1"}}, nil)
+	setMode(t, c, mk2.WinmonLong)
+	check(t, "SetAddress", c.SetAddress(ctx, 0))
+	if err := c.WriteViaID(ctx, mk2.ViaIDSetting, 13, 1); !errors.Is(err, mk2.ErrAccessLevel) {
+		t.Fatalf("before the password: %v", err)
+	}
+	if err := c.SendAccessPassword(ctx, "WRONG"); !errors.Is(err, mk2.ErrPasswordRefused) {
+		t.Fatalf("wrong password: %v", err)
+	}
+	if err := c.WriteViaID(ctx, mk2.ViaIDSetting, 13, 1); !errors.Is(err, mk2.ErrAccessLevel) {
+		t.Fatalf("after a wrong password: %v", err)
+	}
+	check(t, "SendAccessPassword", c.SendAccessPassword(ctx, "TEST1"))
+	check(t, "WriteViaID after the password", c.WriteViaID(ctx, mk2.ViaIDSetting, 13, 1))
+}

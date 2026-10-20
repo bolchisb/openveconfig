@@ -158,7 +158,7 @@ func (p *settingsPage) shownSubs() []bool {
 	}
 	shown := make([]bool, len(p.sub))
 	for i, s := range p.sub {
-		shown[i] = !s.empty() && (p.tab != vebus.TabVirtualSwitch || err != nil || vsGroupShown(s.groups[0], usage))
+		shown[i] = !s.empty() && (p.tab != vebus.TabVirtualSwitch || err != nil || vsGroupShown(s.groups[0], usage, p.u.settings.dev))
 	}
 	return shown
 }
@@ -297,6 +297,7 @@ func (p *settingsPage) build() {
 			}
 			byGroup[g] = append(byGroup[g], e)
 		}
+		sortLikeOriginal(order, byGroup)
 		// Groups shown as the two columns of one card, each with its own
 		// label column.
 		paired := map[string]string{}
@@ -446,8 +447,8 @@ func (p *settingsPage) update() {
 		p.mark(r)
 		on, ok := enabled[r.e.ID()]
 		r.setEnabled(!ok || on)
-		if r.e.ID() == vebus.FlagID(32) {
-			setShown(r.root, vs2Generator(d)) // only for a generator, as in the original
+		if id := r.e.ID(); id == vebus.FlagID(32) || id == vebus.FlagID(33) {
+			setShown(r.root, vs2Generator(d)) // only for a generator, as in the original (#6)
 		}
 		if lithiumErr == nil {
 			switch id := r.e.ID(); {

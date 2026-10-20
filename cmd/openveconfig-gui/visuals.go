@@ -481,13 +481,21 @@ type chartView struct {
 	legend  *fyne.Container
 	notes   *fyne.Container
 	caption *widget.RichText
-	current *chartSpec // shown; nil while hidden
+	// title and subtitle wrap, unlike a card's own, so that a long
+	// (translated) title stays within the narrow chart column.
+	title, subtitle *widget.Label
+	current         *chartSpec // shown; nil while hidden
 }
 
 func newChartView(u *ui, spec func(d *vebus.Device) *chartSpec) *chartView {
 	c := &chartView{u: u, spec: spec, plot: newPlot(), legend: container.New(layout.NewRowWrapLayout()), notes: container.NewVBox(),
-		caption: mutedText("")}
-	c.root = widget.NewCard("", "", container.NewVBox(c.plot, c.legend, c.notes, c.caption))
+		caption: mutedText(""), title: widget.NewLabel(""), subtitle: widget.NewLabel("")}
+	c.title.TextStyle.Bold = true
+	c.title.SizeName = theme.SizeNameHeadingText
+	c.title.Wrapping = fyne.TextWrapWord
+	c.subtitle.SizeName = theme.SizeNameSubHeadingText
+	c.subtitle.Wrapping = fyne.TextWrapWord
+	c.root = widget.NewCard("", "", container.NewVBox(c.title, c.subtitle, c.plot, c.legend, c.notes, c.caption))
 	u.settings.onChange(func(bool) { c.update() })
 	// A page that is not shown is not in the window, so it does not take
 	// part in the theme change; the chart follows the theme itself.
@@ -508,8 +516,9 @@ func (c *chartView) update() {
 		c.root.Hide()
 		return
 	}
-	c.root.SetTitle(s.title)
-	c.root.SetSubTitle(s.subtitle)
+	c.title.SetText(s.title)
+	c.subtitle.SetText(s.subtitle)
+	c.subtitle.Hidden = s.subtitle == ""
 	c.plot.setScene(s.plot)
 	c.legend.Objects = nil
 	for _, it := range s.legend {

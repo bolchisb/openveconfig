@@ -33,6 +33,9 @@ type session struct {
 	firmware map[byte]uint32
 	// target is the device the settings apply to: the first device found.
 	target byte
+	// passwords are the access passwords the user typed for this
+	// connection (accesspassword.go); kept in memory only.
+	passwords []string
 
 	line   transport
 	client *mk2.Client
@@ -51,7 +54,7 @@ var newSimulator = func() *simulator.Simulator {
 	return simulator.New(simulator.Config{HighSpeed: true, Devices: []simulator.Device{
 		{Address: 0, Profile: simulator.Synthetic12V230()},
 		{Address: 1, Profile: simulator.Synthetic48V120()},
-	}})
+	}, AccessPasswords: []string{demoPassword}})
 }
 
 // newSystemSimulator returns the simulator of the VE.Bus system demo: three

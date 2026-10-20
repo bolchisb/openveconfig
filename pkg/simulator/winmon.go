@@ -49,6 +49,14 @@ func (s *Simulator) cmdWinmon(_ *Line, f mk2.Frame) {
 	id := binary.LittleEndian.Uint16(info)
 
 	switch r.Cmd {
+	case mk2.WCmdSendAccessPassword: // reverse-engineered (#9); see Config.AccessPasswords
+		if slices.Contains(s.passwords, string(r.Info)) {
+			s.access = 0xFF
+			reply([]byte{mk2.WReplyAccessPasswordOK, 0, 0})
+		} else {
+			reply([]byte{mk2.WReplyAccessLevelRequired, 0, 0})
+		}
+
 	case mk2.WCmdSendSoftwareVersionPart0, mk2.WCmdSendSoftwareVersionPart1: // §7.3.1
 		v := d.p.Version
 		switch {
@@ -118,6 +126,11 @@ func (s *Simulator) cmdWinmon(_ *Line, f mk2.Frame) {
 		switch {
 		case unsupported:
 			unknown(0)
+		case target == mk2.WCmdWriteSetting && d.hasSetting(tid) && len(s.passwords) > 0 && d.settings[tid].AccessLevel > s.access:
+			// With Config.AccessPasswords set, as after CommandWriteViaID: a
+			// device answers 0x34 with 0x9B too (reverse-engineered, #9).
+			// Without, any setting is written, as the spec has it.
+			reply([]byte{mk2.WReplyAccessLevelRequired, 0, 0})
 		case target == mk2.WCmdWriteSetting && d.hasSetting(tid):
 			d.values[tid] = id
 			reply([]byte{mk2.WReplyWriteSettingOK, 0, 0})

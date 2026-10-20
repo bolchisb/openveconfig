@@ -163,6 +163,7 @@ func TestVirtualSwitchSubTabs(t *testing.T) {
 	d.AddSetting(38, mk2.SettingInfo{Sc: -60, Offset: -1, Max: 255}, 0)
 	d.AddSetting(43, mk2.SettingInfo{Sc: 1, Max: 1200}, 0)
 	d.AddSetting(52, mk2.SettingInfo{Sc: -10, Max: 500}, 100)
+	d.AddSetting(53, mk2.SettingInfo{Sc: -60, Offset: -1, Max: 255}, 0) // its delay: one line with 52
 	u.settings.load(d, nil)
 	titles := func() (s []string) {
 		for _, it := range p.subTabs.Items {
@@ -207,7 +208,7 @@ func TestVirtualSwitchSubTabs(t *testing.T) {
 		want  string
 	}{{3, "Do not ignore AC input when load higher than"}, {4, "Start generator when load higher than"}} {
 		usage(tc.usage)
-		if got := rowOf(t, vs2, vebus.SettingID(52)).label.Text; got != tc.want {
+		if got := rowOf(t, vs2, vebus.SettingID(52)).line.label.Text; got != tc.want {
 			t.Errorf("usage %d: setting 52 is %q, want %q", tc.usage, got, tc.want)
 		}
 	}
@@ -963,7 +964,7 @@ func TestStopCondition(t *testing.T) {
 	p := newSettingsPage(u, vebus.TabVirtualSwitch, "Virtual switch 2")
 	u.settings.load(d, nil)
 	r := rowOf(t, p, vs2StopSetting)
-	cond := r.control.(*fyne.Container).Objects[0].(*widget.Select)
+	cond := r.control.(*widget.Select)
 	if cond.Selected != "Absorption finished" || r.entry.Text != "" {
 		t.Fatalf("code 1: choice %q, entry %q", cond.Selected, r.entry.Text)
 	}
@@ -982,5 +983,24 @@ func TestStopCondition(t *testing.T) {
 	r.entry.commit("1") // raw 100 would read as a code
 	if raw, _ := d.Raw(vs2StopSetting); raw != 2750 || !strings.Contains(errorText(r.formRow), "higher voltage") {
 		t.Errorf("1 V: raw %d, want 2750 kept and an error", raw)
+	}
+}
+
+// TestGeneralOrder checks that General shows its groups, and the entries of
+// the multi-phase group, in the original tool's order.
+func TestGeneralOrder(t *testing.T) {
+	u := newTestUI(t)
+	d := vebus.NewDevice(nil)
+	d.AddSetting(0, mk2.SettingInfo{Sc: 1, Max: 0x0007}, 0) // flags 0-2
+	d.AddSetting(6, mk2.SettingInfo{Sc: -10, Min: 20, Max: 500}, 160)
+	d.AddSetting(13, mk2.SettingInfo{Sc: 1, Max: 4}, 0)
+	d.AddSetting(14, mk2.SettingInfo{Sc: 1, Max: 2}, 0)
+	d.AddSetting(89, mk2.SettingInfo{Sc: 1, Min: 1, Max: 10}, 1)
+	p := newSettingsPage(u, vebus.TabGeneral)
+	u.settings.load(d, nil)
+	s, f := vebus.SettingID, vebus.FlagID
+	want := []vebus.ID{s(6), f(2), s(13), f(0), f(1), s(14), s(89)}
+	if got := rowIDs(p); !slices.Equal(got, want) {
+		t.Errorf("rows %v, want %v", got, want)
 	}
 }

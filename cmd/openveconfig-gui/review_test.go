@@ -273,7 +273,7 @@ func TestSendResult(t *testing.T) {
 		t.Errorf("refused row %+v", r)
 	}
 
-	showSendResult(u, d, before, rep, err)
+	showSendResult(u, d, before, rep, err, nil)
 	text := dialogTexts(u.win.Canvas().Overlays().Top())
 	for _, want := range []string{"3 sent · 1 refused · 1 not sent", "Verified", "Refused", "Not sent", "password has been entered",
 		"1 change takes effect only after the device is reset.", "sending stopped before this setting"} {
