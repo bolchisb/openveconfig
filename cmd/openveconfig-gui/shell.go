@@ -70,6 +70,7 @@ func (u *ui) showPage(p *page) {
 	if i := slices.Index(u.pages, p); i >= 0 {
 		u.sidebar.Select(i)
 	}
+	u.sidebar.Refresh() // the page shown is drawn in the accent
 }
 
 // newSidebar returns the list of u.pages, each with a badge that counts its
@@ -88,10 +89,15 @@ func newSidebar(u *ui) fyne.CanvasObject {
 			off := p.unavailable(u)
 			label.Text = p.title
 			label.Importance = widget.MediumImportance
+			label.TextStyle.Bold = p == u.current
 			res := p.icon
-			if off {
+			switch {
+			case off:
 				label.Importance = widget.LowImportance
 				res = theme.NewDisabledResource(res)
+			case p == u.current:
+				label.Importance = widget.HighImportance
+				res = theme.NewPrimaryThemedResource(res)
 			}
 			label.Refresh()
 			icon.SetResource(res)
@@ -117,8 +123,8 @@ func newSidebar(u *ui) fyne.CanvasObject {
 		tool(tr("Show VE.Bus monitor"), theme.VisibilityIcon(), func() { showVEBusMonitor(u) }),
 		tool(tr("System Configurator"), theme.GridIcon(), func() { showSystemConfigurator(u) }),
 		tool(tr("Quick Configure"), theme.MediaFastForwardIcon(), func() { showQuickConfigure(u) }))
-	return container.NewStack(newColourRect(colorNameSurface, fyne.NewSize(sidebarWidth, 0), ""),
-		container.NewPadded(container.NewBorder(nil, tools, nil, nil, u.sidebar)))
+	return container.NewStack(newColourRect(colorNameSidebar, fyne.NewSize(sidebarWidth, 0), ""),
+		container.New(layout.NewCustomPaddedLayout(8, 8, 8, 8), container.NewBorder(nil, tools, nil, nil, u.sidebar)))
 }
 
 // header is the row at the top of the main window: what is being edited,
@@ -143,12 +149,13 @@ func newHeader(u *ui) *header {
 			u.conn.show()
 		}
 	})
-	name := widget.NewRichText(&widget.TextSegment{Text: appName,
-		Style: widget.RichTextStyle{ColorName: theme.ColorNamePlaceHolder, TextStyle: fyne.TextStyle{Bold: true}}})
+	logo := container.NewGridWrap(fyne.NewSquareSize(22), widget.NewIcon(fyne.NewStaticResource(iconFile, appIcon)))
+	name := widget.NewLabelWithStyle(appName, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	brand := container.NewHBox(container.NewCenter(logo), name, widget.NewSeparator())
 	right := container.NewHBox(h.conn, h.file, h.connect)
-	row := container.NewBorder(nil, nil, name, right, h.identity)
+	row := container.NewBorder(nil, nil, brand, right, h.identity)
 	h.root = container.NewVBox(container.NewStack(newColourRect(colorNameSurface, fyne.Size{}, ""),
-		container.New(layout.NewCustomPaddedLayout(4, 4, 8, 8), row)), widget.NewSeparator())
+		container.New(layout.NewCustomPaddedLayout(6, 6, 12, 12), row)), widget.NewSeparator())
 	return h
 }
 
@@ -185,6 +192,7 @@ func (h *header) update(u *ui) {
 	} else {
 		h.file.Hide()
 	}
+	h.root.Refresh() // the pills and the button changed width
 }
 
 // changesBar is the bar under the pages while the model has unsent
@@ -431,3 +439,42 @@ func (rr *colourRectRenderer) Refresh() {
 func (rr *colourRectRenderer) Objects() []fyne.CanvasObject { return []fyne.CanvasObject{rr.rect} }
 
 func (rr *colourRectRenderer) Destroy() {}
+
+// gradientRect is a rectangle filled with a left to right gradient between
+// two theme colours.
+type gradientRect struct {
+	widget.BaseWidget
+	from, to fyne.ThemeColorName
+}
+
+func newGradientRect(from, to fyne.ThemeColorName) *gradientRect {
+	r := &gradientRect{from: from, to: to}
+	r.ExtendBaseWidget(r)
+	return r
+}
+
+func (r *gradientRect) CreateRenderer() fyne.WidgetRenderer {
+	g := canvas.NewHorizontalGradient(color.Transparent, color.Transparent)
+	rr := &gradientRectRenderer{r: r, grad: g}
+	rr.Refresh()
+	return rr
+}
+
+type gradientRectRenderer struct {
+	r    *gradientRect
+	grad *canvas.LinearGradient
+}
+
+func (rr *gradientRectRenderer) Layout(size fyne.Size) { rr.grad.Resize(size) }
+
+func (rr *gradientRectRenderer) MinSize() fyne.Size { return fyne.Size{} }
+
+func (rr *gradientRectRenderer) Refresh() {
+	th, v := rr.r.Theme(), fyne.CurrentApp().Settings().ThemeVariant()
+	rr.grad.StartColor, rr.grad.EndColor = th.Color(rr.r.from, v), th.Color(rr.r.to, v)
+	rr.grad.Refresh()
+}
+
+func (rr *gradientRectRenderer) Objects() []fyne.CanvasObject { return []fyne.CanvasObject{rr.grad} }
+
+func (rr *gradientRectRenderer) Destroy() {}

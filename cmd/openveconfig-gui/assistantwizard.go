@@ -3,7 +3,9 @@ package main
 // The preview of an assistant's questions (#33, in part): a dialog that
 // walks through the steps of an assistant from the user's package folder
 // with the wizard of pkg/assistant/wizard, and shows the summary at the
-// end. It writes nothing: what it would build is not yet the same as
+// end; the same dialog walks through an assistant of the open file with
+// the file's values (Start assistant), and the Summary dialog lists those
+// values. They write nothing: what they would build is not yet the same as
 // VEConfigure's code (#32). The step texts are the package's own, read at
 // run time from the user's packages.
 
@@ -100,6 +102,12 @@ type assistantWizard struct {
 	values  func() ([]asm.Value, bool)
 	done    bool // the summary is shown
 	stopped bool // the assistant stopped at the step it was given
+	// apply is the label of the summary's button that would put the
+	// assistant into the file; "" for Add to the file.
+	apply string
+	// readErr is why the file's values could not be read, for an
+	// assistant of the file; its steps then offer their defaults.
+	readErr error
 }
 
 // show opens the dialog at st, or with err.
@@ -207,6 +215,10 @@ func wizardStepText(st *wizard.Step) fyne.CanvasObject {
 // stepView shows a step: its text and its inputs, by type.
 func (w *assistantWizard) stepView(st *wizard.Step) fyne.CanvasObject {
 	box := container.NewVBox(w.stepHead(st), wizardStepText(st))
+	if w.readErr != nil && w.n == 1 {
+		box.Objects = append([]fyne.CanvasObject{callout(theme.InfoIcon(),
+			tr("The file's values of this assistant cannot be read, so its steps offer their defaults."))}, box.Objects...)
+	}
 	switch st.Directive {
 	case ".AER":
 		box.Add(callout(theme.NewErrorThemedResource(theme.ErrorIcon()),
@@ -364,12 +376,53 @@ func (w *assistantWizard) summaryView() fyne.CanvasObject {
 	} else {
 		box.Add(rows)
 	}
-	add := widget.NewButtonWithIcon(tr("Add to the file"), theme.ContentAddIcon(), nil)
+	label := w.apply
+	if label == "" {
+		label = tr("Add to the file")
+	}
+	add := widget.NewButtonWithIcon(label, theme.ContentAddIcon(), nil)
 	add.Disable()
 	box.Add(container.NewHBox(add))
-	box.Add(callout(theme.InfoIcon(), tr("Nothing was written. Adding a configured assistant to a file or a unit comes once "+
+	box.Add(callout(theme.InfoIcon(), tr("Nothing was written. Writing a configured assistant to a file or a unit comes once "+
 		"{{.App}} builds the same assistant code as VEConfigure.", args{"App": appName})))
 	return box
+}
+
+// showInstalledSummary shows the values of the file's assistant name, as
+// its summary lists them, from run, the read-back of the file's area; err
+// is why the read-back failed.
+func showInstalledSummary(u *ui, title, name string, run *wizard.Run, err error) {
+	var body fyne.CanvasObject
+	if err != nil || run == nil {
+		msg := tr("The file's values of this assistant cannot be read.")
+		if err != nil {
+			msg = tr("The file's values of this assistant cannot be read: {{.Err}}", args{"Err": err})
+		}
+		t := widget.NewLabel(msg)
+		t.Wrapping = fyne.TextWrapWord
+		body = container.NewVBox(container.NewBorder(nil, nil, widget.NewIcon(theme.InfoIcon()), nil, t),
+			mutedText(tr("This is a known limitation of this version of {{.App}}: its assistant compiler is not complete yet.", args{"App": appName})))
+	} else {
+		rows := container.New(layout.NewFormLayout())
+		for _, st := range run.Steps {
+			if st.Source != name || !st.Listed {
+				continue
+			}
+			v := widget.NewLabel(answerText(st))
+			v.Wrapping = fyne.TextWrapWord
+			rows.Add(widget.NewLabelWithStyle(st.Name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
+			rows.Add(v)
+		}
+		body = rows
+		if len(rows.Objects) == 0 {
+			body = mutedText(tr("The assistant lists no answers in its summary."))
+		}
+	}
+	head := widget.NewLabelWithStyle(tr("Summary"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	scroll := container.NewVScroll(container.NewVBox(head, body))
+	scroll.SetMinSize(fyne.NewSize(520, 280))
+	d := dialog.NewCustom(title, tr("Close"), scroll, u.win)
+	d.Show()
 }
 
 // answerText writes the answer of a step: the choice, then the values in

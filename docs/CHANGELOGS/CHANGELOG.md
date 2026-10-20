@@ -4,6 +4,21 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 
 ## 2026-10-20
 
+### GUI: new look
+
+- **Theme** (`theme.go`): slate surfaces with a blue tint and a blue accent (#2563EB light, #60A5FA dark) instead of grey and teal; buttons tinted with the accent; amber stays for unsent changes, and the chart and LED colours are unchanged. Every text and outline colour passes `TestThemeContrast` (WCAG AA) in both variants.
+- **Font**: Inter 4.1 (Regular and SemiBold, `cmd/openveconfig-gui/fonts/`, SIL Open Font License 1.1, in `THIRD_PARTY_NOTICES.md`) instead of Fyne's Noto Sans; larger radii (8 px controls, 12 px cards).
+- **Components**: cards have a soft shadow; the sidebar has its own background and shows the page in the accent; the header shows the logo; the start screen has a gradient banner, icons on an accent tint and the recent files in a card.
+- **Fixes**: the header and the start screen are laid out again when the pills, the button text or the recent files change, so they no longer overlap or leave the card empty.
+
+### Assistant areas of 4096 bytes compact as the original does
+
+- **`assistant.Compact`** (#78): an image of 4096 bytes (`LargeImageSize`, the other firmware family seen) is compacted in 64-byte blocks. A fill run covers whole blocks only, and the last run's fill byte is 0xFF. Areas of 2816 bytes stay as before: byte by byte, 6 or more equal bytes, last fill 0x00. Observed on a GX backup of six units (firmware 1956552); all its areas, and those of the 2816-byte files, now compact back byte for byte (`TestRealAssistantAreas`, `RVSC_TESTDATA`). The real files stay outside the repository; `TestCompactBlocks` uses synthetic bytes.
+
+### M5 spec
+
+- **Clean-room review of the private M5 spec done; #53 closed.** The spec is the only document M5 implementers read; it has no code, function names, addresses or strings from a binary. Untagged statements are now our own design choices, and its task map names #54–#61. The spec stays outside the repository.
+
 ### GUI: system file dialogs
 
 - **The file dialogs are the system's own** (`cmd/openveconfig-gui/filedialog.go`, through `github.com/ncruces/zenity` v0.10.15; Fyne 2.8 has none on Windows and macOS): Load and Save settings, open and save `.vms`, Update a backup file, the export `.txt` and the assistant folder. They keep the extension filters, the suggested file name and the overwrite question, and are attached to the app window. Fyne's dialog is still used where there is no system one (Linux without zenity or kdialog, and the tests). `golang.org/x/text`, `x/image` and `x/sys` move up to the versions zenity needs.

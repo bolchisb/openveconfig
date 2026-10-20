@@ -72,23 +72,23 @@ func (u *ui) recentsChanged() {
 		none.Disabled = true
 		items = append(items, none)
 	}
-	u.recents.Refresh()
+	u.start.Refresh() // lays out the card around the list, and the wrapped texts, again
 	u.menu.recent.ChildMenu.Items = items
 	u.menu.main.Refresh()
 }
 
 // startScreen returns what the main window shows while no device is
-// connected and no settings are loaded.
+// connected and no settings are loaded: a banner, the three ways to start
+// and the recent files.
 func startScreen(u *ui) fyne.CanvasObject {
 	card := func(icon fyne.Resource, title, desc string, action *widget.Button) fyne.CanvasObject {
 		text := widget.NewRichText(
 			&widget.TextSegment{Text: title, Style: widget.RichTextStyle{SizeName: theme.SizeNameSubHeadingText, TextStyle: fyne.TextStyle{Bold: true}}},
 			&widget.TextSegment{Text: desc, Style: widget.RichTextStyle{ColorName: theme.ColorNamePlaceHolder}})
 		text.Wrapping = fyne.TextWrapWord
-		img := container.NewGridWrap(fyne.NewSquareSize(32), widget.NewIcon(icon))
-		body := container.NewBorder(container.NewHBox(img), container.NewHBox(action), nil, nil, text)
-		return container.NewStack(newColourRect(colorNameSurface, fyne.NewSize(0, 200), theme.SizeNameCardRadius),
-			container.New(layout.NewCustomPaddedLayout(12, 12, 12, 12), body))
+		body := container.NewBorder(container.NewHBox(iconTile(icon)), container.NewHBox(action), nil, nil, text)
+		return container.NewStack(newCardRect(fyne.NewSize(0, 210)),
+			container.New(layout.NewCustomPaddedLayout(18, 18, 18, 18), body))
 	}
 	connect := widget.NewButton(tr("Com port…"), func() { u.conn.show() })
 	connect.Importance = widget.HighImportance
@@ -102,16 +102,32 @@ func startScreen(u *ui) fyne.CanvasObject {
 		card(theme.MediaPlayIcon(), tr("Try the demo"),
 			tr("Look around with two simulated devices. No hardware is needed and nothing is written to a real device."), demo))
 	title := widget.NewRichText(
-		&widget.TextSegment{Text: appName, Style: widget.RichTextStyle{SizeName: theme.SizeNameHeadingText, TextStyle: fyne.TextStyle{Bold: true}}},
+		&widget.TextSegment{Text: appName, Style: widget.RichTextStyle{SizeName: theme.SizeNameHeadingText,
+			ColorName: colorNameOnHero, TextStyle: fyne.TextStyle{Bold: true}}},
 		&widget.TextSegment{Text: tr("Configure VE.Bus inverter/chargers: read, change and send their settings, or edit settings files."),
-			Style: widget.RichTextStyle{ColorName: theme.ColorNamePlaceHolder}})
+			Style: widget.RichTextStyle{ColorName: colorNameOnHero}})
 	title.Wrapping = fyne.TextWrapWord
+	logo := container.NewStack(newColourRect(colorNameSurface, fyne.NewSquareSize(56), theme.SizeNameCardRadius),
+		container.New(layout.NewCustomPaddedLayout(10, 10, 10, 10), widget.NewIcon(fyne.NewStaticResource(iconFile, appIcon))))
+	banner := container.NewStack(newGradientRect(colorNameHeroStart, colorNameHeroEnd),
+		container.New(layout.NewCustomPaddedLayout(36, 36, 24, 24), container.New(columnLayout{width: 960},
+			container.NewBorder(nil, nil, container.NewCenter(logo), nil, title))))
 	u.recents = container.NewVBox()
 	recent := widget.NewLabel(tr("Recent files"))
 	recent.TextStyle.Bold = true
-	content := container.NewVBox(title, cards, recent, u.recents)
+	recentCard := container.NewStack(newCardRect(fyne.Size{}),
+		container.New(layout.NewCustomPaddedLayout(8, 8, 12, 12), u.recents))
+	content := container.NewVBox(cards, container.New(layout.NewCustomPaddedLayout(8, 0, 4, 0), recent), recentCard)
 	return container.NewStack(newColourRect(colorNamePage, fyne.Size{}, ""),
-		container.NewVScroll(container.New(layout.NewCustomPaddedLayout(32, 16, 0, 0), container.New(columnLayout{width: 960}, content))))
+		container.NewVScroll(container.NewVBox(banner,
+			container.New(layout.NewCustomPaddedLayout(24, 24, 24, 24), container.New(columnLayout{width: 960}, content)))))
+}
+
+// iconTile returns icon in the accent on a rounded tint of it.
+func iconTile(icon fyne.Resource) fyne.CanvasObject {
+	return container.NewGridWrap(fyne.NewSquareSize(44), container.NewStack(
+		newColourRect(colorNameTint, fyne.NewSquareSize(44), theme.SizeNameInputRadius),
+		container.New(layout.NewCustomPaddedLayout(10, 10, 10, 10), widget.NewIcon(theme.NewPrimaryThemedResource(icon)))))
 }
 
 // columnLayout lays its objects over each other in a column of at most
