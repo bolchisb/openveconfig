@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/bolchisb/openveconfig/pkg/assistant"
 	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
@@ -333,9 +334,23 @@ func (u *Unit) SetSetting(id int, raw uint16) error {
 }
 
 // AssistantArea returns a copy of the bytes between the settings array and
-// the section checksum. Its encoding is unknown (issue #7); kylehart
-// describes its observed shapes in FORMAT.md §5. The package never changes
-// these bytes.
+// the section checksum: the unit's assistant area in the compact form of
+// package assistant (reverse-engineered, #7; kylehart describes its
+// observed shapes in FORMAT.md §5). Only SetAssistantImage changes them.
 func (u *Unit) AssistantArea() []byte {
 	return append([]byte(nil), u.sec.Payload[u.settings+2*u.n:]...)
+}
+
+// AssistantImage returns the unit's assistant area expanded
+// (assistant.Expand).
+func (u *Unit) AssistantImage() ([]byte, error) {
+	return assistant.Expand(u.sec.Payload[u.settings+2*u.n:])
+}
+
+// SetAssistantImage replaces the unit's assistant area with the compact
+// form of img (assistant.Compact). The section's length, pointers and
+// checksum follow when the file is written.
+func (u *Unit) SetAssistantImage(img []byte) {
+	end := u.settings + 2*u.n
+	u.sec.Payload = append(u.sec.Payload[:end:end], assistant.Compact(img)...)
 }
