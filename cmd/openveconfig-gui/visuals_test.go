@@ -156,7 +156,7 @@ func TestACInputChart(t *testing.T) {
 		t.Fatal("no chart for a model with settings 44 to 47")
 	}
 	// The reconnect levels are stored relative to the disconnect levels.
-	off, on := labelsNamed(s.plot, "Disconnect"), labelsNamed(s.plot, "Reconnect")
+	off, on := labelsNamed(s.plot, "Disconnect level"), labelsNamed(s.plot, "Connect level")
 	if len(off) != 2 || len(on) != 2 || off[0].value != "180 V" || off[1].value != "265 V" ||
 		on[0].value != "187 V" || on[1].value != "260 V" {
 		t.Fatalf("disconnect %v, reconnect %v; want 180 V, 265 V and 187 V, 260 V", off, on)
@@ -206,7 +206,7 @@ func TestBatteryChart(t *testing.T) {
 	}
 	// Restart is 11 + 12; the pre-alarm is the restart level + 63.
 	want := []struct{ value, name string }{
-		{"9.30 V", "Shut down"}, {"10.50 V", "Restart"}, {"10.70 V", "Pre-alarm"}, {"13.80 V", "Float"}, {"14.40 V", "Absorption"},
+		{"9.30 V", "Shut-down"}, {"10.50 V", "Restart"}, {"10.70 V", "Pre-alarm"}, {"13.80 V", "Float"}, {"14.40 V", "Absorption"},
 	}
 	var xs []float32
 	for i, w := range want {

@@ -142,7 +142,7 @@ func newRemotePanel(u *ui, s *session) *remotePanel {
 	}
 	inverterLEDs := []fyne.CanvasObject{
 		mutedText(tr("Inverter")),
-		p.newLED(mk2.LEDInverter, tr("Inverter"), colorNameLEDGreen),
+		p.newLED(mk2.LEDInverter, tr("Inverter on"), colorNameLEDGreen),
 		p.newLED(mk2.LEDOverload, tr("Overload"), colorNameLEDRed),
 		p.newLED(mk2.LEDLowBattery, tr("Low battery"), colorNameLEDRed),
 		p.newLED(mk2.LEDTemperature, tr("Temperature"), colorNameLEDRed),

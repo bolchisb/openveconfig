@@ -187,8 +187,9 @@ func TestVirtualSwitchSubTabs(t *testing.T) {
 	}{
 		{0, []string{"Usage"}, false},
 		{1, []string{"Usage", "A: Set VS ON", "B: Set VS OFF", "VS options"}, true},
-		{3, []string{"Usage", "Second switch"}, false},
-		{5, []string{"Usage", "A: Set VS ON", "B: Set VS OFF", "VS options", "Second switch"}, true},
+		{3, []string{"Usage", "Ignore AC input"}, false},
+		{4, []string{"Usage", "Generator control"}, false},
+		{5, []string{"Usage", "A: Set VS ON", "B: Set VS OFF", "VS options", "Ignore AC input"}, true},
 	} {
 		usage(tc.usage)
 		if !slices.Equal(titles(), tc.tabs) {
@@ -199,11 +200,33 @@ func TestVirtualSwitchSubTabs(t *testing.T) {
 		}
 	}
 
+	// The second switch's texts follow its usage, as in the original.
+	vs2 := p.sub[slices.IndexFunc(p.sub, func(s *settingsPage) bool { return s.groups[0] == "Virtual switch 2" })]
+	for _, tc := range []struct {
+		usage uint16
+		want  string
+	}{{3, "Do not ignore AC input when load higher than"}, {4, "Start generator when load higher than"}} {
+		usage(tc.usage)
+		if got := rowOf(t, vs2, vebus.SettingID(52)).label.Text; got != tc.want {
+			t.Errorf("usage %d: setting 52 is %q, want %q", tc.usage, got, tc.want)
+		}
+	}
+
 	// The usages are a list of all seven, in the original tool's words.
 	row := rowOf(t, usagePage, vebus.SettingID(15))
 	radio := row.control.(*widget.RadioGroup)
 	if len(radio.Options) != 7 || radio.Options[0] != "Do not use VS" || !strings.HasPrefix(radio.Options[1], "Drive multifunctional (aux.) relay") {
 		t.Errorf("usages %q", radio.Options)
+	}
+	// Their texts state what the switch does, so they follow the inversion.
+	for _, inv := range []bool{false, true} {
+		if err := d.SetFlag(26, inv); err != nil {
+			t.Fatal(err)
+		}
+		u.settings.changed()
+		if want := usageLabels(inv)[1]; radio.Options[1] != want {
+			t.Errorf("inverted %v: usage 1 is %q, want %q", inv, radio.Options[1], want)
+		}
 	}
 }
 
@@ -536,7 +559,7 @@ func TestFindEntries(t *testing.T) {
 	d := vebus.NewDevice(nil)
 	d.AddSetting(0, mk2.SettingInfo{Sc: 1, Max: 0x0024}, 0) // flags 2 and 5
 	d.AddSetting(2, mk2.SettingInfo{Sc: -100, Min: 800, Max: 1750}, 1440)
-	d.AddSetting(13, mk2.SettingInfo{Sc: 1, Max: 5}, 0) // system configuration: not on a tab
+	d.AddSetting(71, mk2.SettingInfo{Sc: 1, Max: 0xFFFF}, 0) // for assistants: not on a tab
 	ids := func(es []vebus.Entry) []vebus.ID {
 		var out []vebus.ID
 		for _, e := range es {
@@ -550,8 +573,8 @@ func TestFindEntries(t *testing.T) {
 	if got := ids(findEntries(d, "ABSORPTION")); !slices.Equal(got, []vebus.ID{vebus.SettingID(2)}) {
 		t.Errorf("find absorption = %v", got)
 	}
-	if got := findEntries(d, "13"); len(got) != 0 {
-		t.Errorf("find 13 = %v, want nothing (setting 13 is on no tab)", ids(got))
+	if got := findEntries(d, "71"); len(got) != 0 {
+		t.Errorf("find 71 = %v, want nothing (setting 71 is on no tab)", ids(got))
 	}
 }
 
@@ -906,5 +929,58 @@ func TestFindFocusesEntry(t *testing.T) {
 	f, ok := u.win.Canvas().Focused().(*numberEntry)
 	if u.current.title != "Charger" || !ok || f.Text != "13.80" {
 		t.Errorf("after Find: page %q, focused %T; want the float voltage entry on Charger", u.current.title, u.win.Canvas().Focused())
+	}
+}
+
+// TestDeviceLabels checks the names that follow other values, as in the
+// original: the second switch's after the usage and the stop condition,
+// the LED alarm delays after the alarm or pre-alarm flag.
+func TestDeviceLabels(t *testing.T) {
+	d := vebus.NewDevice(nil)
+	d.AddSetting(1, mk2.SettingInfo{Sc: 1, Max: 0xFFFF}, 1<<1) // flag 17 on: pre-alarm
+	d.AddSetting(15, mk2.SettingInfo{Sc: 1, Max: 6}, 3)
+	d.AddSetting(58, mk2.SettingInfo{Sc: 1, Max: 0xFFFF}, 1)
+	l := deviceLabels(d)
+	for id, want := range map[vebus.ID]string{
+		vebus.SettingID(52): "Do not ignore AC input when load higher than",
+		vebus.SettingID(59): "\"Absorption finished\" delay for ignore AC",
+		vebus.SettingID(24): "\"Temperature pre-alarm\" VS on delay",
+		vebus.SettingID(25): "\"Low-battery alarm\" VS on delay",
+	} {
+		if l[id] != want {
+			t.Errorf("%v: %q, want %q", id, l[id], want)
+		}
+	}
+}
+
+// TestStopCondition checks the stop condition of the second virtual switch
+// (setting 58): a choice of the two codes or a voltage, as in the original.
+func TestStopCondition(t *testing.T) {
+	u := newTestUI(t)
+	d := vebus.NewDevice(nil)
+	d.AddSetting(15, mk2.SettingInfo{Sc: 1, Max: 6}, 4)
+	d.AddSetting(58, mk2.SettingInfo{Sc: -100, Max: 6000}, 1)
+	p := newSettingsPage(u, vebus.TabVirtualSwitch, "Virtual switch 2")
+	u.settings.load(d, nil)
+	r := rowOf(t, p, vs2StopSetting)
+	cond := r.control.(*fyne.Container).Objects[0].(*widget.Select)
+	if cond.Selected != "Absorption finished" || r.entry.Text != "" {
+		t.Fatalf("code 1: choice %q, entry %q", cond.Selected, r.entry.Text)
+	}
+	cond.SetSelected("Bulk finished")
+	if raw, _ := d.Raw(vs2StopSetting); raw != 0 {
+		t.Errorf("bulk finished: raw %d, want 0", raw)
+	}
+	cond.SetSelected("Udc higher than") // waits for a voltage
+	if raw, _ := d.Raw(vs2StopSetting); raw != 0 || cond.Selected != "Udc higher than" {
+		t.Errorf("Udc chosen: raw %d, choice %q", raw, cond.Selected)
+	}
+	r.entry.commit("27.5")
+	if raw, _ := d.Raw(vs2StopSetting); raw != 2750 || cond.Selected != "Udc higher than" {
+		t.Errorf("27.5 V: raw %d, choice %q", raw, cond.Selected)
+	}
+	r.entry.commit("1") // raw 100 would read as a code
+	if raw, _ := d.Raw(vs2StopSetting); raw != 2750 || !strings.Contains(errorText(r.formRow), "higher voltage") {
+		t.Errorf("1 V: raw %d, want 2750 kept and an error", raw)
 	}
 }

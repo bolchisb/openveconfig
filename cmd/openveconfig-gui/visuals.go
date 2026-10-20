@@ -373,14 +373,14 @@ func acInputChart(d *vebus.Device) *chartSpec {
 		highOn = highOff
 	}
 	marks := []scaleMark{
-		{v: lowOff, name: tr("Disconnect")},
-		{v: highOff, name: tr("Disconnect")},
+		{v: lowOff, name: tr("Disconnect level")},
+		{v: highOff, name: tr("Disconnect level")},
 	}
 	if lowOn != lowOff {
-		marks = append(marks, scaleMark{v: lowOn, name: tr("Reconnect"), above: true})
+		marks = append(marks, scaleMark{v: lowOn, name: tr("Connect level"), above: true})
 	}
 	if highOn != highOff {
-		marks = append(marks, scaleMark{v: highOn, name: tr("Reconnect"), above: true})
+		marks = append(marks, scaleMark{v: highOn, name: tr("Connect level"), above: true})
 	}
 	lo, hi := min(lowOff, lowOn), max(highOff, highOn)
 	if nominal, ok := setting(d, 5); ok {
@@ -404,7 +404,7 @@ func acInputChart(d *vebus.Device) *chartSpec {
 			{colorNameZoneWarn, tr("Accepted until a disconnect")},
 			{colorNameZoneOff, tr("Disconnected")},
 		},
-		caption: tr("The AC input is used while its voltage stays between the disconnect levels. After a disconnect it is used again once the voltage is back between the reconnect levels."),
+		caption: tr("The AC input is used while its voltage stays between the disconnect levels. After a disconnect it is used again once the voltage is back between the connect levels."),
 	}
 	if on, err := d.Flag(27); err == nil && on {
 		s.notes = append(s.notes, tr("A wide AC input frequency range is accepted."))
@@ -421,7 +421,7 @@ func batteryChart(d *vebus.Device) *chartSpec {
 	if !ok {
 		return nil
 	}
-	marks := []scaleMark{{v: shut, name: tr("Shut down"), decimals: 2}}
+	marks := []scaleMark{{v: shut, name: tr("Shut-down"), decimals: 2}}
 	low := shut // the top of the low battery zone
 	if v, ok := absolute(d, 12); ok {
 		marks = append(marks, scaleMark{v: v, name: tr("Restart"), decimals: 2})

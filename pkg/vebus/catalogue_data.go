@@ -42,6 +42,7 @@ const (
 	srcOwnRAM     = "own name; MK2 Protocol 3.14 §7.3.13.1 (17-19 are the unfiltered 14-16; 15 is named after community FINDINGS.md §12.4)"
 	srcOwnFlag7   = "own name; MK2 Protocol 3.14 §7.3.13.3 (no name given)"
 	srcOwnSet65   = "own name; MK2 Protocol 3.14 §7.3.13.2"
+	srcOwnRE      = "own name; reverse-engineered (#6)"
 )
 
 // defaultFlagWords are the settings that hold flags 0-79, 16 per word.
@@ -115,8 +116,12 @@ var defaultEntries = []Entry{
 	// The restart level is setting 11 + setting 12 (§7.3.13.2, ID 63; the
 	// VEConfigure manual §9 item 5 says the same).
 	setting(12, "UBatLow hysteresis for Inverter", "V", TabInverter, "DC input low", srcSettings).relativeTo(11, +1),
-	setting(13, "Number of slaves connected", "", TabNone, "System configuration", srcSettings),
-	setting(14, "Special three phase setting", "", TabNone, "System configuration", srcSettings).
+	// 13, 14, flags 0 and 1: the original tool shows them on its General
+	// tab, in the groups named here (reverse-engineered, #6). The choices of
+	// 13 are the numbers 0-4 it offers.
+	setting(13, "Number of slaves connected", "", TabGeneral, "Parallel systems", srcSettings).
+		choices(map[uint16]string{0: "0", 1: "1", 2: "2", 3: "3", 4: "4"}),
+	setting(14, "Special three phase setting", "", TabGeneral, "Multi phase", srcSettings).
 		choices(map[uint16]string{0: "3 phase", 1: "Split phase 180", 2: "2 leg 3 phase 120"}),
 
 	// Virtual switch settings, §7.3.13.4. Values 0-2 are from the document;
@@ -209,10 +214,14 @@ var defaultEntries = []Entry{
 	setting(86, "Stop charging at temperature", "", TabCharger, "Temperature", srcCommSet),
 	setting(87, "Temperature compensation slope", "", TabCharger, "Temperature", srcCommSet),
 	setting(88, "DoNotChargeVoltage", "V", TabAdvanced, "Renewable energy priority", srcCommSet),
+	// Reverse-engineered (#6): the rating of the external current sensor,
+	// value x 100 A; own name.
+	setting(89, "Current sensor factor", "", TabGeneral, "External current sensor", srcOwnRE).
+		choices(map[uint16]string{1: "100 A", 2: "200 A", 3: "300 A", 4: "400 A", 5: "500 A", 6: "600 A", 7: "700 A", 8: "800 A", 9: "900 A", 10: "1000 A"}),
 
 	// Flags, §7.3.13.3.
-	flag(0, "MultiPhaseSystem", TabNone, "System configuration", srcFlags),
-	flag(1, "MultiPhaseLeader", TabNone, "System configuration", srcFlags),
+	flag(0, "MultiPhaseSystem", TabGeneral, "Multi phase", srcFlags),
+	flag(1, "MultiPhaseLeader", TabGeneral, "Multi phase", srcFlags),
 	flag(2, "60Hz", TabGeneral, "System frequency", srcFlags),
 	flag(3, "Disable Wave Check (fast input voltage detection)", TabGrid, "UPS function", srcFlags),
 	flag(4, "DoNotStopAfter10HrBulk", TabCharger, "Charger", srcFlags),
@@ -261,6 +270,9 @@ var defaultEntries = []Entry{
 	flag(39, "Configured for VE.Bus BMS", TabCharger, "Battery type", srcCommFlags),
 	flag(40, "Disable Ubat VSense (for diagnostic purposes)", TabCharger, "Charger", srcCommFlags),
 	flag(41, "Prefer renewable energy (Solar & Wind priority)", TabAdvanced, "Renewable energy priority", srcCommFlags),
+	// Bit 0 of setting 82 (reverse-engineered, #6): the unit stays off after
+	// a short circuit. The device asks a password to change it.
+	flag(64, "Short circuit is fatal", TabInverter, "Output", srcOwnRE),
 
 	// RAM variables, §7.3.13.1.
 	ram(0, "UMainsRMS", "V", srcRAM),

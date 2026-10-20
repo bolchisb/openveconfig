@@ -139,7 +139,7 @@ type busView struct {
 func newBusView() *busView {
 	v := &busView{
 		status: widget.NewLabel(tr("Reading...")),
-		batV:   newField(tr("Voltage")),
+		batV:   newField(tr("Udc")),
 		batI:   newField(tr("Idc")),
 		invI:   newField(tr("Idc invert")),
 		chgI:   newField(tr("Idc charge")),

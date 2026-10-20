@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
 
@@ -392,5 +393,35 @@ func TestGridDemoProfile(t *testing.T) {
 	}
 	if !slices.Contains(rowIDs(g.ordinary), vebus.FlagID(3)) {
 		t.Error("UPS function flag 3 is not shown")
+	}
+}
+
+// TestGridCodePicker chooses a grid code in the picker's dialog: the search
+// narrows the list, and a tap on an entry sets the code and closes it.
+func TestGridCodePicker(t *testing.T) {
+	u, _, g, d := gridSetup(t, 2699481)
+	if g.code.button.Text != "0 · None" {
+		t.Errorf("button %q, want the code 0", g.code.button.Text)
+	}
+	g.code.button.OnTapped()
+	dlg := u.win.Canvas().Overlays().Top()
+	if dlg == nil {
+		t.Fatal("no dialog")
+	}
+	entry := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.Entry); return ok })[0].(*widget.Entry)
+	list := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.List); return ok })[0].(*widget.List)
+	entry.SetText("roman")
+	if n := list.Length(); n != 1 {
+		t.Fatalf("%d codes match \"roman\", want 1", n)
+	}
+	list.Select(0)
+	if raw, _ := d.Raw(vebus.SettingID(gridCodeSetting)); raw != 14 {
+		t.Errorf("grid code %d, want 14", raw)
+	}
+	if u.win.Canvas().Overlays().Top() != nil {
+		t.Error("the dialog is still open")
+	}
+	if g.code.button.Text != "14 · Romania" {
+		t.Errorf("button %q after the choice", g.code.button.Text)
 	}
 }

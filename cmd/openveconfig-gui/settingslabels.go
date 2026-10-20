@@ -1,13 +1,16 @@
 package main
 
 // Labels and presentation of the catalogue entries on the settings tabs.
-// The labels are this project's own wording. Facts (which flag is shown
-// inverted, which flags are a choice of two, the units the values are shown
-// in) are from this project's behavioural spec of the settings tabs
-// (reverse-engineered, #6), restated here in our own words.
+// The labels are the original tool's words: the text on screen, or the name
+// it shows when the value is edited (see docs/CLEAN-ROOM.md); the help lines
+// are this project's own. Facts (which flag is shown inverted, which flags
+// are a choice of two, the units the values are shown in) are from this
+// project's behavioural spec of the settings tabs (reverse-engineered, #6),
+// restated here in our own words.
 
 import (
 	"errors"
+	"maps"
 
 	"github.com/bolchisb/openveconfig/pkg/vebus"
 )
@@ -29,6 +32,11 @@ func settingLabels() map[vebus.ID]string {
 		s(65): tr("State of charge when Bulk finished"),
 		s(72): tr("Charge efficiency"),
 		s(74): tr("State of charge after absorption"),
+		s(13): tr("Number of slaves"),
+		f(0):  tr("Enable 2-3 phase"),
+		f(1):  tr("Leader"),
+		s(14): tr("Multi phase type"),
+		s(89): tr("Current sensor rating"),
 
 		// Inverter.
 		s(5):  tr("Inverter output voltage"),
@@ -36,6 +44,7 @@ func settingLabels() map[vebus.ID]string {
 		s(12): tr("DC input low restart"),
 		s(63): tr("DC input low pre-alarm"),
 		f(13): tr("Ground relay"),
+		f(64): tr("Do not restart after short-circuit (VDE 2510-2 safety)"),
 		f(5):  tr("PowerAssist"),
 		s(48): tr("Assist current boost factor"),
 		s(73): tr("Maximum inverter current"),
@@ -81,54 +90,55 @@ func settingLabels() map[vebus.ID]string {
 		// Virtual switch: on conditions.
 		s(16): tr("High power limit for VS on"),
 		s(19): tr("\"High power limit\" VS on delay"),
-		s(17): tr("DC voltage above"),
-		s(20): tr("DC voltage above, for"),
-		s(18): tr("DC voltage below"),
-		s(21): tr("DC voltage below, for"),
+		s(17): tr("High DC level for VS on"),
+		s(20): tr("\"High DC level\" VS on delay"),
+		s(18): tr("Low DC level for VS on"),
+		s(21): tr("\"Low DC level\" VS on delay"),
 		s(22): tr("\"Not charging\" VS on delay"),
 		s(23): tr("\"Fan on\" VS on delay"),
 		f(16): tr("Set VS on when bulk protection is activated"),
 		f(25): tr("Set VS on when general system failure occurs"),
 		f(17): tr("Temperature alarm level"),
-		s(24): tr("Temperature alarm, for"),
+		s(24): tr("\"Temperature alarm\" VS on delay"),
 		f(18): tr("Low battery alarm level"),
-		s(25): tr("Low battery alarm, for"),
+		s(25): tr("\"Low-battery alarm\" VS on delay"),
 		f(19): tr("Overload alarm level"),
-		s(26): tr("Overload alarm, for"),
+		s(26): tr("\"Overload alarm\" VS on delay"),
 		f(20): tr("DC ripple alarm level"),
-		s(27): tr("DC ripple alarm, for"),
+		s(27): tr("\"Udc ripple alarm\" VS on delay"),
 
 		// Virtual switch: off conditions.
 		s(28): tr("Low power limit for VS off"),
 		s(31): tr("\"Low power limit\" VS off delay"),
-		s(29): tr("DC voltage above"),
-		s(32): tr("DC voltage above, for"),
-		s(30): tr("DC voltage below"),
-		s(33): tr("DC voltage below, for"),
+		s(29): tr("High DC level for VS off"),
+		s(32): tr("\"High DC level\" VS off delay"),
+		s(30): tr("Low DC level for VS off"),
+		s(33): tr("\"Low DC level\" VS off delay"),
 		s(34): tr("\"Charging\" VS off delay"),
 		s(35): tr("\"Fan off\" VS off delay"),
 		s(36): tr("\"Bulk finished\" VS off delay"),
 		s(37): tr("\"No VS on\" VS off delay"),
 		s(38): tr("\"No AC input\" VS off delay"),
 		f(21): tr("Temperature alarm level"),
-		s(39): tr("Temperature alarm gone, for"),
+		s(39): tr("\"Temperature alarm\" VS off delay"),
 		f(22): tr("Low battery alarm level"),
-		s(40): tr("Low battery alarm gone, for"),
+		s(40): tr("\"Low-battery alarm\" VS off delay"),
 		f(23): tr("Overload alarm level"),
-		s(41): tr("Overload alarm gone, for"),
+		s(41): tr("\"Overload alarm\" VS off delay"),
 		f(24): tr("DC ripple alarm level"),
-		s(42): tr("DC ripple alarm gone, for"),
+		s(42): tr("\"Udc ripple alarm\" VS off delay"),
 
-		// Virtual switch 2.
-		s(52): tr("Start: load above"),
-		s(53): tr("Start: load above, for"),
-		s(54): tr("Start: DC voltage below"),
-		s(55): tr("Start: DC voltage below, for"),
-		s(70): tr("Start: state of charge below"),
-		s(56): tr("Stop: load below"),
-		s(57): tr("Stop: load below, for"),
-		s(58): tr("Stop: DC voltage above or charge stage (coded value)"),
-		s(59): tr("Stop: DC voltage or charge stage, for"),
+		// Virtual switch 2: see vs2Labels, which words them after the
+		// usage. These are the generator texts, for where no device is known.
+		s(52): tr("Start generator when load higher than"),
+		s(53): tr("\"High power limit\" delay for start generator"),
+		s(54): tr("Low DC level for start generator"),
+		s(55): tr("\"Low DC level\" delay for start generator"),
+		s(70): tr("Low SOC level for start generator"),
+		s(56): tr("Once started due to load condition, stop generator when load lower than"),
+		s(57): tr("\"Low power limit\" delay for stop generator"),
+		s(58): tr("Once started due to a battery condition, stop generator when"),
+		s(59): tr("\"High DC level\" delay for stop generator"),
 		f(32): tr("Stop generator when AC2 available"),
 		f(33): tr("Invert driving of auxiliary relay"),
 
@@ -138,6 +148,7 @@ func settingLabels() map[vebus.ID]string {
 		s(88): tr("Sustain voltage"),
 
 		// Grid.
+		s(81): tr("Country / grid code standard"),
 		s(44): tr("AC low disconnect"),
 		s(45): tr("AC low connect"),
 		s(46): tr("AC high disconnect"),
@@ -145,6 +156,97 @@ func settingLabels() map[vebus.ID]string {
 		f(3):  tr("UPS function"),
 		f(27): tr("Accept wide input frequency range (45-65 Hz)"),
 	}
+}
+
+// vs2Generator reports whether the second virtual switch of d controls a
+// generator (usages 4 and 6) rather than whether the AC input is ignored
+// (3 and 5); the original words its page after that.
+func vs2Generator(d *vebus.Device) bool {
+	usage, err := d.Raw(vebus.SettingID(15))
+	return err != nil || usage != 3 && usage != 5
+}
+
+// vs2Title returns the title of the second virtual switch's page on d.
+func vs2Title(d *vebus.Device) string {
+	if vs2Generator(d) {
+		return tr("Generator control")
+	}
+	return tr("Ignore AC input")
+}
+
+// vs2Labels returns the labels of the second virtual switch's settings on
+// d, worded as the original after the usage and, for the delay of the stop
+// condition (59), after that condition (58: below 256, 0 is bulk finished
+// and 1 absorption finished; otherwise a voltage).
+func vs2Labels(d *vebus.Device) map[vebus.ID]string {
+	s := vebus.SettingID
+	cond, _ := d.Raw(s(58))
+	if vs2Generator(d) {
+		l := map[vebus.ID]string{
+			s(59): tr("\"High DC level\" delay for stop generator"),
+		}
+		switch cond {
+		case 0:
+			l[s(59)] = tr("\"Bulk finished\" delay for stop generator")
+		case 1:
+			l[s(59)] = tr("\"Absorption finished\" delay for stop generator")
+		}
+		return l
+	}
+	l := map[vebus.ID]string{
+		s(52): tr("Do not ignore AC input when load higher than"),
+		s(53): tr("\"High power limit\" delay for not-ignore AC"),
+		s(54): tr("Low DC level for not-ignore AC"),
+		s(55): tr("\"Low DC level\" delay for not-ignore AC"),
+		s(70): tr("Low SOC level for not-ignore AC"),
+		s(56): tr("When accepting AC due to load, ignore AC when load lower than"),
+		s(57): tr("\"Low power limit\" delay for ignore AC"),
+		s(58): tr("When accepting AC due to a battery condition, ignore AC when"),
+		s(59): tr("\"High DC level\" delay for ignore AC"),
+	}
+	switch cond {
+	case 0:
+		l[s(59)] = tr("\"Bulk finished\" delay for ignore AC")
+	case 1:
+		l[s(59)] = tr("\"Absorption finished\" delay for ignore AC")
+	}
+	return l
+}
+
+// ledDelayLabels returns the labels of the delays of the virtual switch's
+// LED alarm conditions on d. As in the original, they name the alarm or
+// pre-alarm that the condition's flag (17-24) selects.
+func ledDelayLabels(d *vebus.Device) map[vebus.ID]string {
+	pre := map[uint16]string{
+		24: tr("\"Temperature pre-alarm\" VS on delay"),
+		25: tr("\"Low-battery pre-alarm\" VS on delay"),
+		26: tr("\"Overload pre-alarm\" VS on delay"),
+		27: tr("\"Udc ripple pre-alarm\" VS on delay"),
+		39: tr("\"Temperature pre-alarm\" VS off delay"),
+		40: tr("\"Low-battery pre-alarm\" VS off delay"),
+		41: tr("\"Overload pre-alarm\" VS off delay"),
+		42: tr("\"Udc ripple pre-alarm\" VS off delay"),
+	}
+	l := map[vebus.ID]string{}
+	for n, text := range pre {
+		flag := n - 7 // 24-27: flags 17-20
+		if n >= 39 {
+			flag = n - 18 // 39-42: flags 21-24
+		}
+		if on, err := d.Flag(flag); err == nil && on {
+			l[vebus.SettingID(n)] = text
+		}
+	}
+	return l
+}
+
+// deviceLabels returns settingLabels with the labels that follow the
+// values of d (vs2Labels, ledDelayLabels).
+func deviceLabels(d *vebus.Device) map[vebus.ID]string {
+	labels := settingLabels()
+	maps.Copy(labels, vs2Labels(d))
+	maps.Copy(labels, ledDelayLabels(d))
+	return labels
 }
 
 // settingHelp returns a one-line explanation, in this project's own words,
@@ -167,6 +269,7 @@ func settingHelp() map[vebus.ID]string {
 		f(40): tr("For fault finding only: the voltage measured on the sense wires is not used. Leave it off in normal use."),
 		s(87): tr("How much the charge voltages drop per degree the battery warms up."),
 		s(88): tr("The charger keeps the battery at least at this voltage."),
+		f(33): tr("(i.e. generator starts when relay NOT driven)"), // the original's words
 	}
 }
 
@@ -313,6 +416,12 @@ func groupLabel(group string) string {
 		return tr("Shore limit")
 	case "System frequency":
 		return tr("System frequency")
+	case "Parallel systems":
+		return tr("Parallel systems")
+	case "Multi phase":
+		return tr("Multi phase type")
+	case "External current sensor":
+		return tr("External current sensor")
 	case "Battery monitor":
 		return tr("Battery monitor")
 	case "Output":
@@ -350,7 +459,7 @@ func groupLabel(group string) string {
 	case "Renewable energy priority":
 		return tr("Limit internal charger to prioritize other energy sources")
 	case "AC input voltage limits":
-		return tr("AC input voltage limits")
+		return tr("Transfer switch")
 	case "UPS function":
 		return tr("UPS function")
 	case "AC input frequency":
@@ -368,22 +477,34 @@ func choiceLabels() map[uint16]map[uint16]string {
 	return map[uint16]map[uint16]string{
 		// "Adaptive + BatterySafe" is the name Victron's public manuals use.
 		10: {1: tr("Fixed"), 2: tr("Adaptive"), 3: tr("Adaptive + BatterySafe")},
-		15: usageLabels(),
+		14: {0: tr("3 phase"), 1: tr("Split phase 180°"), 2: tr("Two leg 3 phase 120°")},
 	}
 }
 
-// usageLabels returns the labels of the virtual switch usages (setting 15).
-// They are the texts the original tool shows, kept word for word because
-// installers know them (user decision of 2026-10-20, see docs/CLEAN-ROOM.md).
-func usageLabels() map[uint16]string {
+// usageLabels returns the labels of the virtual switch usages (setting 15)
+// while the usage is inverted (flag 26) or not. They are the texts the
+// original tool shows, which states what the switch does in each case
+// (reverse-engineered, #6; see docs/CLEAN-ROOM.md for the labels).
+func usageLabels(inverted bool) map[uint16]string {
+	if inverted {
+		return map[uint16]string{
+			0: tr("Do not use VS"),
+			1: tr("Drive multifunctional (aux.) relay: VS on=open; VS off=close"),
+			2: tr("Ignore AC input: VS on=ignore; VS off=do not ignore"),
+			3: tr("Dedicated ignore AC input"),
+			4: tr("Dedicated generator control"),
+			5: tr("Drive aux. relay (VS on=open) + dedicated ignore AC input"),
+			6: tr("Ignore AC input (VS on=ignore) + dedicated generator control"),
+		}
+	}
 	return map[uint16]string{
 		0: tr("Do not use VS"),
-		1: tr("Drive multifunctional (aux.) relay: VS on=open; VS off=close"),
-		2: tr("Ignore AC input: VS on=ignore; VS off=do not ignore"),
+		1: tr("Drive multifunctional (aux.) relay: VS on=close; VS off=open"),
+		2: tr("Ignore AC input: VS on=do not ignore; VS off=ignore"),
 		3: tr("Dedicated ignore AC input"),
 		4: tr("Dedicated generator control"),
-		5: tr("Drive aux. relay (VS on=open) + dedicated ignore AC input"),
-		6: tr("Ignore AC input (VS on=ignore) + dedicated generator control"),
+		5: tr("Drive aux. relay (VS on=close) + dedicated ignore AC input"),
+		6: tr("Ignore AC input (VS on=do not ignore) + dedicated generator control"),
 	}
 }
 
@@ -424,7 +545,7 @@ func flagChoices() map[uint16][2]string {
 
 // invertedFlags are the flags whose label states the opposite of the flag
 // (the flag disables what the label enables): ticked means the flag is off.
-var invertedFlags = map[uint16]bool{4: true, 6: true, 8: true, 13: true}
+var invertedFlags = map[uint16]bool{3: true, 4: true, 6: true, 8: true, 13: true}
 
 // conversion is how a setting's value is shown when it differs from the
 // model's display value (vebus.Device.Display).

@@ -113,8 +113,8 @@ func newSidebar(u *ui) fyne.CanvasObject {
 		return b
 	}
 	tools := container.NewVBox(widget.NewSeparator(), mutedText(tr("Tools")),
-		tool(tr("Remote panel"), theme.ComputerIcon(), func() { showRemotePanel(u) }),
-		tool(tr("VE.Bus monitor"), theme.VisibilityIcon(), func() { showVEBusMonitor(u) }),
+		tool(tr("Show panel"), theme.ComputerIcon(), func() { showRemotePanel(u) }),
+		tool(tr("Show VE.Bus monitor"), theme.VisibilityIcon(), func() { showVEBusMonitor(u) }),
 		tool(tr("System Configurator"), theme.GridIcon(), func() { showSystemConfigurator(u) }),
 		tool(tr("Quick Configure"), theme.MediaFastForwardIcon(), func() { showQuickConfigure(u) }))
 	return container.NewStack(newColourRect(colorNameSurface, fyne.NewSize(sidebarWidth, 0), ""),

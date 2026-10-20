@@ -140,6 +140,7 @@ type appMenu struct {
 	main                               *fyne.MainMenu
 	recent                             *fyne.MenuItem
 	connect, get, send, find, defaults *fyne.MenuItem
+	print, export                      *fyne.MenuItem
 	review                             *fyne.MenuItem
 	remote, monitor                    *fyne.MenuItem
 }
@@ -153,7 +154,10 @@ func newAppMenu(u *ui) *appMenu {
 	save.Shortcut = shortcut(fyne.KeyS)
 	m.recent = item(tr("Recent files"), nil)
 	m.recent.ChildMenu = fyne.NewMenu("")
+	m.print = item(tr("Print settings"), func() { printSettings(u) })
+	m.export = item(tr("Export settings"), func() { exportSettings(u) })
 	file := fyne.NewMenu(tr("File"), open, save, m.recent, fyne.NewMenuItemSeparator(),
+		m.print, m.export, fyne.NewMenuItemSeparator(),
 		&fyne.MenuItem{Label: tr("Exit"), IsQuit: true})
 
 	m.connect = item(tr("Com port…"), func() {
@@ -172,8 +176,8 @@ func newAppMenu(u *ui) *appMenu {
 	device := fyne.NewMenu(tr("Target"), m.connect, fyne.NewMenuItemSeparator(), m.get, m.send, m.review,
 		fyne.NewMenuItemSeparator(), m.find, fyne.NewMenuItemSeparator(), m.defaults)
 
-	m.remote = item(tr("Remote panel"), func() { showRemotePanel(u) })
-	m.monitor = item(tr("VE.Bus monitor"), func() { showVEBusMonitor(u) })
+	m.remote = item(tr("Show panel"), func() { showRemotePanel(u) })
+	m.monitor = item(tr("Show VE.Bus monitor"), func() { showVEBusMonitor(u) })
 	tools := fyne.NewMenu(tr("Tools"), m.remote, m.monitor,
 		item(tr("System Configurator"), func() { showSystemConfigurator(u) }),
 		item(tr("Quick Configure"), func() { showQuickConfigure(u) }))
@@ -183,7 +187,7 @@ func newAppMenu(u *ui) *appMenu {
 	look := item(tr("Theme"), nil)
 	look.ChildMenu = themeMenu(u)
 	options := fyne.NewMenu(tr("Options"), language, look)
-	m.main = fyne.NewMainMenu(file, device, tools, options)
+	m.main = fyne.NewMainMenu(file, device, tools, options, helpMenu(u))
 	return m
 }
 
@@ -202,6 +206,8 @@ func (m *appMenu) update(u *ui) {
 	set(m.review, loaded && len(u.settings.dev.ChangedIDs()) > 0)
 	set(m.find, loaded)
 	set(m.defaults, loaded)
+	set(m.print, loaded)
+	set(m.export, loaded)
 	set(m.remote, connected)
 	set(m.monitor, connected)
 	label := tr("Com port…")

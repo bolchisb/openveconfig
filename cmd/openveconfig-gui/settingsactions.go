@@ -21,9 +21,14 @@ import (
 )
 
 // settingsTabSet are the tabs whose settings "Reset all to defaults"
-// changes: the pages of settingstabs.go. System configuration and the grid
-// tab are left alone.
+// changes: the pages of settingstabs.go. System configuration (systemIDs)
+// and the grid tab are left alone.
 var settingsTabSet = []vebus.Tab{vebus.TabGeneral, vebus.TabInverter, vebus.TabCharger, vebus.TabVirtualSwitch, vebus.TabAdvanced}
+
+// systemIDs are the entries of the General tab that describe the unit's
+// place in a system (parallel and multi-phase). Resetting the settings to
+// their defaults leaves them alone, so that a unit stays in its system.
+var systemIDs = []vebus.ID{vebus.FlagID(0), vebus.FlagID(1), vebus.SettingID(13), vebus.SettingID(14)}
 
 // modelStatus describes the loaded model and its unsent changes.
 func modelStatus(m *settingsModel) string {
@@ -612,7 +617,7 @@ func entryLabel(d *vebus.Device, id vebus.ID) string {
 
 // settingName returns the label of id as the tabs show it.
 func settingName(d *vebus.Device, id vebus.ID) string {
-	if name := settingLabels()[id]; name != "" {
+	if name := deviceLabels(d)[id]; name != "" {
 		return name
 	}
 	return d.Name(id)
@@ -748,7 +753,7 @@ func setAllToDefault(u *ui) {
 func applyDefaults(d *vebus.Device) []error {
 	var errs []error
 	for _, e := range d.Entries() {
-		if !slices.Contains(settingsTabSet, e.Tab) || e.FlagWord {
+		if !slices.Contains(settingsTabSet, e.Tab) || e.FlagWord || slices.Contains(systemIDs, e.ID()) {
 			continue
 		}
 		def, err := d.Default(e.ID())

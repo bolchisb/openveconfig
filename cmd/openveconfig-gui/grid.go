@@ -128,7 +128,7 @@ type gridTabView struct {
 	u  *ui
 	pg *page // the page in the sidebar
 	// Grid code.
-	code       *widget.Select
+	code       *codePicker
 	codeValues []uint16
 	codeRow    *formRow
 	codeNote   *widget.Label
@@ -164,8 +164,8 @@ func gridPage(u *ui) *page { return newGridTab(u).pg }
 
 func newGridTab(u *ui) *gridTabView {
 	g := &gridTabView{u: u, pageCode: -1, paramCols: &formColumns{}}
-	g.code = widget.NewSelect(nil, func(string) {
-		if i := g.code.SelectedIndex(); !g.updating && i >= 0 && u.settings.dev != nil {
+	g.code = newCodePicker(u.win, tr("Country / grid code standard"), func(i int) {
+		if !g.updating && i >= 0 && u.settings.dev != nil {
 			if err := u.settings.dev.SetRaw(vebus.SettingID(gridCodeSetting), g.codeValues[i]); err != nil {
 				showError(u, err)
 			}
@@ -176,13 +176,15 @@ func newGridTab(u *ui) *gridTabView {
 	g.codeNote.Wrapping = fyne.TextWrapWord
 	// The grid code row shares the label column of the settings under it.
 	g.ordinary = newSettingsPage(u, vebus.TabGrid, "AC input voltage limits", "UPS function", "AC input frequency")
-	g.codeRow = newFormRow(g.ordinary.cols, tr("Grid code"), "", g.code, selectMaxWidth, "")
+	g.codeRow = newFormRow(g.ordinary.cols, tr("Country / grid code standard"), "", g.code.button, selectMaxWidth, "")
+	g.code.caption = g.codeRow.setCaption
 	g.codeRow.revert.OnTapped = func() {
 		if d := u.settings.dev; d != nil {
 			g.apply(revertEntry(d, vebus.SettingID(gridCodeSetting)))
 		}
 	}
 	g.ordinary.lead = []fyne.CanvasObject{newFormCard(cardTitle(tr("Grid code")), g.codeRow.root, g.codeNote)}
+	g.ordinary.leadLabels = []string{tr("Country / grid code standard")}
 	g.ordinary.build()
 
 	g.undo = widget.NewButton(tr("Undo grid parameter changes"), g.undoChanges)
@@ -276,7 +278,7 @@ func (g *gridTabView) updateCode() {
 	d := g.u.settings.dev
 	cur, err := g.rawCode()
 	if err != nil {
-		g.code.SetOptions(nil)
+		g.code.SetItems(nil)
 		g.code.Disable()
 		g.codeValues = nil
 		g.codeRow.setChanged(false)
@@ -290,7 +292,7 @@ func (g *gridTabView) updateCode() {
 	}
 	info, _ := d.SettingInfo(gridCodeSetting)
 	g.codeValues = nil
-	var labels []string
+	var items []codeItem
 	for _, ci := range gridcode.Codes() {
 		if v := uint16(ci.Code); v >= info.Min && v <= info.Max {
 			g.codeValues = append(g.codeValues, v)
@@ -301,9 +303,9 @@ func (g *gridTabView) updateCode() {
 		slices.Sort(g.codeValues)
 	}
 	for _, v := range g.codeValues {
-		labels = append(labels, gridCodeLabel(gridcode.Code(v), d.Firmware))
+		items = append(items, gridCodeItem(gridcode.Code(v), d.Firmware))
 	}
-	g.code.SetOptions(labels)
+	g.code.SetItems(items)
 	g.code.SetSelectedIndex(slices.Index(g.codeValues, cur))
 	g.code.Enable()
 
@@ -325,14 +327,34 @@ func gridCodeLabel(c gridcode.Code, firmware uint32) string {
 	case !ok:
 		label = tr("{{.Number}}: unknown grid code", args{"Number": num})
 	case ci.Region == "":
-		label = tr("{{.Number}}: {{.Description}}", args{"Number": num, "Description": ci.Description})
+		label = tr("{{.Number}} – {{.Description}}", args{"Number": num, "Description": gridCodeText(ci.Description)})
 	default:
-		label = tr("{{.Number}}: {{.Region}}, {{.Standard}}", args{"Number": num, "Region": ci.Region, "Standard": ci.Standard})
+		label = tr("{{.Number}} – {{.Region}}: {{.Standard}}", args{"Number": num, "Region": gridCodeText(ci.Region), "Standard": ci.Standard})
 	}
 	if !gridcode.SelectableWithoutPassword(c, firmware) {
 		label = tr("{{.Label}} (needs password)", args{"Label": label})
 	}
 	return label
+}
+
+// gridCodeItem returns grid code c as an item of the picker: its number and
+// region, its standard, and whether it needs a password on firmware.
+func gridCodeItem(c gridcode.Code, firmware uint32) codeItem {
+	num := strconv.Itoa(int(c))
+	it := codeItem{label: gridCodeLabel(c, firmware), locked: !gridcode.SelectableWithoutPassword(c, firmware)}
+	switch ci, ok := gridcode.Lookup(c); {
+	case !ok:
+		it.title = tr("{{.Number}}: unknown grid code", args{"Number": num})
+	case ci.Region == "":
+		// "None: (…)", "Other: …": the word before the colon names it.
+		name, rest, _ := strings.Cut(gridCodeText(ci.Description), ": ")
+		it.title = tr("{{.Number}} · {{.Region}}", args{"Number": num, "Region": name})
+		it.subtitle = rest
+	default:
+		it.title = tr("{{.Number}} · {{.Region}}", args{"Number": num, "Region": gridCodeText(ci.Region)})
+		it.subtitle = ci.Standard
+	}
+	return it
 }
 
 // buildParams rebuilds the parameter controls for grid code code (-1: none
@@ -371,7 +393,11 @@ func (g *gridTabView) buildParams(code int) {
 			note(tr("This grid code has no parameters to set."))
 		}
 		if len(p.Unsupported) > 0 {
-			note(tr("Not supported yet (how they are stored is not known): {{.Names}}", args{"Names": strings.Join(p.Unsupported, "; ")}))
+			var names []string
+			for _, n := range p.Unsupported {
+				names = append(names, gridText(p, n))
+			}
+			note(tr("Not supported yet (how they are stored is not known): {{.Names}}", args{"Names": strings.Join(names, "; ")}))
 		}
 	}
 	objs = append(objs, container.NewHBox(g.undo))
@@ -430,7 +456,7 @@ func (g *gridTabView) paramCards(d *vebus.Device, p *gridcode.Page) []fyne.Canva
 			continue
 		}
 		params = append(params, prm)
-		names = append(names, prm.Name)
+		names = append(names, gridText(p, prm.Name))
 	}
 	g.paramCols.fit(names)
 	for _, prm := range params {
@@ -443,9 +469,9 @@ func (g *gridTabView) paramCards(d *vebus.Device, p *gridcode.Page) []fyne.Canva
 	}
 	var cards []fyne.CanvasObject
 	for _, grp := range groups {
-		title := grp
-		if title == "" {
-			title = p.Name
+		title := gridText(p, grp)
+		if grp == "" {
+			title = gridText(p, p.Name)
 		}
 		cards = append(cards, newFormCard(cardTitle(title), rows[grp]...))
 	}
@@ -511,7 +537,7 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 			slices.Sort(values)
 			labels := make([]string, len(values))
 			for i, v := range values {
-				labels[i] = p.Choices[v]
+				labels[i] = gridText(g.page, p.Choices[v])
 				if labels[i] == "" {
 					labels[i] = tr("Value {{.Value}}", args{"Value": strconv.Itoa(v)})
 				}
@@ -551,7 +577,7 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 	}
 	where := tr("setting {{.Number}}, bits {{.Mask}}",
 		args{"Number": strconv.Itoa(int(p.Word)), "Mask": "0x" + strings.ToUpper(strconv.FormatUint(uint64(p.Mask), 16))})
-	r.formRow = newFormRow(g.paramCols, p.Name, where, control, width, p.Unit)
+	r.formRow = newFormRow(g.paramCols, gridText(g.page, p.Name), where, control, width, gridText(nil, p.Unit))
 	r.revert.OnTapped = func() {
 		if d := g.u.settings.dev; d != nil {
 			g.apply(d.SetRaw(vebus.SettingID(p.Word), g.word(p.Word)&^p.Mask|g.loaded[p.Word]&p.Mask))
@@ -625,7 +651,7 @@ func paramDecimals(p gridcode.Param) int {
 
 // paramText formats a display value of p with its unit.
 func paramText(p gridcode.Param, v float64) string {
-	return withUnit(formatNumber(v, paramDecimals(p)), p.Unit)
+	return withUnit(formatNumber(v, paramDecimals(p)), gridText(nil, p.Unit))
 }
 
 // paramRangeError is the message for a value p cannot take.
