@@ -37,7 +37,8 @@ type device struct {
 	snapshot    []uint16 // values taken with 'F' 6
 	hasSnapshot bool
 
-	sys *unit // nil unless the device is a system unit
+	sys  *unit // nil unless the device is a system unit
+	area *area // nil unless the device has an assistant area
 }
 
 func newDevice(d Device) *device {
@@ -61,6 +62,10 @@ func newDevice(d Device) *device {
 	for _, r := range d.Profile.RAMVars {
 		dev.ramInfo[r.ID] = r
 		dev.ram[r.ID] = r.Value
+	}
+	if d.Assistants != nil {
+		dev.area = newArea(*d.Assistants)
+		dev.addAssistantRAM(dev.area)
 	}
 	return dev
 }

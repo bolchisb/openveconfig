@@ -4,6 +4,14 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 
 ## 2026-10-20
 
+### M4: Assistants, phase 2 (compiler, in progress)
+
+- **`pkg/assistant/vap`** (#32): reads the user's assistant packages (`.vap`/`.dvap`: a zlib stream whose words sum to 0, then the member files); `List`/`Latest` list a folder; `DefaultDir` is where VEConfigure downloads them on Windows. No package is shipped.
+- **`pkg/assistant/asm`** (#32): the multi-pass macro assembler and calculator of the assistant sources: labels, string functions, macros, conditionals, loops, `.ASSEMBLE`, `.SOURCE`/`.INSERT` with label spaces, forward references.
+- **`pkg/assistant/wizard`** (#32): the assistant directives (`.AID`, `.AUE`, `.ALD`, …), the read-back functions, and `Session`, the step model the GUI (#33) drives: Start, Current, Next, Back, Answers, Summary. `ReadBack` recovers step values from an image.
+- **Composer** (#32): `assistant.Composer` sources asfStart, the user's assistants and asfStop, and lays out the image: program, 0xFF fill, the tail of assistant ids, the checksum; used and free bytes; `ErrTooBig` before an image is made. `ParseLayout` reads an image's tail and program length.
+- **Not yet byte-identical with VEConfigure.** `TestRealESS`/`TestRealReadBack` (`ASSISTANT_PACKAGES`, `ASSISTANT_RVSC`) compile ESS against a real backup; the run stops on environment labels whose values the spec does not give (device, firmware and setting labels) and on calculator details it leaves open. Tests otherwise use synthetic sources.
+
 ### M4: Assistants, phase 1 (preserve)
 
 - **Plan.** Phase 1 keeps a unit's assistants through a backup and restore: #77 (transfer spec), #78 (area image), #79 (block read and write), #80 (whole-area read and write with verify and rollback), #81 (CLI and GUI). Phase 2, editing assistants (#32, #33), stays deferred until the package format and its licensing are settled (#8).
@@ -11,6 +19,12 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 - **`pkg/rvsc`** (#78): `Unit.AssistantImage` and `Unit.SetAssistantImage` read and replace a unit's area; the rest of the file is unchanged. `TestRealAssistantAreas` (`RVSC_TESTDATA`) checks that real areas expand and compact back to the same bytes.
 - **Checked on a backup with assistants** (#78): the area of a file saved by VEConfigure (upload form) expands to 2816 bytes and compacts back byte for byte; its last run has the fill byte 0x00, which `Compact` now writes too.
 - **Image checksum** (#77, #80): `assistant.Checksum` and `ChecksumOK`. The last 4 bytes of an image are the sum of the other bytes, inverted and shifted by 8 × (offset mod 4), minus 1; checked on the same unit with an ESS assistant and without assistants (the empty image's first bytes make the checksum 0xFFFFFFFF).
+- **Block transfer** (#79): `mk2.BlockCodec`, `Client.ReadBlock`/`WriteBlock`. No allowed source names the device's block requests yet (#77), so `mk2.DeviceBlockCodec`, the codec for real devices, sends nothing and returns "not specified yet". `ProbeVLLBlockRead` and `openveconfig-cli assistants probe` send the community-reported read command `0x5F` and print the raw reply, for the hardware check that decodes it (#3).
+- **Simulator** (#79): devices with an assistant area (`Device.Assistants`; erased, the "no assistants" shapes and a program, all synthetic) and assistant RAM records from ID 128, read and written with the simulator's own made-up codec (`simulator.BlockCodec`). Faults: refused writes, corrupted writes, and `FaultRule.Skip` for a fault in the middle of a write.
+- **`pkg/assistant/transfer`** (#80): `Read` reads the whole area (2816 bytes for the firmware families it was seen with, otherwise up to the unit's "out of range"), checks the checksum and reads the running assistants. `Write` checks the image (checksum, same unit and firmware, size, unit configured for assistants), takes a snapshot, skips an unchanged unit, writes the blocks in ascending order with the checksum block last, reads back, restarts the units, waits for the unit and compares the running assistants; any failure writes the snapshot back. Without `Confirm` it is a dry run.
+- **Off on real devices** (`transfer.WriteOnHardware`) until the hardware checks on #3 pass. The enable/disable step is not implemented: which item enables assistants is not known yet (#77).
+- **Backup and restore in the front ends** (#81; `f8e5d9f`, `3955828`): `openveconfig-cli assistants read|write|clear` (dry run without `--yes`; `read` saves the area as a raw image or into a copy of a backup for the unit with the same long ID; `clear` writes the erased area) and `rvsc-apply --assistants=keep|write` (default keep; write checks the unit's long ID and runs the dry run before any setting is written). The GUI's Overview has an Assistants card (file and unit: assistant IDs, bytes used and free; Read from unit; Copy into the file), and Send settings for a file offers to keep or write the file's assistants, with the checks first and a per-step result. On real devices reading is not specified (#77) and writing is off (#3): both stop before anything is sent. The simulator and demo device 0 is a system unit with a synthetic area.
+- **GUI fix** (`db6a2e0`): a dialog shown by an operation with a progress dialog (such as the file comparison of Send settings) no longer closes with the progress dialog.
 
 ### Grid parameters as in the original (GUI)
 
