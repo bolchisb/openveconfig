@@ -18,6 +18,10 @@
 //	rvsc-set       change one setting in a .rvsc/.rvms file (offline)
 //	rvsc-apply     write one .rvsc/.rvms unit to a device (dry run without --yes)
 //	apply          write the settings of a dump file to devices (dry run without --yes)
+//	system show        find the units of a VE.Bus system and check their records
+//	system write       write a .vms layout to the units (dry run without --yes)
+//	system reset       restart every unit of the system (needs --yes)
+//	system standalone  make the one unit switched on standalone (needs --yes)
 //
 // Run "openveconfig-cli <command> --help" for the flags of a command. Every
 // command that talks to a device takes --simulator to use the built-in
@@ -64,6 +68,8 @@ type command struct {
 	// device reports whether the command talks to a device, and so takes
 	// the connection flags.
 	device bool
+	// systemBus makes --simulator a VE.Bus system (newSystemSimulator).
+	systemBus bool
 }
 
 // env is what a command gets to work with.
@@ -90,13 +96,14 @@ type options struct {
 	maxRAM     uint // dump
 	rvsc       rvscOptions
 	apply      applyOptions
+	system     systemOptions
 }
 
 // errUsage means a usage message has already been printed.
 var errUsage = errors.New("usage error")
 
 var commands = []*command{portsCmd, versionCmd, readSettingCmd, readRAMCmd, writeSettingCmd, dumpCmd,
-	rvscShowCmd, rvscDiffCmd, rvscSetCmd, rvscApplyCmd, applyCmd}
+	rvscShowCmd, rvscDiffCmd, rvscSetCmd, rvscApplyCmd, applyCmd, systemCmd}
 
 // run is main without the process: it returns the exit code.
 func run(args []string, stdout, stderr io.Writer) int {
@@ -290,7 +297,9 @@ var newSimulator = func() *simulator.Simulator {
 // --simulator.
 func (e *env) open(name string) (transport, error) {
 	var t transport
-	if e.opts.simulator {
+	if e.opts.simulator && e.cmd.systemBus {
+		t = newSystemSimulator().Port()
+	} else if e.opts.simulator {
 		t = newSimulator().Port()
 	} else {
 		p, err := serialport.Open(name)
@@ -305,6 +314,11 @@ func (e *env) open(name string) (transport, error) {
 	return t, nil
 }
 
+// clientOptions are the options of the mk2.Client. The write commands read
+// the value back, so a missing acknowledgement (reported for some settings)
+// need not fail the write. Tests shorten the timeouts.
+var clientOptions = mk2.Options{IgnoreMissingWriteAck: true}
+
 // connect opens the interface, sets up the line speed chosen by --baud and
 // selects --address. The caller must close the client, which also closes
 // the port.
@@ -313,9 +327,8 @@ func (e *env) connect(ctx context.Context) (*mk2.Client, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	// The write commands read the value back, so a missing acknowledgement
-	// (reported for some settings) need not fail the write.
-	c := mk2.NewClient(t, &mk2.Options{IgnoreMissingWriteAck: true})
+	opts := clientOptions
+	c := mk2.NewClient(t, &opts)
 	mode := mk2.HighSpeedAuto
 	if e.opts.baud == "2400" {
 		mode = mk2.HighSpeedOff

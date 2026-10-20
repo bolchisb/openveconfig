@@ -60,6 +60,10 @@ openveconfig-cli rvsc-diff old.rvms new.rvms         # settings that differ betw
 openveconfig-cli rvsc-diff --port COM3 --unit HQ1234ABCDE backup.rvms   # does the file match the device, and what differs
 openveconfig-cli rvsc-set backup.rvsc 2 14.6 -o edited.rvsc             # change one setting offline
 openveconfig-cli rvsc-apply --port COM3 --unit HQ1234ABCDE backup.rvms  # dry run; --yes writes the unit's settings
+openveconfig-cli system show --port COM3             # units of a VE.Bus system and the check of their records
+openveconfig-cli system write --port COM3 site.vms   # dry run of a System Configurator layout; --yes writes it
+openveconfig-cli system reset --port COM3 --yes      # restart every unit
+openveconfig-cli system standalone --port COM3 --yes # make the one unit switched on standalone
 ```
 
 `write-setting` changes a live device: it is refused without `--yes`, checks the value against the minimum and maximum the device reports, and reads the setting back afterwards.
@@ -67,6 +71,8 @@ openveconfig-cli rvsc-apply --port COM3 --unit HQ1234ABCDE backup.rvms  # dry ru
 `apply` is a dry run without `--yes`. With it, it writes only the settings that differ from the device (`--all`: every setting), after checking the device limits and validation (`--force` skips validation only), reads each one back, and lists the settings that need a device reset.
 
 The `rvsc-*` commands work on the `.rvsc`/`.rvms` files of a GX device's backup and VRM Remote VEConfigure. The format is community-reported. `rvsc-set` changes only the setting's bytes and the checksum. `rvsc-apply` refuses a file that does not match the device (firmware, setting info, number of units) and writes only settings, not assistants. Both refuse grid-code settings unless `--allow-grid-code` is given.
+
+The `system` commands configure multi-unit VE.Bus systems (parallel, split and three phase); with `--simulator` they use a simulated system of two units in parallel. `system write` is a dry run without `--yes`. A write is refused before anything is sent when the layout fails the system check or does not have exactly the units on the bus; a write that removes assistants also needs `--remove-assistants`. Every unit is written and read back; if one fails, the previous configuration is written back to every unit and the system is not restarted. `reset` and `standalone` are refused without `--yes`, and `standalone` also unless exactly one unit answers. These commands switch the whole system off for a moment.
 
 ## Graphical tool
 
