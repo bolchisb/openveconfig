@@ -24,6 +24,7 @@
 //	system write       write a .vms layout to the units (dry run without --yes)
 //	system reset       restart every unit of the system (needs --yes)
 //	system standalone  make the one unit switched on standalone (needs --yes)
+//	assistants probe   read-only probe of the assistant block read request (hardware check)
 //
 // Run "openveconfig-cli <command> --help" for the flags of a command. Every
 // command that talks to a device takes --simulator to use the built-in
@@ -96,6 +97,8 @@ type options struct {
 	yes, raw   bool // write-setting
 	maxSetting uint // dump
 	maxRAM     uint // dump
+	probeArg   uint // assistants probe
+	probeCount uint // assistants probe
 	rvsc       rvscOptions
 	apply      applyOptions
 	system     systemOptions
@@ -105,7 +108,7 @@ type options struct {
 var errUsage = errors.New("usage error")
 
 var commands = []*command{portsCmd, versionCmd, readSettingCmd, readRAMCmd, writeSettingCmd, dumpCmd,
-	rvscShowCmd, rvscDiffCmd, rvscSetCmd, rvscApplyCmd, rvscSystemCmd, applyCmd, systemCmd, firmwareCmd}
+	rvscShowCmd, rvscDiffCmd, rvscSetCmd, rvscApplyCmd, rvscSystemCmd, applyCmd, systemCmd, firmwareCmd, assistantsCmd}
 
 // run is main without the process: it returns the exit code.
 func run(args []string, stdout, stderr io.Writer) int {
