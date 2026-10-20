@@ -385,8 +385,8 @@ func newFormCard(head fyne.CanvasObject, rows ...fyne.CanvasObject) fyne.CanvasO
 		rows = append([]fyne.CanvasObject{head}, rows...)
 	}
 	body := container.NewVBox(rows...)
-	return container.NewStack(newThemeRect(colorNameSurface, theme.ColorNameSeparator, -1, fyne.Size{}),
-		container.New(layout.NewCustomPaddedLayout(8, 12, 12, 12), body))
+	return container.NewStack(newCardRect(fyne.Size{}),
+		container.New(layout.NewCustomPaddedLayout(10, 14, 16, 16), body))
 }
 
 // cardTitle returns the title of a card without a header control.
@@ -615,11 +615,20 @@ type themeRect struct {
 	fill, stroke fyne.ThemeColorName
 	radius       float32
 	min          fyne.Size
+	shadow       bool // a soft shadow under it, as under a card
 }
 
 func newThemeRect(fill, stroke fyne.ThemeColorName, radius float32, min fyne.Size) *themeRect {
 	r := &themeRect{fill: fill, stroke: stroke, radius: radius, min: min}
 	r.ExtendBaseWidget(r)
+	return r
+}
+
+// newCardRect returns the background of a card: the surface, a 1 px
+// outline and a soft shadow.
+func newCardRect(min fyne.Size) *themeRect {
+	r := newThemeRect(colorNameSurface, theme.ColorNameSeparator, -1, min)
+	r.shadow = true
 	return r
 }
 
@@ -650,6 +659,11 @@ func (rr *themeRectRenderer) Refresh() {
 	rr.rect.CornerRadius = rr.r.radius
 	if rr.r.radius < 0 {
 		rr.rect.CornerRadius = th.Size(theme.SizeNameCardRadius)
+	}
+	rr.rect.Shadow = canvas.Shadow{}
+	if rr.r.shadow {
+		rr.rect.Shadow = canvas.Shadow{Color: th.Color(colorNameCardShadow, v), BlurRadius: 10,
+			Offset: fyne.NewPos(0, 2), Variant: canvas.DropShadow}
 	}
 	rr.rect.Refresh()
 }
