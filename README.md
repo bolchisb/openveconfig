@@ -61,6 +61,7 @@ openveconfig-cli rvsc-diff --port COM3 --unit HQ1234ABCDE backup.rvms   # does t
 openveconfig-cli rvsc-set backup.rvsc 2 14.6 -o edited.rvsc             # change one setting offline
 openveconfig-cli rvsc-apply --port COM3 --unit HQ1234ABCDE backup.rvms  # dry run; --yes writes the unit's settings
 openveconfig-cli rvsc-system backup.rvms site.vms -o new.rvms           # put a system layout into a GX backup (offline)
+openveconfig-cli firmware info 2600568.vff                              # check a .vff firmware file and show its parts (offline)
 openveconfig-cli system show --port COM3             # units of a VE.Bus system and the check of their records
 openveconfig-cli system write --port COM3 site.vms   # dry run of a System Configurator layout; --yes writes it
 openveconfig-cli system reset --port COM3 --yes      # restart every unit
