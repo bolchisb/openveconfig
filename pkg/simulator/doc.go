@@ -20,6 +20,13 @@
 // switched on and off with SetPowered and made to misbehave with
 // SetBehaviour.
 //
+// A device can also have an assistant area (AssistantMemory, #79). How a
+// real unit's area is transferred is not known, so the simulator reads
+// and writes it with its own made-up block codec (BlockCodec), which must
+// never be sent to a real device. The area contents (ErasedArea,
+// HeaderArea, ProgramArea) are synthetic, in the shapes of the project's
+// spec (#77).
+//
 // All device data is synthetic. The profiles (Synthetic12V230,
 // Synthetic48V120) use setting and RAM IDs and names from §7.3.13 and, for
 // some RAM variables, the example scale values printed in Appendix 2. Every

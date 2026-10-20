@@ -51,6 +51,10 @@ type FaultRule struct {
 	// Count is how many matching requests get the fault; 0 means all of
 	// them until ClearFaults.
 	Count int
+	// Skip is how many matching requests pass unharmed before the fault
+	// applies, for a fault in the middle of a sequence such as an area
+	// write.
+	Skip int
 }
 
 // InjectFault adds a fault rule.
@@ -92,11 +96,15 @@ func (s *Simulator) takeRawFault(sub byte) Fault {
 }
 
 // take returns the fault of the first rule that match accepts, or 0, and
-// uses up one count of that rule. s.mu is held.
+// uses up one count of that rule (or one skip). s.mu is held.
 func (s *Simulator) take(match func(FaultRule) bool) Fault {
 	for i, r := range s.faults {
 		if !match(r) {
 			continue
+		}
+		if r.Skip > 0 {
+			s.faults[i].Skip--
+			return 0
 		}
 		if r.Count > 0 {
 			if s.faults[i].Count--; s.faults[i].Count == 0 {

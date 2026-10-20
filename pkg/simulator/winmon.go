@@ -218,6 +218,17 @@ func (s *Simulator) cmdWinmon(_ *Line, f mk2.Frame) {
 		}
 		reply(p)
 
+	case WCmdBlockRead, WCmdBlockWrite: // the simulator's own codec (assistants.go)
+		if unsupported {
+			unknown(0)
+			return
+		}
+		if p := d.area.block(r.Cmd, r.Info); p != nil {
+			reply(p)
+			return
+		}
+		unknown(0)
+
 	default:
 		unknown(0)
 	}

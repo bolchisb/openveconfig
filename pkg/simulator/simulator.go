@@ -81,6 +81,9 @@ type Device struct {
 	// answers the raw system frames. Several system units may share an
 	// address (see SystemUnit).
 	System *SystemUnit
+	// Assistants, if set, gives the device an assistant area (see
+	// AssistantMemory).
+	Assistants *AssistantMemory
 }
 
 // Handler handles one MK2 command frame from the host. It runs with the
