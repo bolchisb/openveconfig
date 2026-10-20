@@ -28,7 +28,7 @@ import (
 )
 
 // vsLaidOut are the virtual switch groups whose page vsCards lays out.
-var vsLaidOut = []string{"On conditions", "Off conditions", "Options"}
+var vsLaidOut = []string{"On conditions", "Off conditions", "Options", "Virtual switch 2"}
 
 // unitSample is measured for the width of the unit after a level, so that
 // the words after it line up; it is not shown.
@@ -107,6 +107,32 @@ func (p *settingsPage) vsCards(d *vebus.Device, group string) []fyne.CanvasObjec
 				b.check(34, tr("Change inverter period time when virtual switch is on"), "", firstUsed),
 				b.check(35, tr("Change inverter period time on Udc"), "", nil),
 				b.period(period), higher, back, lower, compensated),
+		}
+	case "Virtual switch 2":
+		// The words follow the usage (vs2Labels); a new wording rebuilds
+		// the page.
+		p.vs2 = vs2Labels(d)
+		gen := vs2Generator(d)
+		start, loadHigh, loadLow, stop := tr("Do not ignore AC input"), tr("Do not ignore AC input when load higher than"),
+			tr("When accepting AC due to load, ignore AC when load lower than"), tr("When accepting AC due to a battery condition, ignore AC when")
+		if gen {
+			start, loadHigh, loadLow, stop = tr("Start generator"), tr("Start generator when load higher than"),
+				tr("Once started due to load condition, stop generator when load lower than"), tr("Once started due to a battery condition, stop generator when")
+		}
+		cards = []fyne.CanvasObject{
+			b.card(tr("Load conditions"),
+				b.cond(loadHigh, 52, 53, sec, nil),
+				b.cond(loadLow, 56, 57, minutes, nil)),
+			b.card(tr("Battery conditions"),
+				b.heading(start),
+				b.cond(tr("When Udc lower than"), 54, 55, sec, nil),
+				b.level(tr("When state of charge lower than"), 70),
+				b.stop(stop)),
+		}
+		if gen { // the generator's relay, as in the original (#6)
+			cards = append(cards, b.card("",
+				b.check(32, tr("Stop generator when AC2 available"), "", nil),
+				b.check(33, tr("Invert driving of auxiliary relay"), tr("(i.e. generator starts when relay NOT driven)"), nil)))
 		}
 	}
 	var shown []fyne.CanvasObject
@@ -206,16 +232,23 @@ func (b *vsBuilder) add(l *vsLine, r *settingRow) {
 // number returns the row of numeric setting n on l: an entry bound to the
 // model.
 func (b *vsBuilder) number(l *vsLine, n uint16) *settingRow {
+	d := b.d
+	return b.numberWith(l, n, numberEntryText, func(e vebus.Entry, text string) error { return setNumber(d, e, text) })
+}
+
+// numberWith is number with the text the entry shows (text) and how an
+// entered text is set (set).
+func (b *vsBuilder) numberWith(l *vsLine, n uint16, text func(*vebus.Device, vebus.Entry) string, set func(vebus.Entry, string) error) *settingRow {
 	u, d := b.p.u, b.d
 	e, _ := d.Catalogue().Entry(vebus.SettingID(n))
 	r := &settingRow{e: e, entry: newNumberEntry()}
 	r.focus = r.entry
 	r.formRow = newRowParts(b.p.cols, "", r.entry, "")
-	show := r.bindNumber(r.entry, func() string { return numberEntryText(d, e) }, func(text string) error {
+	show := r.bindNumber(r.entry, func() string { return text(d, e) }, func(entered string) error {
 		if u.settings.dev != d {
 			return nil
 		}
-		err := setNumber(d, e, text)
+		err := set(e, entered)
 		if err == nil {
 			u.settings.changed()
 		}
@@ -272,6 +305,73 @@ func (b *vsBuilder) cond(label string, level, delay uint16, word string, on func
 	l.delay = b.number(l, delay)
 	l.always = append(l.always, l.delay.entry)
 	parts = append(parts, numberBox(l.delay.entry), b.word(l, word))
+	return b.finish(l, label, b.p.cols, parts...)
+}
+
+// heading returns a line of text in the label column, over the lines
+// that follow it; it does not make a card.
+func (b *vsBuilder) heading(text string) fyne.CanvasObject {
+	o := container.New(layout.NewCustomPaddedLayout(0, 0, dotSize+theme.Padding(), 0), widget.NewLabel(text))
+	b.notes[o] = true
+	return o
+}
+
+// level returns the line "label [setting n] unit".
+func (b *vsBuilder) level(label string, n uint16) fyne.CanvasObject {
+	if !b.supported(vebus.SettingID(n)) {
+		return nil
+	}
+	l := &vsLine{d: b.d}
+	r := b.number(l, n)
+	unit := widget.NewLabel(newNumberView(b.d, r.e).unit)
+	l.always = append(l.always, r.entry)
+	l.lineText = append(l.lineText, unit)
+	return b.finish(l, label, b.p.cols, numberBox(r.entry), unit)
+}
+
+// stop returns the line of the second switch's stop condition: "label
+// [condition] [voltage] V for [delay] minutes" (settings 58 and 59; see
+// vs2StopSetting). While the delay is off the condition is not used; a
+// unit without the delay setting gets the line without it.
+func (b *vsBuilder) stop(label string) fyne.CanvasObject {
+	if !b.supported(vs2StopSetting) {
+		return nil
+	}
+	d := b.d
+	l := &vsLine{d: d}
+	r := b.numberWith(l, vs2StopSetting.Num, func(d *vebus.Device, e vebus.Entry) string {
+		if raw, _ := d.Raw(e.ID()); raw < 256 {
+			return "" // a stop condition, not a voltage
+		}
+		return numberEntryText(d, e)
+	}, func(e vebus.Entry, text string) error {
+		old, _ := d.Raw(e.ID())
+		err := setNumber(d, e, text)
+		if raw, _ := d.Raw(e.ID()); err == nil && raw < 256 {
+			// The value would read as a stop condition.
+			err = errors.Join(d.SetRaw(e.ID(), old), errors.New(tr("Enter a higher voltage.")))
+		}
+		return err
+	})
+	cond := widget.NewSelect(stopConditions(), nil)
+	b.p.bindStopCondition(r, cond, b.set)
+	r.control = cond
+	unit := widget.NewLabel(newNumberView(d, r.e).unit)
+	// The choice is as wide as its longest option, so the line fits.
+	th := theme.Current()
+	w := float32(0)
+	for _, o := range stopConditions() {
+		w = max(w, fyne.MeasureText(o, th.Size(theme.SizeNameText), fyne.TextStyle{}).Width)
+	}
+	w += 3*th.Size(theme.SizeNameInnerPadding) + th.Size(theme.SizeNameInlineIcon)
+	parts := []fyne.CanvasObject{container.New(fixedWidth(w), cond), numberBox(r.entry), unit}
+	if b.supported(vebus.SettingID(59)) {
+		l.delay = b.number(l, 59)
+		l.always = append(l.always, l.delay.entry)
+		parts = append(parts, b.word(l, tr("for")), numberBox(l.delay.entry), b.word(l, tr("minutes")))
+	}
+	l.level = append(l.level, cond, r.entry)
+	l.levelText = append(l.levelText, unit)
 	return b.finish(l, label, b.p.cols, parts...)
 }
 

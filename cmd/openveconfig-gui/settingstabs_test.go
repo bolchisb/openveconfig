@@ -163,6 +163,7 @@ func TestVirtualSwitchSubTabs(t *testing.T) {
 	d.AddSetting(38, mk2.SettingInfo{Sc: -60, Offset: -1, Max: 255}, 0)
 	d.AddSetting(43, mk2.SettingInfo{Sc: 1, Max: 1200}, 0)
 	d.AddSetting(52, mk2.SettingInfo{Sc: -10, Max: 500}, 100)
+	d.AddSetting(53, mk2.SettingInfo{Sc: -60, Offset: -1, Max: 255}, 0) // its delay: one line with 52
 	u.settings.load(d, nil)
 	titles := func() (s []string) {
 		for _, it := range p.subTabs.Items {
@@ -207,7 +208,7 @@ func TestVirtualSwitchSubTabs(t *testing.T) {
 		want  string
 	}{{3, "Do not ignore AC input when load higher than"}, {4, "Start generator when load higher than"}} {
 		usage(tc.usage)
-		if got := rowOf(t, vs2, vebus.SettingID(52)).label.Text; got != tc.want {
+		if got := rowOf(t, vs2, vebus.SettingID(52)).line.label.Text; got != tc.want {
 			t.Errorf("usage %d: setting 52 is %q, want %q", tc.usage, got, tc.want)
 		}
 	}
@@ -963,7 +964,7 @@ func TestStopCondition(t *testing.T) {
 	p := newSettingsPage(u, vebus.TabVirtualSwitch, "Virtual switch 2")
 	u.settings.load(d, nil)
 	r := rowOf(t, p, vs2StopSetting)
-	cond := r.control.(*fyne.Container).Objects[0].(*widget.Select)
+	cond := r.control.(*widget.Select)
 	if cond.Selected != "Absorption finished" || r.entry.Text != "" {
 		t.Fatalf("code 1: choice %q, entry %q", cond.Selected, r.entry.Text)
 	}
