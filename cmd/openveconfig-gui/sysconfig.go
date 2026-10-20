@@ -8,13 +8,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"slices"
 	"strconv"
-	"sync"
-	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -33,10 +30,6 @@ import (
 // systemConfigurators holds the open System Configurator of each ui. Used
 // on the UI goroutine only.
 var systemConfigurators = map[*ui]*sysConfig{}
-
-// systemOptions are the options of the system sessions. Tests shorten the
-// waits.
-var systemOptions bus.Options
 
 var vmsFilter = storage.NewExtensionFileFilter([]string{".vms"})
 
@@ -71,16 +64,11 @@ func showSystemConfigurator(u *ui) {
 }
 
 // sysConfig is the System Configurator window. Its fields are used on the
-// UI goroutine only, except bs.
+// UI goroutine only. Its busRunner's session is nil when it was opened
+// without a connection.
 type sysConfig struct {
-	u      *ui
-	sess   *session // nil when opened without a connection
-	win    fyne.Window
-	ctx    context.Context // ends when the window closes
-	cancel context.CancelFunc
-	// bs is the system session on sess's client, opened by the first
-	// operation. It is used inside sess.Do only.
-	bs *bus.Session
+	*busRunner
+	u *ui
 
 	layout       *system.Layout
 	busUnits     []*system.Unit  // the units of the last scan; nil before one
@@ -100,15 +88,11 @@ type sysConfig struct {
 	panel  *unitPanel
 
 	drag *cellView // the cell under a unit being dragged
-	// ops counts the operations of run that have not finished, done
-	// included.
-	ops sync.WaitGroup
 }
 
 func newSysConfig(u *ui, s *session) *sysConfig {
-	c := &sysConfig{u: u, sess: s, win: u.app.NewWindow(tr("System Configurator")), layout: system.NewLayout(),
-		active: map[uint32]byte{}, flashing: map[uint32]bool{}}
-	c.ctx, c.cancel = context.WithCancel(context.Background())
+	c := &sysConfig{busRunner: newBusRunner(u.app.NewWindow(tr("System Configurator")), s), u: u,
+		layout: system.NewLayout(), active: map[uint32]byte{}, flashing: map[uint32]bool{}}
 	c.status = widget.NewLabel("")
 	c.status.Wrapping = fyne.TextWrapWord
 	c.get = widget.NewButtonWithIcon(tr("Get configuration"), theme.DownloadIcon(), c.getConfiguration)
@@ -132,106 +116,6 @@ func newSysConfig(u *ui, s *session) *sysConfig {
 	c.win.Resize(fyne.NewSize(1100, 700))
 	c.refresh()
 	return c
-}
-
-// close stops what the window started: the operation in progress, the
-// keep-alive and the flashing LEDs.
-func (c *sysConfig) close() {
-	c.cancel()
-	if c.sess == nil {
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		c.sess.Do(ctx, func(context.Context, *mk2.Client) error {
-			if c.bs != nil {
-				c.bs.Close()
-			}
-			return nil
-		})
-	}()
-}
-
-// openBus opens c.bs on cl if it is not open. Call it inside sess.Do.
-func (c *sysConfig) openBus(ctx context.Context, cl *mk2.Client) error {
-	if c.bs != nil {
-		return nil
-	}
-	bs, err := bus.Open(ctx, cl, systemOptions)
-	if err != nil {
-		return err
-	}
-	c.bs = bs
-	return nil
-}
-
-// activeAddresses returns the short address of each unit of the last scan
-// of bs. Call it inside sess.Do.
-func activeAddresses(bs *bus.Session) map[uint32]byte {
-	m := map[uint32]byte{}
-	for _, u := range bs.Units() {
-		if a, ok := bs.ActiveAddress(u.LongID); ok {
-			m[u.LongID] = a
-		}
-	}
-	return m
-}
-
-// run runs op on the system session in the background, with a dialog that
-// shows its steps and can cancel it, and then calls done on the UI
-// goroutine with op's error. Cancelling a write leads to its rollback.
-func (c *sysConfig) run(title string, op func(ctx context.Context, bs *bus.Session, p bus.Progress) error, done func(err error)) {
-	ctx, cancel := context.WithCancel(c.ctx)
-	step := widget.NewLabel(tr("Checking the interface…"))
-	bar := widget.NewProgressBarInfinite()
-	d := dialog.NewCustomWithoutButtons(title, container.NewVBox(step, bar), c.win)
-	var stop *widget.Button
-	stop = widget.NewButton(tr("Cancel"), func() {
-		stop.Disable()
-		cancel()
-	})
-	d.SetButtons([]fyne.CanvasObject{stop})
-	d.Resize(fyne.NewSize(480, d.MinSize().Height))
-	d.Show()
-	progress := func(e bus.Event) {
-		text := stepText(e)
-		fyne.Do(func() { step.SetText(text) })
-	}
-	c.ops.Add(1)
-	go func() {
-		err := c.sess.Do(ctx, func(ctx context.Context, cl *mk2.Client) error {
-			if err := c.openBus(ctx, cl); err != nil {
-				return err
-			}
-			return op(ctx, c.bs, progress)
-		})
-		cancel()
-		fyne.Do(func() {
-			defer c.ops.Done()
-			bar.Stop()
-			d.Hide()
-			done(err)
-		})
-	}()
-}
-
-// showFailure shows the error of a system operation, unless the user
-// cancelled it before anything was written.
-func (c *sysConfig) showFailure(title string, err error, details string) {
-	var be *bus.Error
-	if !errors.As(err, &be) && errors.Is(err, context.Canceled) {
-		return
-	}
-	msg := failureText(err)
-	if details != "" {
-		msg += "\n\n" + details
-	}
-	text := widget.NewLabel(msg)
-	text.Wrapping = fyne.TextWrapWord
-	d := dialog.NewCustom(title, tr("OK"), container.NewVScroll(text), c.win)
-	d.Resize(fyne.NewSize(560, 360))
-	d.Show()
 }
 
 // getConfiguration finds the units and shows the layout their records

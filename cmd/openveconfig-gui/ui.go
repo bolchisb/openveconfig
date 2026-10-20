@@ -175,7 +175,8 @@ func newAppMenu(u *ui) *appMenu {
 	m.remote = item(tr("Remote panel"), func() { showRemotePanel(u) })
 	m.monitor = item(tr("VE.Bus monitor"), func() { showVEBusMonitor(u) })
 	tools := fyne.NewMenu(tr("Tools"), m.remote, m.monitor,
-		item(tr("System Configurator"), func() { showSystemConfigurator(u) }))
+		item(tr("System Configurator"), func() { showSystemConfigurator(u) }),
+		item(tr("Quick Configure"), func() { showQuickConfigure(u) }))
 
 	language := item(tr("Languages"), nil)
 	language.ChildMenu = languageMenu(u)

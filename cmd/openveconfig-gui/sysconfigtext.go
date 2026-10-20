@@ -139,6 +139,13 @@ func issueText(is system.Issue) string {
 		return tr("This old firmware may need a VE.Bus dongle for systems with more units; this program cannot check for it.")
 	case system.RuleAssistants:
 		return tr("Sending this configuration removes all assistants from {{.Units}}.", a)
+	case system.RuleQuickFirmware:
+		return tr("{{.Units}} has other firmware than the first unit. Only units of the same type and firmware version can be combined.", a)
+	case system.RuleQuickLetter:
+		a["Letter"] = distinctText(is.Units, (*system.Unit).LetterString)
+		return tr("{{.Units}} has another compatibility letter ({{.Letter}}) than the first unit; units in one phase need the same letter.", a)
+	case system.RuleQuickSplitModel:
+		return tr("{{.Units}} is a 120/240 V split-phase model, which cannot be used in a system of several phases.", a)
 	case system.RuleInconsistent:
 		return tr("The configuration stored in the units does not form a valid system, so every unit is shown as unconfigured. Arrange the units and send a new configuration.")
 	}
