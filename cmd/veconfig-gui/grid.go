@@ -176,6 +176,7 @@ func newGridTab(u *ui) *gridTabView {
 		g.paramsItem)
 	g.pg = newPage(tr("Grid"), tr("The grid code, and the limits within which the AC input is accepted."),
 		theme.LoginIcon(), vebus.TabGrid, withVisual(g.subTabs, pageVisual(u, vebus.TabGrid)))
+	g.ordinary.scroll = g.pg.scroll
 
 	u.settings.onChange(func(loaded bool) {
 		if loaded {

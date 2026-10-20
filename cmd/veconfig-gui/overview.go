@@ -72,7 +72,7 @@ func overviewContent(u *ui) fyne.CanvasObject {
 	conn := widget.NewCard("", tr("Connection"), container.NewVBox(status, container.NewHBox(unitBox, get, connect)))
 	heading := widget.NewLabelWithStyle(tr("Live values"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	heading.SizeName = theme.SizeNameSubHeadingText
-	return container.NewVScroll(container.NewVBox(conn, heading, empty, monitorPanel(u)))
+	return container.NewVBox(conn, heading, empty, monitorPanel(u))
 }
 
 // emptyState returns a card that says why there is nothing to show: an

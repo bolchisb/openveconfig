@@ -34,17 +34,21 @@ type page struct {
 	// nil for a page that always has something to show.
 	empty func() bool
 	view  fyne.CanvasObject // title, description and content
+	// scroll scrolls the whole page; its content has no scroll of its own.
+	scroll *container.Scroll
 }
 
 // newPage returns a page that shows content under its title and a one-line
-// description. Add it to ui.pages to list it in the sidebar.
+// description, all in one scroll area, so content must not scroll itself.
+// Add it to ui.pages to list it in the sidebar.
 func newPage(title, desc string, icon fyne.Resource, tab vebus.Tab, content fyne.CanvasObject) *page {
 	head := widget.NewRichText(
 		&widget.TextSegment{Text: title, Style: widget.RichTextStyle{SizeName: theme.SizeNameHeadingText, TextStyle: fyne.TextStyle{Bold: true}}},
 		&widget.TextSegment{Text: desc, Style: widget.RichTextStyle{ColorName: theme.ColorNamePlaceHolder}})
 	head.Wrapping = fyne.TextWrapWord
-	view := container.New(layout.NewCustomPaddedLayout(8, 0, 12, 12), container.NewBorder(head, nil, nil, nil, content))
-	return &page{title: title, desc: desc, icon: icon, tab: tab, view: view}
+	scroll := container.NewVScroll(container.New(layout.NewCustomPaddedLayout(0, 12, 0, 12), container.NewVBox(head, content)))
+	view := container.New(layout.NewCustomPaddedLayout(8, 0, 12, 0), scroll)
+	return &page{title: title, desc: desc, icon: icon, tab: tab, view: view, scroll: scroll}
 }
 
 // unavailable reports whether the loaded model has nothing to show on p.

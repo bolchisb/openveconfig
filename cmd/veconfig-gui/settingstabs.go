@@ -45,6 +45,10 @@ func settingsPages(u *ui) []*page {
 		}
 		pg := newPage(t.title, t.desc, t.icon, t.tab, withVisual(p.content, pageVisual(u, t.tab)))
 		pg.empty = p.empty
+		p.scroll = pg.scroll
+		for _, s := range p.sub {
+			s.scroll = pg.scroll
+		}
 		u.settings.onFind(func(e vebus.Entry) bool {
 			if e.Tab != t.tab {
 				return false
@@ -69,7 +73,7 @@ type settingsPage struct {
 	content *fyne.Container
 	rows    []*settingRow
 	cols    *formColumns        // the label column of the rows
-	scroll  *container.Scroll   // the scroll area of the rows; nil without rows
+	scroll  *container.Scroll   // the scroll area of the page the rows are on; nil until set
 	lead    []fyne.CanvasObject // shown above the cards
 	// sub are the pages of the sub-tabs of a tab shown as sub-tabs.
 	sub     []*settingsPage
@@ -211,7 +215,7 @@ func (p *settingsPage) note() fyne.CanvasObject {
 
 // build rebuilds the page for the loaded model.
 func (p *settingsPage) build() {
-	p.rows, p.scroll, p.switches = nil, nil, map[uint16]*valueSwitch{}
+	p.rows, p.switches = nil, map[uint16]*valueSwitch{}
 	d := p.u.settings.dev
 	var cards []fyne.CanvasObject
 	if d != nil {
@@ -259,8 +263,7 @@ func (p *settingsPage) build() {
 	case len(cards) == 0:
 		p.content.Objects = []fyne.CanvasObject{newForm(append(slices.Clone(p.lead), p.note())...)}
 	default:
-		p.scroll = newForm(append(slices.Clone(p.lead), cards...)...)
-		p.content.Objects = []fyne.CanvasObject{p.scroll}
+		p.content.Objects = []fyne.CanvasObject{newForm(append(slices.Clone(p.lead), cards...)...)}
 	}
 	p.update()
 	p.content.Refresh()

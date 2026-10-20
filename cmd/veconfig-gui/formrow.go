@@ -380,8 +380,8 @@ func cardTitle(title string) fyne.CanvasObject {
 
 // newForm returns cards in a column at most formMaxWidth wide, at the top
 // left of a vertical scroll area.
-func newForm(cards ...fyne.CanvasObject) *container.Scroll {
-	return container.NewVScroll(container.New(maxWidth(formMaxWidth), container.New(layout.NewCustomPaddedVBoxLayout(cardGap), cards...)))
+func newForm(cards ...fyne.CanvasObject) fyne.CanvasObject {
+	return container.New(maxWidth(formMaxWidth), container.New(layout.NewCustomPaddedVBoxLayout(cardGap), cards...))
 }
 
 // maxWidth lays its objects out at the left, at most its width wide unless
@@ -409,41 +409,59 @@ func withVisual(content, visual fyne.CanvasObject) fyne.CanvasObject {
 	if visual == nil {
 		return content
 	}
-	return container.New(visualLayout{}, content, visual)
+	return container.New(&visualLayout{}, content, visual)
 }
 
-// visualLayout lays out a page's content and its visual.
-type visualLayout struct{}
+// visualLayout lays out a page's content and its visual at their own
+// heights; the page scrolls them together.
+type visualLayout struct {
+	// width is the width of the last layout, which decides in MinSize
+	// whether the two are side by side.
+	width float32
+}
 
-func (visualLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
+func (l *visualLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
 	content, visual := objs[0], objs[1]
 	gap := 2 * theme.Current().Size(theme.SizeNamePadding)
+	if l.width != size.Width {
+		l.width = size.Width
+		defer func() {
+			for _, o := range objs {
+				o.Refresh() // the page's scroll area asks MinSize again
+			}
+		}()
+	}
 	if !visual.Visible() {
 		content.Move(fyne.NewPos(0, 0))
-		content.Resize(size)
+		content.Resize(fyne.NewSize(size.Width, content.MinSize().Height))
 		return
 	}
 	if size.Width >= sideBySideWidth {
 		vw := min(max(visualMinWidth, size.Width-formMaxWidth-gap), visualMaxWidth)
 		content.Move(fyne.NewPos(0, 0))
-		content.Resize(fyne.NewSize(size.Width-vw-gap, size.Height))
+		content.Resize(fyne.NewSize(size.Width-vw-gap, content.MinSize().Height))
 		visual.Move(fyne.NewPos(size.Width-vw, 0))
-		visual.Resize(fyne.NewSize(vw, min(visual.MinSize().Height, size.Height)))
+		visual.Resize(fyne.NewSize(vw, visual.MinSize().Height))
 		return
 	}
 	vh := visual.MinSize().Height
 	visual.Move(fyne.NewPos(0, 0))
 	visual.Resize(fyne.NewSize(min(size.Width, formMaxWidth), vh))
 	content.Move(fyne.NewPos(0, vh+gap))
-	content.Resize(fyne.NewSize(size.Width, max(0, size.Height-vh-gap)))
+	content.Resize(fyne.NewSize(size.Width, content.MinSize().Height))
 }
 
-func (visualLayout) MinSize(objs []fyne.CanvasObject) fyne.Size {
+func (l *visualLayout) MinSize(objs []fyne.CanvasObject) fyne.Size {
 	c, v := objs[0].MinSize(), objs[1].MinSize()
 	if !objs[1].Visible() {
 		return c
 	}
-	return fyne.NewSize(max(c.Width, v.Width), c.Height+v.Height)
+	w := max(c.Width, v.Width) // side by side only when there is room for both
+	if l.width >= sideBySideWidth {
+		return fyne.NewSize(w, max(c.Height, v.Height))
+	}
+	gap := 2 * theme.Current().Size(theme.SizeNamePadding)
+	return fyne.NewSize(w, c.Height+gap+v.Height)
 }
 
 // numberEntry is a short entry for a number. It hands its text to commit
