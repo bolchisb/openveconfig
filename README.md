@@ -112,7 +112,7 @@ Releases are made by pushing a `v*` tag (for example `v0.1.0`; a tag with a `-`,
 
 ## Contributing
 
-Suggestions, bug reports and ideas are welcome. Open an [issue](https://github.com/bolchisb/openveconfig/issues) or send a pull request.
+Suggestions, bug reports and ideas are welcome. Open an [issue](https://github.com/bolchisb/openveconfig/issues) or send a pull request; [CONTRIBUTING.md](CONTRIBUTING.md) explains the setup, the rules and the workflow.
 
 This is a clean-room, interoperability-only project. Before contributing, read the [clean-room and licensing policy](docs/CLEAN-ROOM.md): never paste decompiled code, data extracted from Victron software, firmware or help text into code, issues or pull requests.
 
