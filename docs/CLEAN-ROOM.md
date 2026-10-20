@@ -7,7 +7,7 @@ It applies to everything in the repository and on the project's GitHub pages: co
 ## Allowed sources
 
 - **Victron's public documents**, for example "Interfacing with VE.Bus products – MK2 Protocol 3.14", product manuals, the VEConfigure manual and the data communication whitepaper. Cite the document and section.
-- **Observations of our own hardware**, for example serial traffic captured with this project's own tool (`veconfig-cli --verbose`) on equipment we own.
+- **Observations of our own hardware**, for example serial traffic captured with this project's own tool (`openveconfig-cli --verbose`) on equipment we own.
 - **MIT-compatible community code**, with attribution (see [Third-party code](#third-party-code)).
 - **Public community findings** (forum posts, project write-ups), cited by URL and marked as community-reported where they are not confirmed by Victron.
 
@@ -16,7 +16,7 @@ It applies to everything in the repository and on the project's GitHub pages: co
 None of the following may appear in the repository, in issues or in pull requests, in whole or in part:
 
 - Decompiled or disassembled code from Victron software, or code transcribed from it.
-- Data tables, payloads, images, icons, help text, strings or translations extracted from Victron binaries. That includes built-in demo device descriptors and setting/variable tables. Exception: interoperability facts learnt through reverse engineering (setting, flag and RAM variable IDs, bit positions, scales, limits, enum values, which settings belong together) may be committed when they are restated in our own tables, with our own names and wording, and marked as reverse-engineered (decision of 2026-10-19). A second exception: short option labels that the original tool shows on screen, where installers rely on recognising them, may be reproduced word for word and are marked as such in the code; currently the virtual switch usage options (decision of 2026-10-20). Help text and longer texts stay excluded.
+- Data tables, payloads, images, icons, help text, strings or translations extracted from Victron binaries. That includes built-in demo device descriptors and setting/variable tables. Exception: interoperability facts learnt through reverse engineering (setting, flag and RAM variable IDs, bit positions, scales, limits, enum values, which settings belong together) may be committed when they are restated in our own tables, with our own names and wording, and marked as reverse-engineered (decision of 2026-10-19). A second exception: short option labels that the original tool shows on screen, where installers rely on recognising them, may be reproduced word for word and are marked as such in the code; currently the labels of the virtual switch pages: the usage options, the words of the condition and option lines and the LED alarm choices (decisions of 2026-10-20). Help text and longer texts stay excluded.
 - Victron firmware files (`.vff`, `.vfd`) and Victron assistant packages, or excerpts of them.
 - Private reverse-engineering notes, tool output, Ghidra projects, or screenshots of decompiled code.
 - Local filesystem paths of contributors' machines.

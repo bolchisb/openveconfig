@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 )
 
 // Load builds a model of the device at addr by reading, through c, the
@@ -25,7 +25,7 @@ func Load(ctx context.Context, c *mk2.Client, addr byte, cat *Catalogue) (*Devic
 	return d, nil
 }
 
-// dumpFile is the part of the JSON written by "veconfig-cli dump" that the
+// dumpFile is the part of the JSON written by "openveconfig-cli dump" that the
 // model needs. Derived fields (scaled values, scale) are recomputed.
 type dumpFile struct {
 	Address  *uint  `json:"address"`
@@ -52,7 +52,7 @@ type dumpFile struct {
 	} `json:"ram"`
 }
 
-// LoadDump builds a model from the JSON written by "veconfig-cli dump",
+// LoadDump builds a model from the JSON written by "openveconfig-cli dump",
 // using cat (DefaultCatalogue if nil). Every setting and RAM variable in it
 // is kept, including IDs not in the catalogue; its "errors" list is
 // ignored.

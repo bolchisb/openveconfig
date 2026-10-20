@@ -6,7 +6,7 @@
 
 ## Context
 
-`veconfig-gui` must be translatable from the start (#30): every UI string goes through one mechanism, English ships first, contributors add languages, the user picks the language in the settings with the OS locale as the default, and numbers are formatted per locale. Translations are written by contributors; Victron's catalogs must never be copied (see [CLEAN-ROOM.md](CLEAN-ROOM.md)).
+`openveconfig-gui` must be translatable from the start (#30): every UI string goes through one mechanism, English ships first, contributors add languages, the user picks the language in the settings with the OS locale as the default, and numbers are formatted per locale. Translations are written by contributors; Victron's catalogs must never be copied (see [CLEAN-ROOM.md](CLEAN-ROOM.md)).
 
 Two options were considered: Fyne's built-in `fyne.io/fyne/v2/lang`, or a gettext-style catalog.
 
@@ -20,14 +20,14 @@ So `lang` cannot meet "language selection in settings" on Windows and macOS.
 
 ## Decision
 
-Use [go-i18n](https://github.com/nicksnyder/go-i18n) v2 (MIT), the library under Fyne's `lang`, directly, through a small wrapper in `cmd/veconfig-gui/i18n.go`:
+Use [go-i18n](https://github.com/nicksnyder/go-i18n) v2 (MIT), the library under Fyne's `lang`, directly, through a small wrapper in `cmd/openveconfig-gui/i18n.go`:
 
 - `tr("English text {{.Name}}", args{"Name": v})` translates a message. The English text is the key, as with `lang.L`.
 - `trn("{{.Count}} item", "{{.Count}} items", n)` handles plural forms. The plural English text is the key.
 - `formatNumber(v, decimals)` formats a number for the UI locale with `golang.org/x/text/message` (for example `1,234.5` in English and `1.234,5` in German).
 - `setLanguage(tag)` picks the catalog and number format; `""` means the OS locale (read with Fyne's `lang.SystemLocale`). Languages without a catalog fall back to English.
 
-Catalogs are embedded from `cmd/veconfig-gui/translations/<tag>.json`, in the same JSON format Fyne uses. The language is chosen in Options > Language and saved in the Fyne preferences; it takes effect at the next start.
+Catalogs are embedded from `cmd/openveconfig-gui/translations/<tag>.json`, in the same JSON format Fyne uses. The language is chosen in Options > Language and saved in the Fyne preferences; it takes effect at the next start.
 
 ## Consequences
 

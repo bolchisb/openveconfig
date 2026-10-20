@@ -104,11 +104,11 @@ jobs:
           guiflags=""
           if [ "$GOOS" = windows ]; then ext=".exe"; guiflags="-H=windowsgui"; fi
           mkdir -p dist
-          go build -trimpath -o "dist/veconfig-cli$ext" ./cmd/veconfig-cli
-          go build -trimpath -ldflags "$guiflags" -o "dist/veconfig-gui$ext" ./cmd/veconfig-gui
+          go build -trimpath -o "dist/openveconfig-cli$ext" ./cmd/openveconfig-cli
+          go build -trimpath -ldflags "$guiflags" -o "dist/openveconfig-gui$ext" ./cmd/openveconfig-gui
       - uses: actions/upload-artifact@v4
         with:
-          name: veconfig-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: openveconfig-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/
 
   # Publishes the Linux test counts for the README badge. The JSON is kept on

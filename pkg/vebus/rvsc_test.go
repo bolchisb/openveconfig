@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bolchisb/victron-veconfigure-ported/internal/rvsctest"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/rvsc"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/simulator"
+	"github.com/bolchisb/openveconfig/internal/rvsctest"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/rvsc"
+	"github.com/bolchisb/openveconfig/pkg/simulator"
 )
 
 // testSpec is a synthetic one-unit file with the settings of the

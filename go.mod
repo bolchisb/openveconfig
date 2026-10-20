@@ -1,4 +1,4 @@
-module github.com/bolchisb/victron-veconfigure-ported
+module github.com/bolchisb/openveconfig
 
 go 1.27.0
 

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
-	"github.com/bolchisb/victron-veconfigure-ported/pkg/rvsc"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
+	"github.com/bolchisb/openveconfig/pkg/rvsc"
 )
 
 // FromRVSC builds a model of one unit of a .rvsc/.rvms file for offline

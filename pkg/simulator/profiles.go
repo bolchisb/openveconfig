@@ -1,6 +1,6 @@
 package simulator
 
-import "github.com/bolchisb/victron-veconfigure-ported/pkg/mk2"
+import "github.com/bolchisb/openveconfig/pkg/mk2"
 
 // Setting describes one simulated setting (§7.3.8, §7.3.13.2). Its value
 // starts at Default.

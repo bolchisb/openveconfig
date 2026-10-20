@@ -67,10 +67,10 @@ jobs:
           ext=""
           guiflags=""
           if [ "$GOOS" = windows ]; then ext=".exe"; guiflags="-H=windowsgui"; fi
-          name="veconfig-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
+          name="openveconfig-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
           mkdir -p "pkg/$name" dist
-          go build -trimpath -o "pkg/$name/veconfig-cli$ext" ./cmd/veconfig-cli
-          go build -trimpath -ldflags "$guiflags" -o "pkg/$name/veconfig-gui$ext" ./cmd/veconfig-gui
+          go build -trimpath -o "pkg/$name/openveconfig-cli$ext" ./cmd/openveconfig-cli
+          go build -trimpath -ldflags "$guiflags" -o "pkg/$name/openveconfig-gui$ext" ./cmd/openveconfig-gui
           cp LICENSE README.md THIRD_PARTY_NOTICES.md "pkg/$name/"
           cd pkg
           if [ "$GOOS" = windows ]; then
