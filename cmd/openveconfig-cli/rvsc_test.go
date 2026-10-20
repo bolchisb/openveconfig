@@ -13,11 +13,13 @@ import (
 
 // rvscSpec is a synthetic one-unit file with the settings of the
 // simulator's device 0 at their defaults, plus an invented grid-code
-// setting 81.
+// setting 81 and the info of setting 85 that the simulator gives a system
+// unit (demoAssistantUnit).
 func rvscSpec() rvsctest.File {
 	f := rvsctest.FromProfile(simulator.Synthetic12V230(), 192, 0x0A0B0C0D, "ZZ0001TEST")
 	f.Info[81] = mk2.SettingInfo{Sc: 1, Max: 20}
 	f.Units[0].Settings[81] = 3
+	f.Info[85] = mk2.SettingInfo{Sc: 1, Max: 1}
 	return f
 }
 
@@ -232,7 +234,7 @@ func TestRVSCApply(t *testing.T) {
 		"2 differences", "UBatAbsorption          14.6 V  14.4 V",
 		"planned   setting 0 (Flags0): 0x0080 -> 0x0090", "flag 4 (DoNotStopAfter10HrBulk): off -> on",
 		"planned   setting 2 (UBatAbsorption): 14.4 V (raw 1440) -> 14.6 V (raw 1460)",
-		"dry run: nothing was written", "assistant area was not applied")
+		"dry run: nothing was written", "assistants: kept as the device has them")
 	if n := writeFrames(errOut); n != 0 {
 		t.Errorf("%d writes in a dry run", n)
 	}
