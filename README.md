@@ -110,7 +110,7 @@ CI builds both binaries on native runners for windows/amd64, darwin/arm64, darwi
 
 Releases are made by pushing a `v*` tag (for example `v0.1.0`; a tag with a `-`, such as `v0.1.0-rc1`, becomes a pre-release) that points to a commit on `main`. The release workflow (`.github/workflows/release.yml`) refuses tags on other branches, runs the tests, and attaches the archives for all five platforms plus `SHA256SUMS.txt` to the GitHub release. On macOS the GUI comes as `OpenVeConfig.app`, with the CLI next to it.
 
-Signing: the macOS app and CLI are signed with a Developer ID (v0.0.1 has only an ad-hoc signature), but not yet notarized, so macOS blocks the app on first start. Allow it in **System Settings > Privacy & Security > Open Anyway** (on macOS 14 and earlier, right-clicking the app and choosing **Open** also works), or run `xattr -dr com.apple.quarantine OpenVeConfig.app`. The Windows `.exe` files are not code-signed, so SmartScreen may ask for confirmation (**More info** > **Run anyway**). Linux comes as a tarball; there is no AppImage.
+Signing: the macOS app and CLI are signed with a Developer ID and notarized by Apple, so macOS only asks for confirmation on first start. Older releases are not notarized (v0.0.2 is signed with a Developer ID, v0.0.1 has only an ad-hoc signature), so macOS blocks them on first start; allow them in **System Settings > Privacy & Security > Open Anyway** (on macOS 14 and earlier, right-clicking the app and choosing **Open** also works), or run `xattr -dr com.apple.quarantine OpenVeConfig.app`. The Windows `.exe` files are not code-signed, so SmartScreen may ask for confirmation (**More info** > **Run anyway**). Linux comes as a tarball; there is no AppImage.
 
 ## Contributing
 
