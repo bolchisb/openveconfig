@@ -205,6 +205,7 @@ func TestRealAssistantAreas(t *testing.T) {
 				t.Errorf("%s unit %d: %v", filepath.Base(p), i, err)
 				continue
 			}
+			t.Logf("%s unit %d: checksum OK %v", filepath.Base(p), i, assistant.ChecksumOK(img))
 			if len(img) != assistant.ImageSize {
 				t.Logf("%s unit %d: image of %d bytes", filepath.Base(p), i, len(img))
 			}

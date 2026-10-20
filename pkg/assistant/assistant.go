@@ -95,3 +95,23 @@ func Compact(img []byte) []byte {
 	}
 	return out
 }
+
+// Checksum returns the checksum stored in the last 4 bytes of an image: the
+// sum of every other byte, inverted, each shifted by 8 × (its offset mod
+// 4), minus 1 (reverse-engineered, #8). Both images checked, of one unit
+// with and without assistants, carry it; the first 6 bytes of the empty
+// one make it 0xFFFFFFFF, so its last 4 bytes are 0xFF like the free
+// space. img must have more than 4 bytes.
+func Checksum(img []byte) uint32 {
+	var sum uint32
+	for i, b := range img[:len(img)-4] {
+		sum += uint32(b^0xFF) << (8 * (i % 4))
+	}
+	return sum - 1
+}
+
+// ChecksumOK reports whether the last 4 bytes of img, little-endian, are
+// its Checksum.
+func ChecksumOK(img []byte) bool {
+	return len(img) > 4 && binary.LittleEndian.Uint32(img[len(img)-4:]) == Checksum(img)
+}

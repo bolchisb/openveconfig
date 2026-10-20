@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"testing"
 )
@@ -78,5 +79,23 @@ func TestExpandMalformed(t *testing.T) {
 		if _, err := Expand(b); !errors.Is(err, ErrFormat) {
 			t.Errorf("%s: %v, want ErrFormat", name, err)
 		}
+	}
+}
+
+func TestChecksum(t *testing.T) {
+	// Invented code bytes, then free space, then the checksum.
+	img := append([]byte{0x12, 0x34, 0x56, 0x78, 0x9A}, bytes.Repeat([]byte{0xFF}, 23)...)
+	// Inverted: ED CB A9 87 65; shifted by 0, 8, 16, 24, 0.
+	want := uint32(0xED) + 0xCB<<8 + 0xA9<<16 + 0x87<<24 + 0x65 - 1
+	if got := Checksum(append(img, 0, 0, 0, 0)); got != want {
+		t.Fatalf("checksum %08X, want %08X", got, want)
+	}
+	signed := binary.LittleEndian.AppendUint32(append([]byte(nil), img...), want)
+	if !ChecksumOK(signed) {
+		t.Error("a signed image is not OK")
+	}
+	signed[2] ^= 1
+	if ChecksumOK(signed) || ChecksumOK([]byte{1, 2, 3}) {
+		t.Error("a changed or short image is OK")
 	}
 }

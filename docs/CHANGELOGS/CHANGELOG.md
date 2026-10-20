@@ -10,6 +10,7 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 - **`pkg/assistant`** (#78): a unit's assistant area as an image. `Expand` turns the compact form of `.rvsc`/`.rvms` files (runs of literal bytes and fill bytes) into the image, and `Compact` turns an image back into that form (6 or more equal bytes become a fill run). The expanded size seen, 2816 bytes, is a constant but is not assumed.
 - **`pkg/rvsc`** (#78): `Unit.AssistantImage` and `Unit.SetAssistantImage` read and replace a unit's area; the rest of the file is unchanged. `TestRealAssistantAreas` (`RVSC_TESTDATA`) checks that real areas expand and compact back to the same bytes.
 - **Checked on a backup with assistants** (#78): the area of a file saved by VEConfigure (upload form) expands to 2816 bytes and compacts back byte for byte; its last run has the fill byte 0x00, which `Compact` now writes too.
+- **Image checksum** (#77, #80): `assistant.Checksum` and `ChecksumOK`. The last 4 bytes of an image are the sum of the other bytes, inverted and shifted by 8 × (offset mod 4), minus 1; checked on the same unit with an ESS assistant and without assistants (the empty image's first bytes make the checksum 0xFFFFFFFF).
 
 ### Access passwords (GUI, demo only)
 
