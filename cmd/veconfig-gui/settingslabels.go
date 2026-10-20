@@ -67,8 +67,8 @@ func settingLabels() map[vebus.ID]string {
 		s(87): tr("Temperature compensation"),
 
 		// Virtual switch: usage and options.
-		s(15): tr("The virtual switch controls"),
-		f(26): tr("Invert the virtual switch"),
+		s(15): tr("Specify virtual switch usage"),
+		f(26): tr("Invert virtual switch usage"),
 		s(43): tr("Minimum on time"),
 		f(34): tr("Shift the inverter frequency while on"),
 		s(62): tr("Inverter period while shifted"),
@@ -372,29 +372,22 @@ func choiceLabels() map[uint16]map[uint16]string {
 	return map[uint16]map[uint16]string{
 		// "Adaptive + BatterySafe" is the name Victron's public manuals use.
 		10: {1: tr("Fixed"), 2: tr("Adaptive"), 3: tr("Adaptive + BatterySafe")},
-		15: usageLabels(false),
+		15: usageLabels(),
 	}
 }
 
-// usageLabels returns the labels of the virtual switch usages (setting 15),
-// which say what the switch does when on; inverted turns that round.
-func usageLabels(inverted bool) map[uint16]string {
-	relay, ignore := tr("Relay: open while the switch is on, closed while it is off"), tr("AC input: ignored while the switch is on")
-	relayAnd, ignoreAnd := tr("Relay open while the switch is on, and the second switch ignores the AC input"),
-		tr("AC input ignored while the switch is on, and the second switch controls a generator")
-	if inverted {
-		relay, ignore = tr("Relay: closed while the switch is on, open while it is off"), tr("AC input: ignored while the switch is off")
-		relayAnd, ignoreAnd = tr("Relay closed while the switch is on, and the second switch ignores the AC input"),
-			tr("AC input ignored while the switch is off, and the second switch controls a generator")
-	}
+// usageLabels returns the labels of the virtual switch usages (setting 15).
+// They are the texts the original tool shows, kept word for word because
+// installers know them (user decision of 2026-10-20, see docs/CLEAN-ROOM.md).
+func usageLabels() map[uint16]string {
 	return map[uint16]string{
-		0: tr("Not used"),
-		1: relay,
-		2: ignore,
-		3: tr("Second switch only: it ignores the AC input"),
-		4: tr("Second switch only: it controls a generator"),
-		5: relayAnd,
-		6: ignoreAnd,
+		0: tr("Do not use VS"),
+		1: tr("drive multifunctional (aux.) relay: VS on=open; VS off=close"),
+		2: tr("ignore AC input: VS on=ignore; VS off=do not ignore"),
+		3: tr("dedicated ignore AC input"),
+		4: tr("dedicated generator control"),
+		5: tr("drive aux. relay (VS on=open) + dedicated ignore AC input"),
+		6: tr("ignore AC input (VS on=ignore) + dedicated generator control"),
 	}
 }
 

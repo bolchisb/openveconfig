@@ -724,10 +724,6 @@ func choiceOptions(d *vebus.Device, e vebus.Entry) ([]uint16, []string) {
 	}
 	slices.Sort(values)
 	names := choiceLabels()[e.Num]
-	if e.Num == 15 {
-		inverted, _ := d.Flag(26)
-		names = usageLabels(inverted)
-	}
 	labels := make([]string, len(values))
 	for i, v := range values {
 		switch {

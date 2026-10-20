@@ -150,8 +150,8 @@ func TestTabsShowSupportedEntriesOnly(t *testing.T) {
 }
 
 // TestVirtualSwitchSubTabs checks that the virtual switch sub-pages follow
-// the usage, that the usages are a list whose texts follow the inversion,
-// and that the inversion is only offered where it applies.
+// the usage, that the usages are a list, and that the inversion is only
+// offered where it applies.
 func TestVirtualSwitchSubTabs(t *testing.T) {
 	u := newTestUI(t)
 	p := newSubPages(u, vebus.TabVirtualSwitch)
@@ -196,18 +196,11 @@ func TestVirtualSwitchSubTabs(t *testing.T) {
 		}
 	}
 
-	// The usages are a list of all seven; their texts follow the inversion.
+	// The usages are a list of all seven, in the original tool's words.
 	row := rowOf(t, usagePage, vebus.SettingID(15))
 	radio := row.control.(*widget.RadioGroup)
-	if len(radio.Options) != 7 || !strings.Contains(radio.Options[1], "open while the switch is on") {
+	if len(radio.Options) != 7 || radio.Options[0] != "Do not use VS" || !strings.HasPrefix(radio.Options[1], "drive multifunctional (aux.) relay") {
 		t.Errorf("usages %q", radio.Options)
-	}
-	if err := d.SetFlag(26, true); err != nil {
-		t.Fatal(err)
-	}
-	u.settings.changed()
-	if !strings.Contains(radio.Options[1], "closed while the switch is on") {
-		t.Errorf("inverted usages %q", radio.Options)
 	}
 }
 
