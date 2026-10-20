@@ -68,3 +68,6 @@ GEMINI.md
 .amazonq/
 .tabnine/
 .specstory/
+
+# Local research notes, not part of the repository
+docs/RESEARCH/
