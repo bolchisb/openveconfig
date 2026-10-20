@@ -198,7 +198,10 @@ var masterValues = map[uint16][]vebus.ID{
 // groupOverrides moves entries to a group of the settings pages other than
 // their catalogue group: the low-temperature charge block gets a card of
 // its own, so that its switch does not sit on the temperature compensation.
-var groupOverrides = map[vebus.ID]string{vebus.SettingID(86): "Low-temperature charge block"}
+var groupOverrides = map[vebus.ID]string{
+	vebus.SettingID(86): "Low-temperature charge block",
+	vebus.FlagID(26):    "Usage", // the inversion goes with the usage, as in the original
+}
 
 // entryGroup returns the group e is shown in on the settings pages.
 func entryGroup(e vebus.Entry) string {
@@ -230,6 +233,12 @@ func valueSwitchHint(n uint16) string {
 // cardPairs are groups shown as the two columns of one card: the key's
 // group on the left, the value's on the right.
 var cardPairs = map[string]string{"Charge voltages and current": "Absorption"}
+
+// cardSplits are groups shown as one card with two columns: the entries
+// listed first on the left, the others on the right.
+var cardSplits = map[string][]vebus.ID{
+	"AC input voltage limits": {vebus.SettingID(44), vebus.SettingID(45)}, // low levels left, high right
+}
 
 // pairTitle returns the title of the card of the pair whose left group is
 // left.
@@ -361,17 +370,51 @@ func groupLabel(group string) string {
 // text.
 func choiceLabels() map[uint16]map[uint16]string {
 	return map[uint16]map[uint16]string{
-		10: {1: tr("Fixed"), 2: tr("Adaptive"), 3: tr("Adaptive, with a gradual absorption phase")},
-		15: {
-			0: tr("Nothing (not used)"),
-			1: tr("The relay"),
-			2: tr("Disconnecting the AC input"),
-			3: tr("Second switch disconnects the AC input"),
-			4: tr("Second switch runs a generator"),
-			5: tr("The relay and disconnecting the AC input"),
-			6: tr("Disconnecting the AC input; second switch runs a generator"),
-		},
+		// "Adaptive + BatterySafe" is the name Victron's public manuals use.
+		10: {1: tr("Fixed"), 2: tr("Adaptive"), 3: tr("Adaptive + BatterySafe")},
+		15: usageLabels(false),
 	}
+}
+
+// usageLabels returns the labels of the virtual switch usages (setting 15),
+// which say what the switch does when on; inverted turns that round.
+func usageLabels(inverted bool) map[uint16]string {
+	relay, ignore := tr("Relay: open while the switch is on, closed while it is off"), tr("AC input: ignored while the switch is on")
+	relayAnd, ignoreAnd := tr("Relay open while the switch is on, and the second switch ignores the AC input"),
+		tr("AC input ignored while the switch is on, and the second switch controls a generator")
+	if inverted {
+		relay, ignore = tr("Relay: closed while the switch is on, open while it is off"), tr("AC input: ignored while the switch is off")
+		relayAnd, ignoreAnd = tr("Relay closed while the switch is on, and the second switch ignores the AC input"),
+			tr("AC input ignored while the switch is off, and the second switch controls a generator")
+	}
+	return map[uint16]string{
+		0: tr("Not used"),
+		1: relay,
+		2: ignore,
+		3: tr("Second switch only: it ignores the AC input"),
+		4: tr("Second switch only: it controls a generator"),
+		5: relayAnd,
+		6: ignoreAnd,
+	}
+}
+
+// usageInvertible reports whether a virtual switch usage can be inverted:
+// those in which the first switch drives the relay or the AC input.
+func usageInvertible(usage uint16) bool { return usage == 1 || usage == 2 || usage == 5 || usage == 6 }
+
+// vsGroupShown reports whether the virtual switch sub-page of group is shown
+// for usage: only the usage page while the switch is not used; the first
+// switch's pages when it drives something (1, 2, 5, 6); the second switch's
+// page for usages 3 to 6. Reverse-engineered (#6); for 3 and 4 the first
+// switch's pages are taken to be hidden (inferred).
+func vsGroupShown(group string, usage uint16) bool {
+	switch group {
+	case "Usage":
+		return true
+	case "Virtual switch 2":
+		return usage >= 3
+	}
+	return usageInvertible(usage)
 }
 
 // flagChoices returns the flags shown as a choice of two: the label for

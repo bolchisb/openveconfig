@@ -76,8 +76,9 @@ type settingsPage struct {
 	scroll  *container.Scroll   // the scroll area of the page the rows are on; nil until set
 	lead    []fyne.CanvasObject // shown above the cards
 	// sub are the pages of the sub-tabs of a tab shown as sub-tabs.
-	sub     []*settingsPage
-	subTabs *container.AppTabs
+	sub       []*settingsPage
+	subTabs   *container.AppTabs
+	subsShown []bool // which sub-pages have a tab
 	// updating is set while the controls are set from the model, so their
 	// change callbacks do not write back.
 	updating bool
@@ -130,20 +131,39 @@ func newSubPages(u *ui, tab vebus.Tab) *settingsPage {
 	}
 	p.buildSubTabs()
 	u.settings.onChange(func(loaded bool) {
-		if loaded {
+		if loaded || !slices.Equal(p.shownSubs(), p.subsShown) {
 			p.buildSubTabs()
 		}
 	})
 	return p
 }
 
+// shownSubs returns which sub-pages are shown: those with a supported
+// entry, and on the virtual switch tab those the usage calls for.
+func (p *settingsPage) shownSubs() []bool {
+	usage, err := uint16(0), error(nil)
+	if d := p.u.settings.dev; d != nil && p.tab == vebus.TabVirtualSwitch {
+		usage, err = d.Raw(vebus.SettingID(15))
+	}
+	shown := make([]bool, len(p.sub))
+	for i, s := range p.sub {
+		shown[i] = !s.empty() && (p.tab != vebus.TabVirtualSwitch || err != nil || vsGroupShown(s.groups[0], usage))
+	}
+	return shown
+}
+
 // buildSubTabs rebuilds the sub-tabs. Registered after the sub-pages, so
 // they are built first.
 func (p *settingsPage) buildSubTabs() {
+	var selected fyne.CanvasObject
+	if p.subTabs != nil && p.subTabs.Selected() != nil {
+		selected = p.subTabs.Selected().Content
+	}
 	p.subTabs = nil
+	p.subsShown = p.shownSubs()
 	var items []*container.TabItem
-	for _, s := range p.sub {
-		if !s.empty() {
+	for i, s := range p.sub {
+		if p.subsShown[i] {
 			items = append(items, container.NewTabItem(groupLabel(s.groups[0]), s.content))
 		}
 	}
@@ -151,6 +171,11 @@ func (p *settingsPage) buildSubTabs() {
 		p.content.Objects = []fyne.CanvasObject{p.note()}
 	} else {
 		p.subTabs = container.NewAppTabs(items...)
+		for _, it := range items {
+			if it.Content == selected {
+				p.subTabs.Select(it)
+			}
+		}
 		p.content.Objects = []fyne.CanvasObject{p.subTabs}
 	}
 	p.content.Refresh()
@@ -179,7 +204,7 @@ func (p *settingsPage) empty() bool {
 // focuses its control.
 func (p *settingsPage) show(e vebus.Entry) {
 	for _, s := range p.sub {
-		if s.groups[0] == e.Group && p.subTabs != nil {
+		if s.groups[0] == entryGroup(e) && p.subTabs != nil {
 			for _, it := range p.subTabs.Items {
 				if it.Content == s.content {
 					p.subTabs.Select(it)
@@ -225,7 +250,7 @@ func (p *settingsPage) build() {
 		byGroup := map[string][]vebus.Entry{}
 		var order, texts []string
 		for _, e := range d.Entries() {
-			if e.Tab != p.tab || e.FlagWord || (len(p.groups) > 0 && !slices.Contains(p.groups, e.Group)) {
+			if e.Tab != p.tab || e.FlagWord || (len(p.groups) > 0 && !slices.Contains(p.groups, entryGroup(e))) {
 				continue
 			}
 			g := entryGroup(e)
@@ -246,6 +271,9 @@ func (p *settingsPage) build() {
 			if _, ok := paired[g]; ok {
 				continue
 			}
+			if _, ok := cardSplits[g]; ok {
+				continue
+			}
 			for _, e := range byGroup[g] {
 				if !isMasterFlag(e) {
 					texts = append(texts, entryName(e, labels))
@@ -256,8 +284,20 @@ func (p *settingsPage) build() {
 		for _, g := range order {
 			if r, ok := paired[g]; ok {
 				if r != "" {
-					cards = append(cards, p.pairCard(g, r, byGroup, labels))
+					cards = append(cards, p.pairCard(pairTitle(g), byGroup[g], byGroup[r], labels))
 				}
+				continue
+			}
+			if leftIDs, ok := cardSplits[g]; ok {
+				var left, right []vebus.Entry
+				for _, e := range byGroup[g] {
+					if slices.Contains(leftIDs, e.ID()) {
+						left = append(left, e)
+					} else {
+						right = append(right, e)
+					}
+				}
+				cards = append(cards, p.pairCard(groupLabel(g), left, right, labels))
 				continue
 			}
 			head := cardTitle(groupLabel(g))
@@ -329,6 +369,9 @@ func (p *settingsPage) update() {
 			}
 		}
 	}
+	if usage, err := d.Raw(vebus.SettingID(15)); err == nil {
+		enabled[vebus.FlagID(26)] = usageInvertible(usage)
+	}
 	for n, ids := range masterValues {
 		raw, err := d.Raw(vebus.SettingID(n))
 		if err != nil {
@@ -375,25 +418,25 @@ func (p *settingsPage) update() {
 	}
 }
 
-// pairCard returns the card that shows the groups left and right as two
-// columns, which share a narrower label column of their own.
-func (p *settingsPage) pairCard(left, right string, byGroup map[string][]vebus.Entry, labels map[vebus.ID]string) fyne.CanvasObject {
+// pairCard returns a card titled title that shows the entries left and
+// right as two columns, which share a narrower label column of their own.
+func (p *settingsPage) pairCard(title string, left, right []vebus.Entry, labels map[vebus.ID]string) fyne.CanvasObject {
 	cols := &formColumns{control: pairControlWidth}
 	var texts []string
-	for _, e := range append(slices.Clone(byGroup[left]), byGroup[right]...) {
+	for _, e := range append(slices.Clone(left), right...) {
 		texts = append(texts, entryName(e, labels))
 	}
 	cols.fitWithin(texts, pairLabelWidth)
-	column := func(g string) fyne.CanvasObject {
+	column := func(entries []vebus.Entry) fyne.CanvasObject {
 		var rows []fyne.CanvasObject
-		for _, e := range byGroup[g] {
+		for _, e := range entries {
 			r := p.newRow(cols, e, entryName(e, labels), "")
 			p.rows = append(p.rows, r)
 			rows = append(rows, r.root)
 		}
 		return container.NewVBox(rows...)
 	}
-	return newFormCard(cardTitle(pairTitle(left)), newTwoColumns(column(left), column(right)))
+	return newFormCard(cardTitle(title), newTwoColumns(column(left), column(right)))
 }
 
 // setShown shows or hides o.
@@ -534,7 +577,7 @@ func (p *settingsPage) newRow(cols *formColumns, e vebus.Entry, label, title str
 		}
 	case len(e.Choices) > 0:
 		values, opts := choiceOptions(d, e)
-		if len(values) <= 3 {
+		if len(values) <= 3 || e.Num == 15 { // the usages as a list, as in the original
 			radio := newRadio(opts)
 			radio.OnChanged = func(s string) {
 				if i := slices.Index(radio.Options, s); !p.updating && i >= 0 {
@@ -681,6 +724,10 @@ func choiceOptions(d *vebus.Device, e vebus.Entry) ([]uint16, []string) {
 	}
 	slices.Sort(values)
 	names := choiceLabels()[e.Num]
+	if e.Num == 15 {
+		inverted, _ := d.Flag(26)
+		names = usageLabels(inverted)
+	}
 	labels := make([]string, len(values))
 	for i, v := range values {
 		switch {

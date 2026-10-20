@@ -149,27 +149,65 @@ func TestTabsShowSupportedEntriesOnly(t *testing.T) {
 	}
 }
 
-// TestVirtualSwitchSubTabs loads a model with virtual switch settings
-// and checks that each group with a supported entry gets a sub-tab.
+// TestVirtualSwitchSubTabs checks that the virtual switch sub-pages follow
+// the usage, that the usages are a list whose texts follow the inversion,
+// and that the inversion is only offered where it applies.
 func TestVirtualSwitchSubTabs(t *testing.T) {
 	u := newTestUI(t)
 	p := newSubPages(u, vebus.TabVirtualSwitch)
 	d := vebus.NewDevice(nil)
-	d.AddSetting(15, mk2.SettingInfo{Sc: 1, Max: 6}, 1)
+	d.AddSetting(1, mk2.SettingInfo{Sc: 1, Max: 1 << 10}, 0) // flag 26 (invert)
+	d.AddSetting(15, mk2.SettingInfo{Sc: 1, Max: 6}, 0)
 	d.AddSetting(16, mk2.SettingInfo{Sc: -10, Max: 500}, 100)
+	d.AddSetting(52, mk2.SettingInfo{Sc: -10, Max: 500}, 100)
 	u.settings.load(d, nil)
-	var titles []string
-	for _, it := range p.subTabs.Items {
-		titles = append(titles, it.Text)
+	titles := func() (s []string) {
+		for _, it := range p.subTabs.Items {
+			s = append(s, it.Text)
+		}
+		return s
 	}
-	if !slices.Equal(titles, []string{"Usage", "Switch on when"}) {
-		t.Errorf("sub-tabs = %v, want Usage and Switch on when", titles)
+	usage := func(v uint16) {
+		t.Helper()
+		if err := d.SetRaw(vebus.SettingID(15), v); err != nil {
+			t.Fatal(err)
+		}
+		u.settings.changed()
 	}
-	// The usage choice offers the catalogue values within the device's
-	// range.
-	_, labels := choiceOptions(d, mustEntry(t, d, vebus.SettingID(15)))
-	if len(labels) != 7 || labels[1] != "The relay" {
-		t.Errorf("usage choices = %q", labels)
+	usagePage := p.sub[slices.IndexFunc(p.sub, func(s *settingsPage) bool { return s.groups[0] == "Usage" })]
+	invert := rowOf(t, usagePage, vebus.FlagID(26))
+
+	for _, tc := range []struct {
+		usage      uint16
+		tabs       []string
+		invertible bool
+	}{
+		{0, []string{"Usage"}, false},
+		{1, []string{"Usage", "Switch on when"}, true},
+		{3, []string{"Usage", "Second switch"}, false},
+		{5, []string{"Usage", "Switch on when", "Second switch"}, true},
+	} {
+		usage(tc.usage)
+		if !slices.Equal(titles(), tc.tabs) {
+			t.Errorf("usage %d: sub-tabs %v, want %v", tc.usage, titles(), tc.tabs)
+		}
+		if got := !invert.control.(fyne.Disableable).Disabled(); got != tc.invertible {
+			t.Errorf("usage %d: inversion offered %v, want %v", tc.usage, got, tc.invertible)
+		}
+	}
+
+	// The usages are a list of all seven; their texts follow the inversion.
+	row := rowOf(t, usagePage, vebus.SettingID(15))
+	radio := row.control.(*widget.RadioGroup)
+	if len(radio.Options) != 7 || !strings.Contains(radio.Options[1], "open while the switch is on") {
+		t.Errorf("usages %q", radio.Options)
+	}
+	if err := d.SetFlag(26, true); err != nil {
+		t.Fatal(err)
+	}
+	u.settings.changed()
+	if !strings.Contains(radio.Options[1], "closed while the switch is on") {
+		t.Errorf("inverted usages %q", radio.Options)
 	}
 }
 
