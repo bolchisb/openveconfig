@@ -19,6 +19,10 @@ type Ctx struct {
 // Pos returns the file and line being assembled.
 func (c *Ctx) Pos() string { return c.pos }
 
+// Source returns the name of the .SOURCE file whose label space the line
+// is in (the main source's name outside any).
+func (c *Ctx) Source() string { return c.f.space.name }
+
 // Pass returns the pass number, from 1.
 func (c *Ctx) Pass() int { return c.a.pass }
 
@@ -84,16 +88,17 @@ func (c *Ctx) assign(name string, v Value) error {
 	return nil
 }
 
-// call calls an added Func or a function label (name(p1, …) .EQU expr).
+// call calls a function label (name(p1, …) .EQU expr) or else an added
+// Func: the source's own definitions come first.
 func (c *Ctx) call(name string, args []Value) (Value, bool, error) {
-	for n, fn := range c.a.Funcs {
-		if strings.EqualFold(n, name) {
-			v, err := fn(c, args)
-			return v, true, err
-		}
-	}
 	l := c.a.find(c.f, c.fns, name)
 	if l == nil || l.fn == nil {
+		for n, fn := range c.a.Funcs {
+			if strings.EqualFold(n, name) {
+				v, err := fn(c, args)
+				return v, true, err
+			}
+		}
 		return Value{}, false, nil
 	}
 	if l.pass < c.a.pass {

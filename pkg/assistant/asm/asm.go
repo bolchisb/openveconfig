@@ -60,7 +60,8 @@ type Func func(c *Ctx, args []Value) (Value, error)
 type Assembler struct {
 	// Open returns the text of a file named by .INSERT or .SOURCE.
 	Open func(name string) ([]byte, error)
-	// Labels are global constants, defined at the start of each pass.
+	// Labels are global labels, defined at the start of each pass. The
+	// source may change them as with .SET.
 	Labels map[string]Value
 	// Directives and Funcs extend the assembler. Their names are not
 	// case-sensitive; directive names include the leading dot. They are
@@ -120,6 +121,7 @@ type function struct {
 }
 
 type space struct {
+	name   string // the .SOURCE file (the main source's name for its own)
 	labels map[string]*label
 	global bool // .GLOBAL True
 }
@@ -186,9 +188,9 @@ func (a *Assembler) Assemble(name string, src []byte) (*Result, error) {
 		a.nspace, a.nlocal = 0, 0
 		a.snapshot()
 		for n, v := range a.Labels {
-			a.set(a.lookupOrCreate(a.global, n), v, nil, true)
+			a.set(a.lookupOrCreate(a.global, n), v, nil, false)
 		}
-		err = a.run(&frame{lines: lines, space: a.newSpace()})
+		err = a.run(&frame{lines: lines, space: a.newSpace(name)})
 		if errors.Is(err, ErrRestart) {
 			return nil, err
 		}
@@ -248,12 +250,12 @@ func (a *Assembler) changed() bool {
 
 // newSpace returns the label space of the next .SOURCE in this pass: the
 // one in the same place in the previous pass.
-func (a *Assembler) newSpace() *space {
+func (a *Assembler) newSpace(name string) *space {
 	if a.nspace == len(a.spaces) {
 		a.spaces = append(a.spaces, &space{labels: map[string]*label{}})
 	}
 	s := a.spaces[a.nspace]
-	s.global = false
+	s.name, s.global = name, false
 	a.nspace++
 	return s
 }
@@ -956,7 +958,7 @@ func include(own bool) builtinDirective {
 		}
 		sp, local := c.f.space, c.f.local
 		if own {
-			sp, local = a.newSpace(), nil
+			sp, local = a.newSpace(name), nil
 		}
 		return a.push(&frame{lines: splitLines(name, src), space: sp, local: local})
 	}
