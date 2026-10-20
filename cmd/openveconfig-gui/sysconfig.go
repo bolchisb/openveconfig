@@ -344,6 +344,11 @@ func (c *sysConfig) refresh() {
 		}
 	}
 	c.panel.update()
+	// The grid, the check and the panel change size: lay out the window
+	// again.
+	if content := c.win.Content(); content != nil {
+		content.Refresh()
+	}
 }
 
 // buildGrid rebuilds the grid of the layout and the unconfigured area.
