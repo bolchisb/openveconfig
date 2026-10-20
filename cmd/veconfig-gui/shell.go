@@ -250,11 +250,8 @@ func primaryAction(u *ui, c changeCounts) (label string, do func(), reason strin
 	m, s := u.settings, u.sess
 	if m.file != nil {
 		label, do = tr("Save file"), func() { saveSettingsFile(u) }
-		switch {
-		case c.invalid > 0:
+		if c.invalid > 0 {
 			reason = tr("Correct the invalid values to save.")
-		case c.gridWords > 0:
-			reason = tr("Undo the grid parameter changes to save.")
 		}
 		return label, do, reason
 	}
@@ -266,8 +263,8 @@ func primaryAction(u *ui, c changeCounts) (label string, do func(), reason strin
 		reason = tr("The device these settings were read from is not on the bus.")
 	case c.invalid > 0:
 		reason = tr("Correct the invalid values to send.")
-	case c.gridWords > 0:
-		reason = tr("Undo the grid parameter changes to send.")
+	case c.gridWords > 0 || c.gridCode:
+		reason = tr("Undo the grid code and grid parameter changes to send.")
 	}
 	return label, do, reason
 }

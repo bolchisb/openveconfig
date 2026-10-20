@@ -1,6 +1,10 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+
+	"github.com/bolchisb/victron-veconfigure-ported/pkg/gridcode"
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/rvsc"
 	"github.com/bolchisb/victron-veconfigure-ported/pkg/vebus"
 )
@@ -91,14 +95,53 @@ func (sf *settingsFile) device() (*vebus.Device, error) {
 // and returns the file's bytes. The caller loads a fresh model afterwards,
 // so the saved values count as unchanged.
 //
-// A changed grid code is saved; changed grid parameters are refused, as
-// for sending (gridWriteCheck).
+// A changed grid code and changed grid parameters are saved with newly
+// stamped checker words (checkerWords); without grid changes the checker
+// words stay as they are.
 func (sf *settingsFile) save(d *vebus.Device) ([]byte, error) {
-	if err := gridWriteCheck(d); err != nil {
-		return nil, err
+	pair, stamp, err := sf.checkerWords(d)
+	if err == nil {
+		_, err = vebus.SaveRVSC(d, sf.unit, vebus.SaveOptions{AllowGridCode: true})
 	}
-	if _, err := vebus.SaveRVSC(d, sf.unit, vebus.SaveOptions{AllowGridCode: true}); err != nil {
+	if err == nil && stamp {
+		err = errors.Join(sf.unit.SetSetting(int(firstGridWord), pair.A), sf.unit.SetSetting(int(lastGridWord), pair.B))
+	}
+	if err != nil {
 		return nil, &uiError{err: err, msg: tr("The settings cannot be saved: {{.Err}}", args{"Err": err})}
 	}
 	return sf.f.MarshalBinary()
+}
+
+// checkerWords returns the checker words to save with d, the model of the
+// selected unit, and whether to save them: when d's grid code or grid
+// words differ from the file and d has the checker words. They are
+// stamped (gridcode.Stamp) from the file's pair, d's grid code and that
+// code's parameter-set version in the file's grid-info table, and must
+// pass both consistency checks.
+func (sf *settingsFile) checkerWords(d *vebus.Device) (gridcode.Pair, bool, error) {
+	if len(changedGridSettings(d)) == 0 || !d.Supported(vebus.SettingID(firstGridWord)) {
+		return gridcode.Pair{}, false, nil
+	}
+	var old gridcode.Pair
+	a, errA := sf.unit.Setting(int(firstGridWord))
+	b, errB := sf.unit.Setting(int(lastGridWord))
+	code, errC := d.Raw(vebus.SettingID(gridCodeSetting))
+	table, errT := sf.f.GridInfo()
+	if err := errors.Join(errA, errB, errC, errT); err != nil {
+		return old, false, err
+	}
+	old = gridcode.Pair{A: a, B: b}
+	g := gridcode.Code(code)
+	v, err := gridcode.ParamSetVersion(table, g)
+	if err != nil {
+		return old, false, err
+	}
+	p, err := gridcode.Stamp(old, g, v)
+	if err != nil {
+		return old, false, err
+	}
+	if header, version := p.CheckShown(g, v); !p.Consistent(g, v) || !header || !version {
+		return old, false, fmt.Errorf("the new check words %#04x/%#04x do not fit grid code %d", p.A, p.B, g)
+	}
+	return p, true, nil
 }

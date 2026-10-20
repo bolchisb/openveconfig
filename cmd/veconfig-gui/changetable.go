@@ -331,9 +331,15 @@ func changeRows(u *ui, d, before *vebus.Device) []changeRow {
 		if slices.ContainsFunc(rows, func(r changeRow) bool { return r.id == id }) {
 			continue
 		}
-		r := add(id)
-		r.marks = append(r.marks, rowMark{tr("cannot be sent yet"), theme.ColorNameError})
-		rows = append(rows, r)
+		rows = append(rows, add(id))
+	}
+	// Grid changes are never sent to a device (gridWriteCheck).
+	if u.settings.file == nil {
+		for i := range rows {
+			if rows[i].id.Kind == vebus.Setting && vebus.GridCodeSetting(rows[i].id.Num) {
+				rows[i].marks = append(rows[i].marks, rowMark{tr("cannot be sent yet"), theme.ColorNameError})
+			}
+		}
 	}
 	return markIssues(u, d, rows, validationErrors(d))
 }

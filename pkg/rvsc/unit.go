@@ -106,6 +106,43 @@ func (f *File) SettingInfo() (*SettingInfoTable, error) {
 	return t, nil
 }
 
+// GridInfo returns a copy of the grid-info table stored at the end of the
+// BareSettingInfo section, or nil when the section holds none. The table
+// carries, per grid code, the parameter-set version that the grid checker
+// words use (pkg/gridcode.ParamSetVersion).
+//
+// Reverse-engineered (#27), layout INFERRED: after the setting records
+// come bytes not decoded, one access byte per setting, a u16 length L and
+// the L-byte table, which runs to the end of the section. Since the length
+// of the undecoded bytes is not known, the table is found as the one place
+// after room for the access bytes where a u16 equals the number of bytes
+// after it, at least the table's 5-byte header. More than one such place
+// is an ErrFormat error.
+func (f *File) GridInfo() ([]byte, error) {
+	t, err := f.SettingInfo()
+	if err != nil {
+		return nil, err
+	}
+	s, _ := f.section(SectionSettingInfo)
+	tail := s.Payload[infoHeaderLen+infoRecordLen*len(t.Settings):]
+	found := -1
+	for i := len(t.Settings); i+2 <= len(tail); i++ {
+		if l := int(binary.LittleEndian.Uint16(tail[i:])); l >= gridInfoMinLen && l == len(tail)-i-2 {
+			if found >= 0 {
+				return nil, fmt.Errorf("%w: %s holds more than one possible grid-info table", ErrFormat, SectionSettingInfo)
+			}
+			found = i
+		}
+	}
+	if found < 0 {
+		return nil, nil
+	}
+	return append([]byte(nil), tail[found+2:]...), nil
+}
+
+// gridInfoMinLen is the length of the grid-info table's header.
+const gridInfoMinLen = 5
+
 // Unit is one BareSettingData section: one VE.Bus unit's identity, setting
 // values and assistant area. The identity fields are read when Units is
 // called; changing them does not change the file. Setting values are read
