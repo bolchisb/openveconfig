@@ -13,6 +13,7 @@ import (
 	"io"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -99,6 +100,9 @@ type sysConfig struct {
 	panel  *unitPanel
 
 	drag *cellView // the cell under a unit being dragged
+	// ops counts the operations of run that have not finished, done
+	// included.
+	ops sync.WaitGroup
 }
 
 func newSysConfig(u *ui, s *session) *sysConfig {
@@ -194,6 +198,7 @@ func (c *sysConfig) run(title string, op func(ctx context.Context, bs *bus.Sessi
 		text := stepText(e)
 		fyne.Do(func() { step.SetText(text) })
 	}
+	c.ops.Add(1)
 	go func() {
 		err := c.sess.Do(ctx, func(ctx context.Context, cl *mk2.Client) error {
 			if err := c.openBus(ctx, cl); err != nil {
@@ -203,6 +208,7 @@ func (c *sysConfig) run(title string, op func(ctx context.Context, bs *bus.Sessi
 		})
 		cancel()
 		fyne.Do(func() {
+			defer c.ops.Done()
 			bar.Stop()
 			d.Hide()
 			done(err)
