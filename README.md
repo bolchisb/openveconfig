@@ -74,6 +74,8 @@ The `rvsc-*` commands work on the `.rvsc`/`.rvms` files of a GX device's backup 
 
 The `system` commands configure multi-unit VE.Bus systems (parallel, split and three phase); with `--simulator` they use a simulated system of two units in parallel. `system write` is a dry run without `--yes`. A write is refused before anything is sent when the layout fails the system check or does not have exactly the units on the bus; a write that removes assistants also needs `--remove-assistants`. Every unit is written and read back; if one fails, the previous configuration is written back to every unit and the system is not restarted. `reset` and `standalone` are refused without `--yes`, and `standalone` also unless exactly one unit answers. These commands switch the whole system off for a moment.
 
+How these and the other write features are tested on real units, with backups and abort criteria, is in [docs/HARDWARE-TESTING.md](docs/HARDWARE-TESTING.md).
+
 ## Graphical tool
 
 `openveconfig-gui` is the desktop application. The start screen offers to connect a device, open a settings file (with the recent files) or try the demo. **Connect…** opens the connection dialog: choose a serial port (or **Auto-detect**, or **Demo** for the built-in simulator, which is marked in the header and the window title while active). The header shows the unit being edited and where it comes from; a sidebar leads to the pages. It offers:
