@@ -40,9 +40,29 @@ func choice(name string, word, mask uint16, def int, choices map[int]string) Par
 	return p
 }
 
-func (p Param) signed() Param     { p.Signed = true; return p }
-func (p Param) reciprocal() Param { p.Reciprocal = true; return p }
-func (p Param) inverted() Param   { p.Inverted = true; return p }
+// overVoltage is the over-voltage trip on the 10-minute running average,
+// a 32-bit field in settings 129 (low) and 130 (high), in volts, with the
+// field values of its limits and default (V x 20000).
+func overVoltage(min, max, def int) Param {
+	p := num(overVoltage10Min, 129, 0xFFFF, 5e-05, 0, "V", min, max, def)
+	p.High, p.Decimals = 130, 1
+	return p
+}
+
+func (p Param) signed() Param { p.Signed = true; return p }
+
+// needs makes p usable only while the field mask of word is not 0.
+// tripDelay is a TOR-D4 trip delay of 0-180 s (see Param.TripDelay), 0 s
+// by default.
+func tripDelay(name string, word uint16) Param {
+	p := num(name, word, 0xFFFF, 0.5, 0, "s", 3, 6851, 3)
+	p.TripDelay, p.Decimals = true, 1
+	return p
+}
+
+func (p Param) needs(word, mask uint16) Param { p.NeedsWord, p.NeedsMask = word, mask; return p }
+func (p Param) reciprocal() Param             { p.Reciprocal = true; return p }
+func (p Param) inverted() Param               { p.Inverted = true; return p }
 
 // group sets the group of ps.
 func group(name string, ps ...Param) []Param {
@@ -104,12 +124,12 @@ var pageItaly = &Page{
 func germanyCommon() []Param {
 	return group("",
 		num("Over-frequency power reduction: start frequency", 158, 0xFFFF, hzStep, 0, "Hz", 43121, 43379, 43121),
-		check("Use auxiliary input 1 as feed-in inhibit", 148, 0x4, none).inverted(),
-		num("AC current cap for charging and feed-in", 169, 0xFF, 0.5, 0, "% of nominal current", 0, 200, 0),
 		// The original shows it only if a grid-code check it makes passes;
 		// that check is not known.
 		num("Over-frequency power reduction: droop", 144, 0xFF, 0.05, 0, "%", 20, 250, 100),
+		check("Use auxiliary input 1 as feed-in inhibit", 148, 0x4, none).inverted(),
 		check("Use auxiliary input 2 as 4.2 kW charge-power cap signal (German EnWG section 14a)", 184, 0x1, none),
+		num("AC current cap for charging and feed-in", 169, 0xFF, 0.5, 0, "% of nominal current", 0, 200, 0),
 	)
 }
 
@@ -124,6 +144,7 @@ var pageGermanyA = &Page{
 var pageGermanyB = &Page{
 	Name: "Germany, variant B (VDE-AR-N 4105, full form)",
 	Params: params(
+		group("", overVoltage(5060000, 5290000, 5060000)),
 		germanyCommon(),
 		group("Reactive power: cos phi as a function of active power",
 			num("cos-phi(P) point 1: active power", 150, 0xFFFF, 0.0030517578125, 0, "% of Pemax", 3277, 32768, 6554),
@@ -160,7 +181,6 @@ var pageGermanyB = &Page{
 		),
 	),
 	Unsupported: []string{
-		overVoltage10Min,
 		// The original's range is -1 to 1 in a 16-bit field without a
 		// sign bit; how negative values are stored is not known.
 		"cos-phi(P) point 1: cos phi",
@@ -174,8 +194,9 @@ var pageGermanyB = &Page{
 var pageAUNZ2015 = &Page{
 	Name: "Australia/New Zealand (AS/NZS 4777.2:2015)",
 	Params: params(group("",
-		check("Demand-response mode 0 enabled", 146, 0x1, 1),
+		overVoltage(4880000, 5160000, 5100000),
 		num("Power ramp: time for a 0-100 % change", 131, 0xFFFF, 1, 0, "s", 60, 1200, 360),
+		check("Demand-response mode 0 enabled", 146, 0x1, 1),
 	)),
 	Unsupported: []string{
 		"Volt-watt curve voltage 1",
@@ -187,36 +208,35 @@ var pageAUNZ2015 = &Page{
 		"Volt-watt curve power at voltage 3",
 		"Volt-watt curve power at voltage 4",
 		"Sustained over-frequency: cut-off frequency",
-		overVoltage10Min,
 	},
 }
 
 var pageAUNZ2020 = &Page{
 	Name: "Australia/New Zealand (AS/NZS 4777.2:2020)",
 	Params: params(
-		group("Volt-watt curve",
-			num("Volt-watt curve voltage 1", 131, 0xFFFF, 0.01, 0, "V", 20300, 21500, 20700),
-			num("Volt-watt curve power at voltage 1", 132, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
-			choice("Volt-watt point 1 applies to", 132, 0x8000, none, appliesTo),
-			num("Volt-watt curve voltage 2", 133, 0xFFFF, 0.01, 0, "V", 21600, 23000, 22000),
-			num("Volt-watt curve power at voltage 2", 134, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
-			choice("Volt-watt point 2 applies to", 134, 0x8000, none, appliesTo),
-			num("Volt-watt curve voltage 3", 135, 0xFFFF, 0.01, 0, "V", 23500, 25500, 25000),
-			num("Volt-watt curve power at voltage 3", 136, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
-			choice("Volt-watt point 3 applies to", 136, 0x8000, none, appliesTo),
-			num("Volt-watt curve voltage 4", 137, 0xFFFF, 0.01, 0, "V", 24400, 26500, 26500),
-			num("Volt-watt curve power at voltage 4", 138, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
-			choice("Volt-watt point 4 applies to", 138, 0x8000, none, appliesTo),
+		group("",
+			overVoltage(4880000, 5160000, 5100000),
+			num("Power ramp: time for a 0-100 % change", 146, 0xFFFF, 0.0262144, 0, "s", 2289, 45776, 13733),
+			check("Demand-response mode 0 enabled", 147, 0x1, 1),
 		),
 		group("Sustained over-frequency",
 			num("Sustained over-frequency: cut-off frequency", 143, 0xFFFF, hzStep, 43164, "Hz", 645, 1504, 1504),
 		),
-		group("",
-			check("Demand-response mode 0 enabled", 147, 0x1, 1),
-			num("Power ramp: time for a 0-100 % change", 146, 0xFFFF, 0.0262144, 0, "s", 2289, 45776, 13733),
+		group("Volt-watt curve",
+			num("Volt-watt curve voltage 1", 131, 0xFFFF, 0.01, 0, "V", 20300, 21500, 20700),
+			choice("Volt-watt point 1 applies to", 132, 0x8000, none, appliesTo),
+			num("Volt-watt curve power at voltage 1", 132, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
+			num("Volt-watt curve voltage 2", 133, 0xFFFF, 0.01, 0, "V", 21600, 23000, 22000),
+			choice("Volt-watt point 2 applies to", 134, 0x8000, none, appliesTo),
+			num("Volt-watt curve power at voltage 2", 134, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
+			num("Volt-watt curve voltage 3", 135, 0xFFFF, 0.01, 0, "V", 23500, 25500, 25000),
+			choice("Volt-watt point 3 applies to", 136, 0x8000, none, appliesTo),
+			num("Volt-watt curve power at voltage 3", 136, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
+			num("Volt-watt curve voltage 4", 137, 0xFFFF, 0.01, 0, "V", 24400, 26500, 26500),
+			choice("Volt-watt point 4 applies to", 138, 0x8000, none, appliesTo),
+			num("Volt-watt curve power at voltage 4", 138, 0x7FFF, 0.00305185094759972, 0, "%", 0, 32767, 0),
 		),
 	),
-	Unsupported: []string{overVoltage10Min},
 }
 
 var pageSouthAfrica = &Page{
@@ -227,67 +247,72 @@ var pageSouthAfrica = &Page{
 }
 
 var pageFrance = &Page{
-	Name:        "France (UTE C15-712-1)",
-	Unsupported: []string{overVoltage10Min},
+	Name:   "France (UTE C15-712-1)",
+	Params: params(group("", overVoltage(5060000, 5290000, 5060000))),
 }
 
 // pageSpain has no parameters; the original shows only static content.
 var pageSpain = &Page{Name: "Spain (RD 1699/2011)"}
 
 var pageBelgium = &Page{
-	Name:        "Belgium (C10/11)",
-	Unsupported: []string{overVoltage10Min},
+	Name:   "Belgium (C10/11)",
+	Params: params(group("", overVoltage(5060000, 5290000, 5060000))),
 }
 
 var pageAustria = &Page{
 	Name: "Austria (TOR-D4)",
 	Params: params(
-		group("Power-versus-voltage curve",
-			num("P(U) curve: knee voltage", 182, 0xFFFF, 0.01, 0, "V", 24000, 27600, 25300),
-			choice("P(U) curve type", 184, 0x3, none, map[int]string{0: "off", 1: "curve type A", 2: "curve type B"}),
-			num("P(U) curve: voltage span to zero power", 183, 0xFFFF, 1.19209289550781e-05, 0, "V", 65535, 4194, 18236).reciprocal(),
-		),
 		group("",
-			num("Under-voltage trip delay", 135, 0xFFFF, 0.5, 0, "s", 0, 360, 0),
-			num("Fast over-voltage trip delay", 137, 0xFFFF, 0.5, 0, "s", 0, 360, 0),
+			tripDelay("Under-voltage trip delay", 135),
+			tripDelay("Fast over-voltage trip delay", 137),
+			overVoltage(5060000, 5290000, 5106000),
 			num("Reconnection wait time", 131, 0xFF, 1, 0, "s", 15, 255, 60),
 		),
+		group("Power-versus-voltage curve",
+			choice("P(U) curve type", 184, 0x3, none, map[int]string{0: "off", 1: "curve type A", 2: "curve type B"}),
+			num("P(U) curve: knee voltage", 182, 0xFFFF, 0.01, 0, "V", 24000, 27600, 25300),
+			num("P(U) curve: voltage span to zero power", 183, 0xFFFF, 1.19209289550781e-05, 0, "V", 65535, 4194, 18236).reciprocal(),
+		),
 	),
-	Unsupported: []string{overVoltage10Min},
 }
 
 var pageChile = &Page{
 	Name: "Chile (NTG-BT)",
 	Params: params(
 		group("",
+			overVoltage(4840000, 5060000, 4840000),
 			check("Use auxiliary input 1 as feed-in inhibit", 148, 0x4, none).inverted(),
 		),
+		// As on the Romania page (the same handler in the original): both
+		// voltages are greyed while the P(U) curve is "Not used".
 		group("Power-versus-voltage curve",
-			num("P(U) curve: start voltage", 131, 0xFFFF, 0.01, 0, "V", 23000, 25500, 23800),
 			choice("P(U) reduction method", 148, 0x18, none, puReduction),
-			num("P(U) curve: end voltage", 132, 0xFFFF, 0.01, 0, "V", 23500, 26000, 24200),
+			num("P(U) curve: start voltage", 131, 0xFFFF, 0.01, 0, "V", 23000, 25500, 23800).needs(148, 0x18),
+			num("P(U) curve: end voltage", 132, 0xFFFF, 0.01, 0, "V", 23500, 26000, 24200).needs(148, 0x18),
 		),
 	),
-	Unsupported: []string{overVoltage10Min},
 }
 
+// pageRomania, in the original's order.
 var pageRomania = &Page{
 	Name: "Romania (TOR-D4 derivative)",
 	Params: params(
-		group("Power-versus-voltage curve",
-			num("P(U) curve: knee voltage", 131, 0xFFFF, 0.01, 0, "V", 23000, 25500, 23800),
-			choice("P(U) reduction method", 148, 0x18, none, puReduction),
-			num("P(U) curve: limit voltage", 132, 0xFFFF, 0.01, 0, "V", 23500, 26000, 24200),
-		),
 		group("",
-			num("Under-voltage trip delay", 134, 0xFFFF, 0.5, 0, "s", 0, 360, 0),
-			num("Fast over-voltage trip delay", 135, 0xFFFF, 0.5, 0, "s", 0, 360, 0),
+			num("Upper frequency allowed for reconnection", 147, 0xFFFF, hzStep, 0, "Hz", 42993, 43379, 43121),
+			tripDelay("Under-voltage trip delay", 134),
+			tripDelay("Fast over-voltage trip delay", 135),
+			overVoltage(5060000, 5290000, 5106000),
 			// Stored as 65550 - seconds.
 			num("Reconnection wait time", 133, 0xFFFF, -1, -65550, "s", 65535, 64350, 64650),
-			num("Upper frequency allowed for reconnection", 147, 0xFFFF, hzStep, 0, "Hz", 42993, 43379, 43121),
+		),
+		// Observed on the original's screen: both voltages are greyed
+		// while the P(U) curve is "Not used".
+		group("Power-versus-voltage curve",
+			choice("P(U) reduction method", 148, 0x18, none, puReduction),
+			num("P(U) curve: knee voltage", 131, 0xFFFF, 0.01, 0, "V", 23000, 25500, 23800).needs(148, 0x18),
+			num("P(U) curve: limit voltage", 132, 0xFFFF, 0.01, 0, "V", 23500, 26000, 24200).needs(148, 0x18),
 		),
 	),
-	Unsupported: []string{overVoltage10Min},
 }
 
 // pageEurope. The two wait times have a negative scale on a 12-bit field:
@@ -296,74 +321,76 @@ var pageRomania = &Page{
 var pageEurope = &Page{
 	Name: "Europe (EN 50549-1)",
 	Params: params(
-		group("Power-versus-voltage response",
-			choice("P(U) reduction method", 148, 0x18, none, map[int]string{
-				0: "off", 1: "reduce feed-in relative to nominal power", 2: "reduce feed-in relative to present power",
-			}),
-			num("P(U) point 1: voltage", 135, 0xFF, 0.25, 400, "% of Un", -120, 120, -40).signed(),
-			num("P(U) point 1: power limit", 135, 0x7F00, 1, 0, "%", 0, 100, 0),
-			choice("P(U) point 1 applies to", 135, 0x8000, 1, appliesTo),
-			num("P(U) point 2: voltage", 136, 0xFF, 0.25, 400, "% of Un", -120, 120, -17).signed(),
-			num("P(U) point 2: power limit", 136, 0x7F00, 1, 0, "%", 0, 100, 100),
-			choice("P(U) point 2 applies to", 136, 0x8000, none, appliesTo),
-			num("P(U) point 3: voltage", 137, 0xFF, 0.25, 400, "% of Un", -120, 120, 35).signed(),
-			num("P(U) point 3: power limit", 137, 0x7F00, 1, 0, "%", 0, 100, 100),
-			choice("P(U) point 3 applies to", 137, 0x8000, none, appliesTo),
-			num("P(U) point 4: voltage", 138, 0xFF, 0.25, 400, "% of Un", -120, 120, 61).signed(),
-			num("P(U) point 4: power limit", 138, 0x7F00, 1, 0, "%", 0, 100, 20),
-			choice("P(U) point 4 applies to", 138, 0x8000, none, appliesTo),
-			num("P(U) set-point response time constant", 139, 0xFFFF, 7.276008090921e-05, 0, "s", 13744, 229, 4165).reciprocal(),
-		),
-		group("Reconnection after a protection trip",
-			num("After trip: wait time before reconnecting", 130, 0xFFF, -1, -14, "s", -1, -1186, -46).signed(),
-			num("After trip: highest frequency allowed to reconnect", 147, 0xFF00, 0.025, 2000, "Hz", 0, 200, 8),
-			num("After trip: power ramp time for 0-100 %", 129, 0xFFF, 0.5, 0, "s", 0, 2400, 1200),
-			num("After trip: lowest frequency allowed to reconnect", 147, 0xFF, -0.025, -2000, "Hz", 200, 0, 20),
-			num("After trip: highest voltage allowed to reconnect", 146, 0xFF00, 0.25, 400, "% of Un", 0, 120, 40).signed(),
-			num("After trip: lowest voltage allowed to reconnect", 146, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed(),
-		),
-		group("First connection",
-			num("First connection: wait time", 166, 0xFFF, -1, -14, "s", -1, -1186, -46).signed(),
-			num("First connection: highest frequency allowed", 168, 0xFF00, 0.025, 2000, "Hz", 0, 200, 4),
-			num("First connection: power ramp time for 0-100 %", 165, 0xFFF, 0.5, 0, "s", 0, 2400, 0),
-			num("First connection: lowest frequency allowed", 168, 0xFF, -0.025, -2000, "Hz", 200, 0, 20),
-			num("First connection: highest voltage allowed", 167, 0xFF00, 0.25, 400, "% of Un", 0, 120, 40).signed(),
-			num("First connection: lowest voltage allowed", 167, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed(),
-		),
-		group("Power-versus-frequency response",
-			num("Over-frequency response: start delay", 143, 0xF800, 0.1, 0, "s", 0, 31, 0),
-			num("Over-frequency response: end delay", 143, 0x7FF, 0.5, 0, "s", 0, 1200, 60),
-			num("Over-frequency response: droop", 144, 0xFF, 0.05, 0, "%", 20, 250, 100),
-			num("Over-frequency response: start frequency", 142, 0xFF00, 0.025, 2000, "Hz", 0, 200, 8),
-			num("Over-frequency response: end frequency", 142, 0xFF, 0.025, 2000, "Hz", 0, 200, 8),
-			num("Under-frequency response: start delay", 141, 0xF800, 0.1, 0, "s", 0, 31, 0),
-			num("Under-frequency response: end delay", 141, 0x7FF, 0.5, 0, "s", 0, 1200, 60),
-			num("Under-frequency response: start frequency", 140, 0xFF00, -0.025, -2000, "Hz", 200, 0, 8),
-			num("Under-frequency response: end frequency", 140, 0xFF, -0.025, -2000, "Hz", 200, 0, 8),
-			num("Under-frequency response: droop", 144, 0xFF00, 0.05, 0, "%", 20, 250, 100),
-		),
 		group("",
 			check("Use auxiliary input 1 as feed-in inhibit", 148, 0x4, none).inverted(),
 			num("AC current cap for charging and feed-in", 169, 0xFF, 0.5, 0, "% of nominal current", 0, 200, 0),
 			num("Cap on generated apparent power", 169, 0xFF00, 0.5, 0, "% of rated power", 0, 200, 0),
 		),
+		group("First connection",
+			num("First connection: wait time", 166, 0xFFF, -1, -14, "s", -1, -1186, -46).signed(),
+			num("First connection: power ramp time for 0-100 %", 165, 0xFFF, 0.5, 0, "s", 0, 2400, 0),
+			num("First connection: lowest frequency allowed", 168, 0xFF, -0.025, -2000, "Hz", 200, 0, 20),
+			num("First connection: highest frequency allowed", 168, 0xFF00, 0.025, 2000, "Hz", 0, 200, 4),
+			num("First connection: lowest voltage allowed", 167, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed(),
+			num("First connection: highest voltage allowed", 167, 0xFF00, 0.25, 400, "% of Un", 0, 120, 40).signed(),
+		),
+		group("Reconnection after a protection trip",
+			num("After trip: wait time before reconnecting", 130, 0xFFF, -1, -14, "s", -1, -1186, -46).signed(),
+			num("After trip: power ramp time for 0-100 %", 129, 0xFFF, 0.5, 0, "s", 0, 2400, 1200),
+			num("After trip: lowest frequency allowed to reconnect", 147, 0xFF, -0.025, -2000, "Hz", 200, 0, 20),
+			num("After trip: highest frequency allowed to reconnect", 147, 0xFF00, 0.025, 2000, "Hz", 0, 200, 8),
+			num("After trip: lowest voltage allowed to reconnect", 146, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed(),
+			num("After trip: highest voltage allowed to reconnect", 146, 0xFF00, 0.25, 400, "% of Un", 0, 120, 40).signed(),
+		),
 		group("Interface (grid) protection, stage 1",
-			num("Stage 1 under-voltage: trip delay", 131, 0xFFF, 0.05, 0, "s", 0, 4000, 10),
-			num("Stage 1 over-voltage: trip delay", 132, 0xFFF, 0.05, 0, "s", 0, 4000, 10),
 			num("Stage 1 under-voltage: trip level", 159, 0xFF, 0.25, 400, "% of Un", -88, 0, -60).signed(),
+			num("Stage 1 under-voltage: trip delay", 131, 0xFFF, 0.05, 0, "s", 0, 4000, 10),
 			num("Stage 1 over-voltage: trip level", 159, 0xFF00, 0.25, 400, "% of Un", 0, 100, 60).signed(),
-			num("Stage 1 over-frequency: trip level", 160, 0xFF00, 0.025, 2000, "Hz", 0, 196, 108),
+			num("Stage 1 over-voltage: trip delay", 132, 0xFFF, 0.05, 0, "s", 0, 4000, 10),
 			num("Stage 1 under-frequency: trip level", 160, 0xFF, -0.025, -2000, "Hz", 196, 0, 100),
+			num("Stage 1 over-frequency: trip level", 160, 0xFF00, 0.025, 2000, "Hz", 0, 196, 108),
 		),
 		group("Interface (grid) protection, stage 2",
-			num("Stage 2 under-voltage: trip delay", 161, 0xFF, 0.05, 0, "s", 0, 130, 4),
-			num("Stage 2 over-voltage: trip delay", 162, 0xFF, 0.05, 0, "s", 0, 130, 4),
-			num("Stage 2 under-frequency: trip delay", 163, 0xFF, 0.05, 0, "s", 0, 130, 4),
-			num("Stage 2 over-frequency: trip delay", 164, 0xFF, 0.05, 0, "s", 0, 130, 4),
 			num("Stage 2 under-voltage: trip level", 161, 0xFF00, 0.25, 400, "% of Un", -89, 0, -80).signed(),
+			num("Stage 2 under-voltage: trip delay", 161, 0xFF, 0.05, 0, "s", 0, 130, 4),
 			num("Stage 2 over-voltage: trip level", 162, 0xFF00, 0.25, 400, "% of Un", 0, 120, 80).signed(),
-			num("Stage 2 over-frequency: trip level", 164, 0xFF00, 0.025, 2000, "Hz", 0, 200, 120),
+			num("Stage 2 over-voltage: trip delay", 162, 0xFF, 0.05, 0, "s", 0, 130, 4),
 			num("Stage 2 under-frequency: trip level", 163, 0xFF00, -0.025, -2000, "Hz", 200, 0, 120),
+			num("Stage 2 under-frequency: trip delay", 163, 0xFF, 0.05, 0, "s", 0, 130, 4),
+			num("Stage 2 over-frequency: trip level", 164, 0xFF00, 0.025, 2000, "Hz", 0, 200, 120),
+			num("Stage 2 over-frequency: trip delay", 164, 0xFF, 0.05, 0, "s", 0, 130, 4),
+		),
+		group("Power-versus-frequency response",
+			num("Over-frequency response: start frequency", 142, 0xFF00, 0.025, 2000, "Hz", 0, 200, 8),
+			num("Over-frequency response: end frequency", 142, 0xFF, 0.025, 2000, "Hz", 0, 200, 8),
+			num("Over-frequency response: start delay", 143, 0xF800, 0.1, 0, "s", 0, 31, 0),
+			num("Over-frequency response: end delay", 143, 0x7FF, 0.5, 0, "s", 0, 1200, 60),
+			num("Over-frequency response: droop", 144, 0xFF, 0.05, 0, "%", 20, 250, 100),
+			num("Under-frequency response: start frequency", 140, 0xFF00, -0.025, -2000, "Hz", 200, 0, 8),
+			num("Under-frequency response: end frequency", 140, 0xFF, -0.025, -2000, "Hz", 200, 0, 8),
+			num("Under-frequency response: start delay", 141, 0xF800, 0.1, 0, "s", 0, 31, 0),
+			num("Under-frequency response: end delay", 141, 0x7FF, 0.5, 0, "s", 0, 1200, 60),
+			num("Under-frequency response: droop", 144, 0xFF00, 0.05, 0, "%", 20, 250, 100),
+		),
+		// The original disables the points and the filter time while the
+		// response is "Not used".
+		group("Power-versus-voltage response",
+			choice("P(U) reduction method", 148, 0x18, none, map[int]string{
+				0: "off", 1: "reduce feed-in relative to nominal power", 2: "reduce feed-in relative to present power",
+			}),
+			num("P(U) point 1: voltage", 135, 0xFF, 0.25, 400, "% of Un", -120, 120, -40).signed().needs(148, 0x18),
+			choice("P(U) point 1 applies to", 135, 0x8000, 1, appliesTo).needs(148, 0x18),
+			num("P(U) point 1: power limit", 135, 0x7F00, 1, 0, "%", 0, 100, 0).needs(148, 0x18),
+			num("P(U) point 2: voltage", 136, 0xFF, 0.25, 400, "% of Un", -120, 120, -17).signed().needs(148, 0x18),
+			choice("P(U) point 2 applies to", 136, 0x8000, none, appliesTo).needs(148, 0x18),
+			num("P(U) point 2: power limit", 136, 0x7F00, 1, 0, "%", 0, 100, 100).needs(148, 0x18),
+			num("P(U) point 3: voltage", 137, 0xFF, 0.25, 400, "% of Un", -120, 120, 35).signed().needs(148, 0x18),
+			choice("P(U) point 3 applies to", 137, 0x8000, none, appliesTo).needs(148, 0x18),
+			num("P(U) point 3: power limit", 137, 0x7F00, 1, 0, "%", 0, 100, 100).needs(148, 0x18),
+			num("P(U) point 4: voltage", 138, 0xFF, 0.25, 400, "% of Un", -120, 120, 61).signed().needs(148, 0x18),
+			choice("P(U) point 4 applies to", 138, 0x8000, none, appliesTo).needs(148, 0x18),
+			num("P(U) point 4: power limit", 138, 0x7F00, 1, 0, "%", 0, 100, 20).needs(148, 0x18),
+			num("P(U) set-point response time constant", 139, 0xFFFF, 7.276008090921e-05, 0, "s", 13744, 229, 4165).reciprocal().needs(148, 0x18),
 		),
 	),
 	Unsupported: []string{
@@ -376,6 +403,9 @@ var pageEurope = &Page{
 var pageAUNZM = &Page{
 	Name: "Australia/New Zealand, stand-alone (AS/NZS 4777.2:2020 appendix M)",
 	Params: params(
+		group("",
+			check("Feed-in permitted", 129, 0x1, none).inverted(),
+		),
 		group("Power-versus-voltage response",
 			// The original's defaults for the two voltages (90 V, 95.5 V)
 			// lie outside their own range: left out as unreliable.
@@ -384,9 +414,6 @@ var pageAUNZM = &Page{
 			num("P(U) point 2: voltage", 136, 0xFF, 0.5, 460, "V", -100, 0, none).signed(),
 			// Fixed at 100 %: minimum and maximum are equal.
 			num("P(U) point 2: charge power limit", 136, 0xFF00, 1, -128, "%", 228, 228, 228),
-		),
-		group("",
-			check("Feed-in permitted", 129, 0x1, none).inverted(),
 		),
 	),
 }
@@ -404,54 +431,30 @@ var pagePoland = &Page{
 
 // pageMicrogrid uses words 129-149, which the grid-code pages use too, so
 // its parameters and a grid code's parameters cannot both be meaningful.
-// When the original shows it is not known. The hidden diagnostic curve
-// points reuse the words of the page's main parameters.
+// When the original shows it is not known. Its hidden diagnostic curve
+// points (a panel the original never shows) are left out.
 var pageMicrogrid = &Page{
 	Name: "Microgrid",
 	Params: params(
 		group("",
-			choice("Black-start retry delay mode", 129, 0x10, none, map[int]string{0: "fixed delay", 1: "random delay"}),
-			num("Reactive power at reference voltage (Q0)", 149, 0xFFFF, 0.09765625, 0, "% of Qref", -717, 717, 0).signed(),
-			num("Reference voltage for the Q(U) droop (U0)", 144, 0xFFFF, 0.01, 0, "V", 18000, 27000, 23000),
-			num("Active power at reference frequency (P0)", 139, 0xFFFF, -0.09765625, 0, "% of Pref", 1024, -1024, 0).signed(),
-			num("Reference frequency for the P(f) droop (f0)", 134, 0xFFFF, hzStep, 0, "Hz", 38655, 55835, 43379),
-			num("Upper active-power bound", 135, 0xFFFF, -0.09765625, 0, "% of Pref", 2048, -2048, 1024).signed(),
-			num("Lower active-power bound", 137, 0xFFFF, -0.09765625, 0, "% of Pref", 2048, -2048, -1024).signed(),
-			// The original's defaults for the two reactive-power bounds
-			// (-100 %, 100 %) lie outside their own range: left out.
-			num("Lower reactive-power bound", 145, 0xFFFF, 0.09765625, 0, "% of Qref", -717, 717, none).signed(),
-			num("Upper reactive-power bound", 147, 0xFFFF, 0.09765625, 0, "% of Qref", -717, 717, none).signed(),
-			check("Black start allowed by the unit", 129, 0x2, none),
+			check("Run as microgrid", 129, 0x1, none).inverted(),
 			check("Let assistants toggle microgrid mode", 129, 0x4, none).inverted(),
+			check("Black start allowed by the unit", 129, 0x2, none),
 			check("Retry a failed black start (at most 3 tries)", 129, 0x8, none),
+			choice("Black-start retry delay mode", 129, 0x10, none, map[int]string{0: "fixed delay", 1: "random delay"}),
 			// Stored as 255 - delay. The original gives no unit (seconds,
 			// INFERRED).
 			num("Fixed black-start retry delay", 129, 0xFF00, -1, -255, "", 255, 0, 255),
-			check("Run as microgrid", 129, 0x1, none).inverted(),
-		),
-		// Hidden in the original. The voltage points' default (50.5 V) lies
-		// outside their own range: left out.
-		group("Hidden diagnostic curve points",
-			num("Diagnostic curve point, word 135 (power)", 135, 0xFFFF, 0.09765625, 0, "%", -1024, 1024, -1024).signed(),
-			num("Diagnostic curve point, word 136 (frequency)", 136, 0xFFFF, hzStep, 0, "Hz", 38655, 55835, 43379),
-			num("Diagnostic curve point, word 137 (power)", 137, 0xFFFF, 0.09765625, 0, "%", -1024, 1024, -1024).signed(),
-			num("Diagnostic curve point, word 138 (frequency)", 138, 0xFFFF, hzStep, 0, "Hz", 38655, 55835, 43379),
-			num("Diagnostic curve point, word 139 (power)", 139, 0xFFFF, 0.09765625, 0, "%", -1024, 1024, -1024).signed(),
-			num("Diagnostic curve point, word 130 (frequency)", 130, 0xFFFF, hzStep, 0, "Hz", 38655, 55835, 43379),
-			num("Diagnostic curve point, word 131 (power)", 131, 0xFFFF, 0.09765625, 0, "%", -1024, 1024, -1024).signed(),
-			num("Diagnostic curve point, word 132 (frequency)", 132, 0xFFFF, hzStep, 0, "Hz", 38655, 55835, 43379),
-			num("Diagnostic curve point, word 133 (power)", 133, 0xFFFF, 0.09765625, 0, "%", -1024, 1024, -1024).signed(),
-			num("Diagnostic curve point, word 134 (frequency)", 134, 0xFFFF, hzStep, 0, "Hz", 38655, 55835, 43379),
-			num("Diagnostic curve point, word 145 (power)", 145, 0xFFFF, 0.09765625, 0, "%", -1024, 1024, -1024).signed(),
-			num("Diagnostic curve point, word 146 (voltage)", 146, 0xFFFF, 0.01, 0, "V", 18000, 27000, none),
-			num("Diagnostic curve point, word 147 (power)", 147, 0xFFFF, 0.09765625, 0, "%", -1024, 1024, -1024).signed(),
-			num("Diagnostic curve point, word 148 (voltage)", 148, 0xFFFF, 0.01, 0, "V", 18000, 27000, none),
-			num("Diagnostic curve point, word 149 (power)", 149, 0xFFFF, 0.09765625, 0, "%", -1024, 1024, -1024).signed(),
-			num("Diagnostic curve point, word 140 (voltage)", 140, 0xFFFF, 0.01, 0, "V", 18000, 27000, none),
-			num("Diagnostic curve point, word 141 (power)", 141, 0xFFFF, 0.09765625, 0, "%", -1024, 1024, -1024).signed(),
-			num("Diagnostic curve point, word 142 (voltage)", 142, 0xFFFF, 0.01, 0, "V", 18000, 27000, none),
-			num("Diagnostic curve point, word 143 (power)", 143, 0xFFFF, 0.09765625, 0, "%", -1024, 1024, -1024).signed(),
-			num("Diagnostic curve point, word 144 (voltage)", 144, 0xFFFF, 0.01, 0, "V", 18000, 27000, none),
+			num("Active power at reference frequency (P0)", 139, 0xFFFF, -0.09765625, 0, "% of Pref", 1024, -1024, 0).signed(),
+			num("Lower active-power bound", 137, 0xFFFF, -0.09765625, 0, "% of Pref", 2048, -2048, -1024).signed(),
+			num("Reference frequency for the P(f) droop (f0)", 134, 0xFFFF, hzStep, 0, "Hz", 38655, 55835, 43379),
+			num("Upper active-power bound", 135, 0xFFFF, -0.09765625, 0, "% of Pref", 2048, -2048, 1024).signed(),
+			num("Reactive power at reference voltage (Q0)", 149, 0xFFFF, 0.09765625, 0, "% of Qref", -717, 717, 0).signed(),
+			// The original's defaults for the two reactive-power bounds
+			// (-100 %, 100 %) lie outside their own range: left out.
+			num("Lower reactive-power bound", 145, 0xFFFF, 0.09765625, 0, "% of Qref", -717, 717, none).signed(),
+			num("Reference voltage for the Q(U) droop (U0)", 144, 0xFFFF, 0.01, 0, "V", 18000, 27000, 23000),
+			num("Upper reactive-power bound", 147, 0xFFFF, 0.09765625, 0, "% of Qref", -717, 717, none).signed(),
 		),
 	),
 	Unsupported: []string{

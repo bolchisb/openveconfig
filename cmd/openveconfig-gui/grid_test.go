@@ -98,7 +98,7 @@ func TestGridCodeSelectAndSend(t *testing.T) {
 	if !d.Dirty(vebus.SettingID(gridCodeSetting)) || !marked(g.codeRow) {
 		t.Error("grid code not marked changed")
 	}
-	if p, _ := gridcode.PageFor(17); g.page != p || len(g.rows) == 0 {
+	if p, _ := gridcode.PageFor(17); g.page == nil || g.page.Name != p.Name || len(g.rows) == 0 {
 		t.Errorf("page %v with %d rows, want the Europe page", g.page, len(g.rows))
 	}
 	if !strings.Contains(labelTexts(g.params), "Not supported yet") {
@@ -307,8 +307,8 @@ func TestGridSaveFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadSettingsFile(u, sf)
-	if text := labelTexts(g.params); !strings.Contains(text, "fit the grid code.") {
-		t.Errorf("check word status not shown as consistent: %q", text)
+	if text := labelTexts(g.params); strings.Contains(text, "check words") {
+		t.Errorf("consistent check words get a note: %q", text)
 	}
 	save := func(what string, want rvsctest.File) {
 		t.Helper()
@@ -327,8 +327,8 @@ func TestGridSaveFile(t *testing.T) {
 	spec.Units[0].Settings[gridCodeSetting] = 17
 	spec.Units[0].Settings[128], spec.Units[0].Settings[191] = 0x0411, 0x0413
 	save("grid code changed", spec)
-	if text := labelTexts(g.params); !strings.Contains(text, "fit the grid code.") {
-		t.Errorf("after saving, check word status %q", text)
+	if text := labelTexts(g.params); strings.Contains(text, "check words") {
+		t.Errorf("after saving, check word note %q", text)
 	}
 
 	// A parameter word: generation 5, same code.
@@ -365,8 +365,8 @@ func TestGridSaveFile(t *testing.T) {
 // not known, so only the rest of the check is made.
 func TestGridCheckStatusDevice(t *testing.T) {
 	_, _, g, _ := gridSetup(t, 2699481)
-	if text := labelTexts(g.params); !strings.Contains(text, "fit the grid code. Their parameter-set version is not checked") {
-		t.Errorf("check word status %q", text)
+	if text := labelTexts(g.params); strings.Contains(text, "check words") {
+		t.Errorf("consistent check words get a note: %q", text)
 	}
 	if text := labelTexts(g.params); !strings.Contains(text, "saved to a settings file") {
 		t.Errorf("grid page notes %q", text)
@@ -423,5 +423,81 @@ func TestGridCodePicker(t *testing.T) {
 	}
 	if g.code.button.Text != "14 · Romania" {
 		t.Errorf("button %q after the choice", g.code.button.Text)
+	}
+}
+
+// TestGridRomaniaPage checks the Romania page against VEConfigure's, with
+// the grid words of a real file: the tab named after the page, the
+// over-voltage value from two words, the trip delays, the P(U) voltages
+// greyed while the curve is not used, the reactive-power rows of the
+// regulation, and no technical captions.
+func TestGridRomaniaPage(t *testing.T) {
+	u, _, g, d := gridSetup(t, 2699481)
+	for id, v := range map[uint16]uint16{gridCodeSetting: 14, 129: 59728, 130: 77, 131: 25300, 132: 25760,
+		133: 64650, 134: 3, 135: 3, 147: 42993, 148: 0, 149: 4165, 151: 32768} {
+		if err := d.SetRaw(vebus.SettingID(id), v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u.settings.load(d, nil)
+	if want := "Romania grid code settings (TOR-D4 derivative)"; g.paramsItem.Text != want {
+		t.Errorf("tab %q, want %q", g.paramsItem.Text, want)
+	}
+	shown := func() []string {
+		var names []string
+		for _, r := range g.rows {
+			if r.root.Visible() {
+				names = append(names, r.label.Text)
+			}
+		}
+		return names
+	}
+	// Reactive power regulation 0: a fixed cos phi.
+	if want := []string{"High frequency reconnect value", "Trip delay U<", "Trip delay U>>", "Over voltage U> (10 min. running mean)",
+		"Reconnection time", "P(U) curve", "U Knick", "U Grenz", "Reactive power regulation", "Filter time reactive power (1T)", "Cos phi is"}; !slices.Equal(shown(), want) {
+		t.Errorf("rows %q, want %q", shown(), want)
+	}
+	// The values VEConfigure shows for this file.
+	for name, want := range map[string]string{
+		"Under-voltage trip delay":              "0.0",
+		"Fast over-voltage trip delay":          "0.0",
+		"Reactive-power response time constant": "3.3",
+		"Constant cos phi (fixed mode)":         "1.00",
+	} {
+		if got := paramRowOf(t, g, name).control.(*numberEntry).Text; got != want {
+			t.Errorf("%s shows %q, want %q", name, got, want)
+		}
+	}
+	// Regulation 3: the Q(U) points.
+	if err := d.SetRaw(vebus.SettingID(148), 3); err != nil {
+		t.Fatal(err)
+	}
+	g.update(false)
+	if want := []string{"Reactive power curve point 1", "Q at point 1", "Reactive power curve point 2", "Q at point 2",
+		"Reactive power curve point 3", "Q at point 3", "Reactive power curve point 4", "Q at point 4"}; !slices.Equal(shown()[10:], want) {
+		t.Errorf("rows %q with Q(U), want %q after the first 10", shown(), want)
+	}
+	if err := d.SetRaw(vebus.SettingID(148), 0); err != nil {
+		t.Fatal(err)
+	}
+	g.update(false)
+	ov := paramRowOf(t, g, "Over-voltage trip on 10-minute running average")
+	if got := ov.control.(*numberEntry).Text; got != "255.3" {
+		t.Errorf("over voltage shows %q, want 255.3", got)
+	}
+	knee := paramRowOf(t, g, "P(U) curve: knee voltage")
+	if !knee.control.(*numberEntry).Disabled() {
+		t.Error("U Knick is enabled while the P(U) curve is not used")
+	}
+	if strings.Contains(labelTexts(g.params), "bits 0x") {
+		t.Error("technical captions are shown")
+	}
+	// Editing the over-voltage writes both words.
+	ov.control.(*numberEntry).commit("260")
+	if lo, _ := d.Raw(vebus.SettingID(129)); lo != uint16(5200000&0xFFFF) {
+		t.Errorf("setting 129 = %d", lo)
+	}
+	if hi, _ := d.Raw(vebus.SettingID(130)); hi != uint16(5200000>>16) {
+		t.Errorf("setting 130 = %d", hi)
 	}
 }

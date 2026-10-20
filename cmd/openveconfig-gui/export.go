@@ -73,7 +73,7 @@ func settingsReport(u *ui) []reportPage {
 			rp.groups[i].rows = append(rp.groups[i].rows, [2]string{settingName(d, e.ID()), value})
 		}
 		if p.tab == vebus.TabGrid {
-			rp.groups = append(rp.groups, gridReport(d)...)
+			rp.groups = append(rp.groups, gridReport(d, u.settings.file)...)
 		}
 		if len(rp.groups) > 0 {
 			pages = append(pages, rp)
@@ -83,12 +83,12 @@ func settingsReport(u *ui) []reportPage {
 }
 
 // gridReport returns the grid parameters of d's grid code, by group.
-func gridReport(d *vebus.Device) []reportGroup {
+func gridReport(d *vebus.Device, file *settingsFile) []reportGroup {
 	code, err := d.Raw(vebus.SettingID(gridCodeSetting))
 	if err != nil {
 		return nil
 	}
-	p, _ := gridcode.PageFor(gridcode.Code(code))
+	p, _ := gridPageFor(int(code), file)
 	if p == nil {
 		return nil
 	}
@@ -99,6 +99,16 @@ func gridReport(d *vebus.Device) []reportGroup {
 		if err != nil {
 			continue
 		}
+		if show, _ := d.Raw(vebus.SettingID(prm.ShowWord)); !prm.Shown(show) {
+			continue
+		}
+		var high uint16
+		if prm.High != 0 {
+			if high, err = d.Raw(vebus.SettingID(prm.High)); err != nil {
+				continue
+			}
+		}
+		f := prm.FieldWords(word, high)
 		i, ok := index[prm.Group]
 		if !ok {
 			i = len(groups)
@@ -113,17 +123,16 @@ func gridReport(d *vebus.Device) []reportGroup {
 		switch prm.Kind {
 		case gridcode.Checkbox:
 			value = tr("off")
-			if prm.Unpack(word) == 1 {
+			if prm.Value(f) == 1 {
 				value = tr("on")
 			}
 		case gridcode.Choice:
-			f := prm.Field(word)
 			value = gridText(p, prm.Choices[f])
 			if value == "" {
 				value = tr("Value {{.Value}}", args{"Value": strconv.Itoa(f)})
 			}
 		default:
-			value = paramText(prm, prm.Unpack(word))
+			value = paramText(prm, prm.Value(f))
 		}
 		groups[i].rows = append(groups[i].rows, [2]string{gridText(p, prm.Name), value})
 	}

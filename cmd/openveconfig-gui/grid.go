@@ -272,14 +272,32 @@ func (g *gridTabView) update(rebuild bool) {
 	if rebuild || code != g.pageCode {
 		g.buildParams(code)
 	}
+	relayout := false
 	for _, r := range g.rows {
 		r.update()
 		g.mark(r)
+		if r.p.NeedsMask != 0 {
+			r.setEnabled(g.word(r.p.NeedsWord)&r.p.NeedsMask != 0)
+		}
+		if show := r.p.Shown(g.word(r.p.ShowWord)); show != r.root.Visible() {
+			if show {
+				r.root.Show()
+			} else {
+				r.root.Hide()
+			}
+			relayout = true
+		}
 	}
+	if relayout {
+		g.params.Refresh()
+	}
+	// Shown only while there is something to undo.
 	if len(g.changedParams()) > 0 {
 		g.undo.Enable()
+		g.undo.Show()
 	} else {
 		g.undo.Disable()
+		g.undo.Hide()
 	}
 }
 
@@ -389,14 +407,21 @@ func (g *gridTabView) buildParams(code int) {
 		objs = append(objs, l)
 	}
 	if d != nil {
-		note(tr("Grid parameters can be edited here and saved to a settings file; the two check words the device keeps with them " +
-			"(settings 128 and 191) are updated when the file is saved. Sending grid changes straight to a device is disabled " +
-			"until it has been verified on hardware."))
+		note(tr("Changes to the grid parameters are saved to a settings file; they cannot be sent straight to a device yet."))
 		if g.checkStatus != "" {
 			note(g.checkStatus)
 		}
 	}
-	p, known := gridcode.PageFor(gridcode.Code(code))
+	p, known := gridPageFor(code, g.u.settings.file)
+	// The tab is named after the page, as in the original.
+	title := tr("Grid parameters")
+	if p != nil {
+		title = gridText(p, p.Name)
+	}
+	if g.paramsItem.Text != title {
+		g.paramsItem.Text = title
+		g.subTabs.Refresh()
+	}
 	switch {
 	case d == nil:
 		note(tr("No settings loaded. Get the settings from a device, or open a settings file."))
@@ -423,6 +448,22 @@ func (g *gridTabView) buildParams(code int) {
 	objs = append(objs, container.NewHBox(g.undo))
 	g.params.Objects = []fyne.CanvasObject{newForm(objs...)}
 	g.params.Refresh()
+}
+
+// gridPageFor returns the parameter page of grid code code with its
+// reactive-power group, whose layout follows the parameter-set version of
+// file (not known for a device: file nil).
+func gridPageFor(code int, file *settingsFile) (*gridcode.Page, bool) {
+	p, known := gridcode.PageFor(gridcode.Code(code))
+	v := -1
+	if file != nil {
+		if table, err := file.f.GridInfo(); err == nil {
+			if pv, err := gridcode.ParamSetVersion(table, gridcode.Code(code)); err == nil {
+				v = int(pv)
+			}
+		}
+	}
+	return p.WithReactivePower(gridcode.Code(code), v), known
 }
 
 // checkWordStatus describes whether the checker words of d, a model just
@@ -455,11 +496,8 @@ func checkWordStatus(d *vebus.Device, file *settingsFile) string {
 	switch {
 	case !header || file != nil && !version:
 		return tr("The check words (settings 128 and 191) do not fit the grid code: the device may refuse the grid parameters.")
-	case file == nil:
-		return tr("The check words (settings 128 and 191) fit the grid code. Their parameter-set version is not checked, " +
-			"because this program does not read it from the device.")
 	}
-	return tr("The check words (settings 128 and 191) fit the grid code.")
+	return "" // they fit: nothing to say, as in the original
 }
 
 // paramCards returns one card per group of page p, with a row per
@@ -469,10 +507,16 @@ func (g *gridTabView) paramCards(d *vebus.Device, p *gridcode.Page) []fyne.Canva
 	rows := map[string][]fyne.CanvasObject{}
 	var params []gridcode.Param
 	for _, prm := range p.Params {
-		if _, ok := g.loaded[prm.Word]; !ok {
-			if s := strconv.Itoa(int(prm.Word)); !slices.Contains(missing, s) {
-				missing = append(missing, s)
+		lost := false
+		for _, w := range []uint16{prm.Word, prm.High} {
+			if _, ok := g.loaded[w]; w != 0 && !ok {
+				lost = true
+				if s := strconv.Itoa(int(w)); !slices.Contains(missing, s) {
+					missing = append(missing, s)
+				}
 			}
+		}
+		if lost {
 			continue
 		}
 		params = append(params, prm)
@@ -489,11 +533,12 @@ func (g *gridTabView) paramCards(d *vebus.Device, p *gridcode.Page) []fyne.Canva
 	}
 	var cards []fyne.CanvasObject
 	for _, grp := range groups {
-		title := gridText(p, grp)
-		if grp == "" {
-			title = gridText(p, p.Name)
+		// The page's own parameters have no title: the tab names the page.
+		var head fyne.CanvasObject
+		if grp != "" {
+			head = cardTitle(gridText(p, grp))
 		}
-		cards = append(cards, newFormCard(cardTitle(title), rows[grp]...))
+		cards = append(cards, newFormCard(head, rows[grp]...))
 	}
 	if len(missing) > 0 {
 		l := widget.NewLabel(tr("The device does not report settings {{.Settings}}, so the parameters stored in them are not shown.",
@@ -510,12 +555,34 @@ func (g *gridTabView) word(id uint16) uint16 {
 	return raw
 }
 
+// field returns p's field in the model; loadedField as loaded.
+func (g *gridTabView) field(p gridcode.Param) int {
+	var high uint16
+	if p.High != 0 {
+		high = g.word(p.High)
+	}
+	return p.FieldWords(g.word(p.Word), high)
+}
+
+func (g *gridTabView) loadedField(p gridcode.Param) int {
+	return p.FieldWords(g.loaded[p.Word], g.loaded[p.High])
+}
+
 // setParam sets parameter p to display value v in the model.
 func (g *gridTabView) setParam(p gridcode.Param, v float64) error {
 	d := g.u.settings.dev
-	w, err := p.Pack(g.word(p.Word), v)
+	var high uint16
+	if p.High != 0 {
+		high = g.word(p.High)
+	}
+	w, h, err := p.PackWords(g.word(p.Word), high, v)
 	if err != nil {
 		return paramRangeError(p)
+	}
+	if p.High != 0 {
+		if err := d.SetRaw(vebus.SettingID(p.High), h); err != nil {
+			return err
+		}
 	}
 	return d.SetRaw(vebus.SettingID(p.Word), w)
 }
@@ -541,12 +608,12 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 			}
 		})
 		control = check
-		r.update = func() { check.SetChecked(p.Unpack(g.word(p.Word)) == 1) }
+		r.update = func() { check.SetChecked(p.Value(g.field(p)) == 1) }
 	case gridcode.Choice:
 		var values []int
 		// options returns the labels of the choices and of the current value.
 		options := func() []string {
-			cur := p.Field(g.word(p.Word))
+			cur := g.field(p)
 			values = values[:0]
 			for v := range p.Choices {
 				values = append(values, v)
@@ -575,7 +642,7 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 			control = radio
 			r.update = func() {
 				radio.Options = options()
-				radio.SetSelected(radio.Options[slices.Index(values, p.Field(g.word(p.Word)))])
+				radio.SetSelected(radio.Options[slices.Index(values, g.field(p))])
 				radio.Refresh()
 			}
 			break
@@ -589,23 +656,25 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 		control, width = sel, selectWidth(opts)
 		r.update = func() {
 			sel.SetOptions(options())
-			sel.SetSelectedIndex(slices.Index(values, p.Field(g.word(p.Word))))
+			sel.SetSelectedIndex(slices.Index(values, g.field(p)))
 		}
 	default:
 		entry = newNumberEntry()
 		control, width = entry, numberWidth
 	}
-	where := tr("setting {{.Number}}, bits {{.Mask}}",
-		args{"Number": strconv.Itoa(int(p.Word)), "Mask": "0x" + strings.ToUpper(strconv.FormatUint(uint64(p.Mask), 16))})
-	r.formRow = newFormRow(g.paramCols, gridText(g.page, p.Name), where, control, width, gridText(nil, p.Unit))
+	r.formRow = newFormRow(g.paramCols, gridText(g.page, p.Name), "", control, width, gridText(nil, p.Unit))
 	r.revert.OnTapped = func() {
 		if d := g.u.settings.dev; d != nil {
-			g.apply(d.SetRaw(vebus.SettingID(p.Word), g.word(p.Word)&^p.Mask|g.loaded[p.Word]&p.Mask))
+			var err error
+			if p.High != 0 {
+				err = d.SetRaw(vebus.SettingID(p.High), g.loaded[p.High])
+			}
+			g.apply(errors.Join(err, d.SetRaw(vebus.SettingID(p.Word), g.word(p.Word)&^p.Mask|g.loaded[p.Word]&p.Mask)))
 		}
 	}
 	if entry != nil {
 		d := g.u.settings.dev
-		show := r.bindNumber(entry, func() string { return entryText(p.Unpack(g.word(p.Word)), paramDecimals(p)) }, func(text string) error {
+		show := r.bindNumber(entry, func() string { return entryText(p.Value(g.field(p)), paramDecimals(p)) }, func(text string) error {
 			if g.u.settings.dev != d {
 				return nil
 			}
@@ -613,7 +682,7 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 			if err != nil {
 				return errors.New(tr("Enter a number."))
 			}
-			if _, err := p.Pack(g.word(p.Word), v); err != nil {
+			if _, _, err := p.PackWords(g.word(p.Word), 0, v); err != nil {
 				return paramRangeError(p)
 			}
 			g.apply(g.setParam(p, v))
@@ -628,7 +697,7 @@ func (g *gridTabView) newParamRow(p gridcode.Param) *paramRow {
 
 // mark shows whether r's parameter differs from the loaded value.
 func (g *gridTabView) mark(r *paramRow) {
-	r.setChanged(r.p.Field(g.word(r.p.Word)) != r.p.Field(g.loaded[r.p.Word]))
+	r.setChanged(g.field(r.p) != g.loadedField(r.p))
 }
 
 // changedParams returns the grid words that differ from the loaded values.
@@ -660,8 +729,12 @@ func (g *gridTabView) undoChanges() {
 	g.apply(errors.Join(errs...))
 }
 
-// paramDecimals returns the number of decimals that shows one step of p.
+// paramDecimals returns the number of decimals that shows one step of p,
+// or the number the original shows (Param.Decimals).
 func paramDecimals(p gridcode.Param) int {
+	if p.Decimals > 0 {
+		return p.Decimals
+	}
 	step := math.Abs(p.Value(p.Min+1) - p.Value(p.Min))
 	if step <= 0 || step >= 1 || math.IsNaN(step) || math.IsInf(step, 0) {
 		return 0

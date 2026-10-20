@@ -1,8 +1,10 @@
 package gridcode
 
 import (
+	"fmt"
 	"math"
 	"math/bits"
+	"slices"
 	"testing"
 )
 
@@ -23,6 +25,15 @@ func fieldValues(p Param) []int {
 		}
 		return fs
 	}
+	if p.CosPhiMin != 0 {
+		// Fields the original writes: 1 and the lowest of either sign.
+		return []int{p.Max, int(math.Round((2 - p.CosPhiMin) * 32768)), int(math.Round(p.CosPhiMin * 32768))}
+	}
+	if p.TripDelay {
+		// The display steps are coarser than the field: only the fields the
+		// original writes come back the same.
+		return []int{p.Min, 4, p.Max, p.Default}
+	}
 	fs := []int{p.Min, p.Max, (p.Min + p.Max) / 2}
 	if p.HasDefault {
 		fs = append(fs, p.Default)
@@ -32,9 +43,28 @@ func fieldValues(p Param) []int {
 
 var otherBits = []uint16{0x0000, 0xFFFF, 0xA5C3, 0x5A3C}
 
+// testPages returns Pages() and each page that has a reactive-power group
+// with each layout of it.
+func testPages() []*Page {
+	pages := Pages()
+	for _, p := range reactivePages {
+		for _, compact := range []bool{false, true} {
+			ps, _ := ReactiveParams(compact, 0.9)
+			q := *p
+			q.Name += fmt.Sprintf(" with reactive power (compact %t)", compact)
+			q.Params = append(slices.Clone(p.Params), ps...)
+			pages = append(pages, &q)
+		}
+	}
+	return pages
+}
+
 func TestRoundTrip(t *testing.T) {
-	for _, pg := range Pages() {
+	for _, pg := range testPages() {
 		for _, p := range pg.Params {
+			if p.High != 0 {
+				continue // TestTwoWordField
+			}
 			for _, f := range fieldValues(p) {
 				for _, base := range otherBits {
 					w := put(p, base, f)
@@ -61,13 +91,19 @@ func TestRoundTrip(t *testing.T) {
 
 func TestOutOfRange(t *testing.T) {
 	const w = 0x1234
-	for _, pg := range Pages() {
+	for _, pg := range testPages() {
 		for _, p := range pg.Params {
 			var bad []float64
 			switch p.Kind {
 			case Number:
 				lo, hi := min(p.Min, p.Max), max(p.Min, p.Max)
 				bad = []float64{p.Value(lo - 1), p.Value(hi + 1), math.NaN()}
+				if p.TripDelay {
+					bad = []float64{-0.5, 180.5, math.NaN()}
+				}
+				if p.CosPhiMin != 0 {
+					bad = []float64{-1.01, 1.01, math.NaN()}
+				}
 			case Checkbox:
 				bad = []float64{-1, 0.5, 2}
 			case Choice:
@@ -110,6 +146,9 @@ func TestKnownValues(t *testing.T) {
 		{pageItaly, "Power limit PCMax (CEI 0-21 term)", 1250, 64286},
 		{pageItaly, "Power limit PCMax (CEI 0-21 term)", 100, 65436},
 		{pageRomania, "Reconnection wait time", 900, 64650},
+		{pageRomania, "Under-voltage trip delay", 0, 3}, // a real file; the original shows 0.0
+		{pageRomania, "Under-voltage trip delay", 0.5, 4},
+		{pageAustria, "Fast over-voltage trip delay", 180, 6851},
 		{pageEurope, "After trip: wait time before reconnecting", 60, 0xFD2},   // 14 - 60 = -46
 		{pageEurope, "After trip: wait time before reconnecting", 1200, 0xB5E}, // 14 - 1200 = -1186
 		{pageEurope, "After trip: lowest frequency allowed to reconnect", 49.5, 20},
@@ -139,7 +178,7 @@ func TestKnownValues(t *testing.T) {
 
 // TestTables checks the tables for entry mistakes.
 func TestTables(t *testing.T) {
-	for _, pg := range Pages() {
+	for _, pg := range testPages() {
 		for _, p := range pg.Params {
 			name := pg.Name + " / " + p.Name
 			if p.Word < 129 || p.Word > 190 {
@@ -150,6 +189,12 @@ func TestTables(t *testing.T) {
 				t.Errorf("%s: mask %#04x is not one run of bits", name, p.Mask)
 			}
 			w := int(p.width())
+			if p.High != 0 {
+				if p.Mask != 0xFFFF || p.High < 129 || p.High > 190 || p.High == p.Word {
+					t.Errorf("%s: invalid two-word field (high word %d)", name, p.High)
+				}
+				w = 32
+			}
 			lo, hi := 0, 1<<w-1
 			if p.Signed {
 				lo, hi = -1<<(w-1), 1<<(w-1)-1
@@ -203,7 +248,6 @@ func TestNoOverlap(t *testing.T) {
 			{"Reactive power: Q as a function of voltage", "Reactive power: limits for the Q set-point"},
 			{"Q(U) point 1: reactive power", "Constant reactive power (fixed mode)"},
 		},
-		pageMicrogrid: {{"", "Hidden diagnostic curve points"}},
 	}
 	ok := func(pg *Page, p, q Param) bool {
 		for _, a := range allowed[pg] {
@@ -216,10 +260,12 @@ func TestNoOverlap(t *testing.T) {
 		}
 		return false
 	}
-	for _, pg := range Pages() {
+	for _, pg := range testPages() {
 		for i, p := range pg.Params {
 			for _, q := range pg.Params[i+1:] {
-				if p.Word == q.Word && p.Mask&q.Mask != 0 && !ok(pg, p, q) {
+				// Never shown together: they follow different values of a field.
+				apart := p.ShowMask != 0 && p.ShowWord == q.ShowWord && p.ShowMask == q.ShowMask && p.ShowValue != q.ShowValue
+				if p.Word == q.Word && p.Mask&q.Mask != 0 && !apart && !ok(pg, p, q) {
 					t.Errorf("%s: %q and %q share bits %#04x of word %d", pg.Name, p.Name, q.Name, p.Mask&q.Mask, p.Word)
 				}
 			}
@@ -298,6 +344,105 @@ func TestPageFor(t *testing.T) {
 	for c, p := range pageOf {
 		if p != nil && !listed[p] {
 			t.Errorf("code %d: page %s not in Pages", c, p.Name)
+		}
+	}
+}
+
+// TestTwoWordField checks a value held in two words against a real file,
+// where VEConfigure shows 255.3 V for 59728 in setting 129 and 77 in 130.
+func TestTwoWordField(t *testing.T) {
+	i := slices.IndexFunc(pageRomania.Params, func(p Param) bool { return p.Name == overVoltage10Min })
+	if i < 0 {
+		t.Fatal("Romania has no over-voltage parameter")
+	}
+	p := pageRomania.Params[i]
+	if v := p.UnpackWords(59728, 77); math.Abs(v-255.3) > 1e-9 {
+		t.Errorf("UnpackWords = %g, want 255.3", v)
+	}
+	if lo, hi, err := p.PackWords(0, 0, 255.3); err != nil || lo != 59728 || hi != 77 {
+		t.Errorf("PackWords(255.3) = %d, %d, %v", lo, hi, err)
+	}
+	if lo, hi, err := p.PackWords(1, 2, 300); err == nil || lo != 1 || hi != 2 {
+		t.Errorf("PackWords(300) = %d, %d, %v; want an error and the words unchanged", lo, hi, err)
+	}
+	if _, err := p.Pack(0, 255.3); err == nil {
+		t.Error("Pack accepted a two-word parameter")
+	}
+}
+
+// TestReactivePower checks which layout of the reactive-power group each
+// grid code gets, as the original chooses it, and the values of a real
+// Romania file (layout A, regulation 0).
+func TestReactivePower(t *testing.T) {
+	for _, c := range []struct {
+		code           Code
+		v              int
+		compact, known bool
+	}{
+		{9, 1, false, true}, {9, 2, true, true}, {9, -1, false, false},
+		{11, 0, false, true}, {11, 1, true, true}, {12, 1, true, true}, {12, -1, false, false},
+		{17, -1, true, true}, {14, -1, false, true}, {2, 0, false, true},
+	} {
+		if compact, known := compactReactive(c.code, c.v); compact != c.compact || known != c.known {
+			t.Errorf("code %d version %d: compact %t known %t, want %t %t", c.code, c.v, compact, known, c.compact, c.known)
+		}
+	}
+	has := func(p *Page, name string) bool {
+		return slices.ContainsFunc(p.Params, func(q Param) bool { return q.Name == name })
+	}
+	const limit = "Active-power threshold to enable the curve (lock-in)"
+	if p := pageRomania.WithReactivePower(14, -1); !has(p, "Reactive-power control mode") || has(p, limit) || has(pageRomania, "Reactive-power control mode") {
+		t.Error("Romania: want layout A on a copy of the page")
+	}
+	if p := pageEurope.WithReactivePower(17, -1); !has(p, limit) {
+		t.Error("Europe: want layout B with the limitation box")
+	}
+	if p := pageFrance.WithReactivePower(9, -1); has(p, "Reactive-power control mode") || !slices.Contains(p.Unsupported, ReactivePowerUnknownLayout) {
+		t.Error("France without a version: want the group listed as not supported")
+	}
+	if p := pageAUNZ2015.WithReactivePower(6, 0); p != pageAUNZ2015 {
+		t.Error("AS/NZS 4777 (2015) has no reactive-power group")
+	}
+	ps, _ := ReactiveParams(false, lowestCosPhi(14, -1))
+	param := func(name string) Param {
+		return ps[slices.IndexFunc(ps, func(q Param) bool { return q.Name == name })]
+	}
+	if v := param("Reactive-power response time constant").Unpack(4165); math.Abs(v-3.3) > 0.001 {
+		t.Errorf("filter time %g, want 3.3", v)
+	}
+	if v := param("cos-phi(P) point 2: active power").Unpack(9830); math.Abs(v-30) > 0.01 {
+		t.Errorf("cos phi(P) point 2 at %g %%, want 30", v)
+	}
+	if p := param("cos-phi(P) point 2: active power"); p.Shown(0) || !p.Shown(1) || !p.Shown(0xFFF5) {
+		t.Error("cos phi(P) points not shown with regulation 1 only")
+	}
+	// The cos phi conversion of the original: 32768 is 1.00 (the Romania
+	// file), above it a positive cos phi, below it a negative one, and a
+	// cos phi nearer to 0 than the code's lowest is written as the lowest.
+	fixed := param("Constant cos phi (fixed mode)")
+	for _, c := range []struct {
+		v    float64
+		word uint16
+		back float64
+	}{
+		{1, 32768, 1}, {-1, 32768, 1}, {0.95, 34406, 0.95}, {-0.95, 31130, -0.95},
+		{0.5, 36045, 0.9}, {-0.5, 29491, -0.9}, {0, 36045, 0.9},
+	} {
+		w, err := fixed.Pack(0, c.v)
+		if err != nil || w != c.word {
+			t.Errorf("cos phi %g: Pack = %d, %v; want %d", c.v, w, err, c.word)
+		}
+		if v := fixed.Unpack(w); v != c.back {
+			t.Errorf("cos phi %g: Unpack(%d) = %g, want %g", c.v, w, v, c.back)
+		}
+	}
+	for _, c := range []struct {
+		code Code
+		v    int
+		want float64
+	}{{14, 0, 0.9}, {2, 0, 0.8}, {17, 0, 0.8}, {9, 1, 0.9}, {9, 2, 0.8}, {12, 0, 0.9}, {12, 1, 0.8}} {
+		if got := lowestCosPhi(c.code, c.v); got != c.want {
+			t.Errorf("code %d version %d: lowest cos phi %g, want %g", c.code, c.v, got, c.want)
 		}
 	}
 }

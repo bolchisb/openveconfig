@@ -63,6 +63,19 @@ type Param struct {
 	// the field's bits, which are contiguous.
 	Word uint16
 	Mask uint16
+	// High, if not 0, is the setting that holds the high 16 bits of a
+	// 32-bit field; Word then holds the low 16 bits and Mask is 0xFFFF.
+	// Reverse-engineered: the original reads such a value from two words;
+	// the order is INFERRED from a real file, where 59728 in Word and 77 in
+	// High (77 << 16 | 59728 = 5106000) show as the original's 255.3 V.
+	High uint16
+	// NeedsWord and NeedsMask, if NeedsMask is not 0, are a field that
+	// switches p on: the original greys p's control while that field is 0.
+	NeedsWord, NeedsMask uint16
+	// ShowWord and ShowMask, if ShowMask is not 0, are a field that
+	// selects p: the original shows p only while that field is ShowValue.
+	ShowWord, ShowMask uint16
+	ShowValue          int
 	// Signed marks a two's complement field; its sign bit is the field's
 	// top bit.
 	Signed bool
@@ -74,6 +87,21 @@ type Param struct {
 	// Min and Max are the field values of the displayed minimum and
 	// maximum. With a negative Scale or Reciprocal, Min > Max.
 	Min, Max int
+	// Decimals, if not 0, is the number of decimals the original shows,
+	// where one step of the field would need more.
+	Decimals int
+	// TripDelay marks a delay the original converts with its own handler
+	// instead of Scale and Offset: the field counts ticks of 26.2144 ms
+	// minus 15 (at least 4), shown in steps of Scale seconds, and 3 means
+	// 0 s. Reverse-engineered (the TOR-D4 and Romania trip delays).
+	TripDelay bool
+	// CosPhiMin, if not 0, marks a cos phi from -1 to 1 that the original
+	// converts with its own handler instead of Scale and Offset: the word
+	// is 32768 * (2 - cos phi) for a positive cos phi, 32768 * -cos phi
+	// otherwise. The value is taken in steps of 0.01; one nearer to 0 than
+	// CosPhiMin is written as CosPhiMin with its sign (0 as +CosPhiMin), -1
+	// as 1. Min and Max are the fields shown as -1 and 1. Reverse-engineered.
+	CosPhiMin float64
 
 	// Default is the field value of the default, if HasDefault. A default
 	// the original gives outside the parameter's own range is treated as
@@ -87,6 +115,9 @@ type Param struct {
 	// them.
 	Choices map[int]string
 }
+
+// tripDelayTick is the tick of a TripDelay field, in seconds.
+const tripDelayTick = 0.0262144
 
 func (p Param) shift() uint { return uint(bits.TrailingZeros16(p.Mask)) }
 func (p Param) width() uint { return uint(bits.OnesCount16(p.Mask)) }
@@ -104,6 +135,19 @@ func (p Param) Field(word uint16) int {
 func (p Param) Value(field int) float64 {
 	switch p.Kind {
 	case Number:
+		if p.CosPhiMin != 0 {
+			c := -float64(field) / 32768
+			if field >= 32768 {
+				c = 2 - float64(field)/32768
+			}
+			return math.Round(c*100) / 100
+		}
+		if p.TripDelay {
+			if field == 3 {
+				return 0
+			}
+			return p.Scale * math.Round((float64(field)+15)*tripDelayTick/p.Scale)
+		}
 		v := p.Scale * (float64(field) + p.Offset)
 		if p.Reciprocal {
 			return 1 / v
@@ -122,11 +166,47 @@ func (p Param) Value(field int) float64 {
 // setting p.Word.
 func (p Param) Unpack(word uint16) float64 { return p.Value(p.Field(word)) }
 
+// Shown reports whether p is shown while setting p.ShowWord holds w.
+func (p Param) Shown(w uint16) bool {
+	return p.ShowMask == 0 || Param{Mask: p.ShowMask}.Field(w) == p.ShowValue
+}
+
+// FieldWords extracts p's field from word and high, the values of settings
+// p.Word and p.High; high is ignored when p.High is 0.
+func (p Param) FieldWords(word, high uint16) int {
+	if p.High == 0 {
+		return p.Field(word)
+	}
+	return int(high)<<16 | int(word)
+}
+
+// UnpackWords returns p's display value from the values of settings p.Word
+// and p.High (see FieldWords).
+func (p Param) UnpackWords(word, high uint16) float64 { return p.Value(p.FieldWords(word, high)) }
+
+// PackWords returns word and high, the values of settings p.Word and
+// p.High, with p's field set to display value v, as Pack does. When p.High
+// is 0, high is returned unchanged.
+func (p Param) PackWords(word, high uint16, v float64) (uint16, uint16, error) {
+	if p.High == 0 {
+		w, err := p.Pack(word, v)
+		return w, high, err
+	}
+	f, err := p.field(v)
+	if err != nil {
+		return word, high, err
+	}
+	return uint16(f), uint16(f >> 16), nil
+}
+
 // Pack returns word with p's field set to display value v; the other bits
 // of word are unchanged. A number is rounded to the nearest field value
 // and must lie within p's limits; a checkbox takes 0 or 1; a choice takes
 // one of its Choices. On error word is returned unchanged.
 func (p Param) Pack(word uint16, v float64) (uint16, error) {
+	if p.High != 0 {
+		return word, fmt.Errorf("gridcode: %s spans two words; use PackWords", p.Name)
+	}
 	f, err := p.field(v)
 	if err != nil {
 		return word, err
@@ -150,11 +230,41 @@ func (p Param) field(v float64) (int, error) {
 		}
 		return int(v), nil
 	}
-	x := v
-	if p.Reciprocal {
-		x = 1 / v
+	if p.CosPhiMin != 0 {
+		if !(v >= -1 && v <= 1) { // also catches NaN
+			return 0, fmt.Errorf("gridcode: %s: %g is outside -1 to 1", p.Name, v)
+		}
+		c := math.Round(v*100) / 100
+		switch {
+		case c <= -1:
+			c = 1
+		case c >= 0 && c < p.CosPhiMin:
+			c = p.CosPhiMin
+		case c < 0 && c > -p.CosPhiMin:
+			c = -p.CosPhiMin
+		}
+		if c > 0 {
+			return int(math.Round((2 - c) * 32768)), nil
+		}
+		return int(math.Round(-c * 32768)), nil
 	}
-	x = math.Round(x/p.Scale - p.Offset)
+	var x float64
+	if p.TripDelay {
+		// Negative steps stay negative, so they fail the limits below.
+		x = math.Round(v / p.Scale)
+		switch {
+		case x == 0:
+			x = 3
+		case x > 0:
+			x = max(4, math.Round(x*p.Scale/tripDelayTick-15))
+		}
+	} else {
+		x = v
+		if p.Reciprocal {
+			x = 1 / v
+		}
+		x = math.Round(x/p.Scale - p.Offset)
+	}
 	lo, hi := min(p.Min, p.Max), max(p.Min, p.Max)
 	if !(x >= float64(lo) && x <= float64(hi)) { // also catches NaN
 		a, b := p.Value(p.Min), p.Value(p.Max)
