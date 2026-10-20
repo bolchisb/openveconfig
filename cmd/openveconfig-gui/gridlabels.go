@@ -38,6 +38,7 @@ func gridLabels() map[string]string {
 		"TOR Erzeuger Typ A grid code settings":                  tr("TOR Erzeuger Typ A grid code settings"),
 		"DK1 (Western Denmark)":                                  tr("DK1 (Western Denmark)"),
 		"DK2 (Eastern Denmark)":                                  tr("DK2 (Eastern Denmark)"),
+		"C10/11 grid code settings":                              tr("C10/11 grid code settings"),
 		"Northern Ireland grid code settings":                    tr("Northern Ireland grid code settings (G99/NI)"),
 		"Czech 2023 grid code settings":                          tr("Czech 2023 grid code settings"),
 		"AS/NZS4777.2:2020 Australia A (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia A (Stand alone appendix M)"),
@@ -288,6 +289,12 @@ func gridPageLabels() map[string]map[string]string {
 		"Europe (EN 50549-1)": {
 			"P(U) reduction method": tr("P(U) response"),
 		},
+		// The Europe page as Austria from version 1 shows it.
+		"TOR Erzeuger Typ A grid code settings": {
+			"P(U) reduction method":                    tr("P(U) response"),
+			"reduce feed-in relative to nominal power": tr("Feed In reduced from Pnominal (= typ a)"),
+			"reduce feed-in relative to present power": tr("Feed In reduced from Pactual (= typ b)"),
+		},
 	}
 }
 
@@ -296,6 +303,11 @@ func gridPageLabels() map[string]map[string]string {
 // it is.
 func gridText(p *gridcode.Page, name string) string {
 	if p != nil {
+		// A page shown under the caption of a grid code may word things
+		// differently there.
+		if l, ok := gridPageLabels()[p.Title][name]; ok && p.Title != "" {
+			return l
+		}
 		if l, ok := gridPageLabels()[p.Name][name]; ok {
 			return l
 		}

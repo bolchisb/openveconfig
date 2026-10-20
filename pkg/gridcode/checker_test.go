@@ -215,6 +215,12 @@ func TestEditMask(t *testing.T) {
 	if m, ok, err := EditMask(withEntry(table, 18, 1), 18, 148); m != 0x3F || !ok || err != nil {
 		t.Errorf("code 18 with code 1's entry: %#04x, %t, %v", m, ok, err)
 	}
+	if d, err := Defaults(table, 1); err != nil || len(d) != 3 || d[148] != 0 || d[149] != 0 || d[190] != 0 {
+		t.Errorf("Defaults of code 1: %v, %v", d, err)
+	}
+	if d, err := Defaults(table, 0); err != nil || len(d) != 0 {
+		t.Errorf("Defaults of an empty entry: %v, %v", d, err)
+	}
 	if _, ok, err := EditMask(nil, 1, 148); ok || err != nil {
 		t.Error("no table: want not ok")
 	}

@@ -120,8 +120,10 @@ func PageOf(c Code, m Model) (p *Page, known bool) {
 // otherwise.
 func pageTitle(c Code, v int) string {
 	switch {
-	case c == 9 && v > 1:
+	case c == 9 && v > 0:
 		return "VFR 2019 grid code settings"
+	case c == 11 && v > 0:
+		return "C10/11 grid code settings"
 	case c == 12 && v > 0:
 		return "TOR Erzeuger Typ A grid code settings"
 	case c == 18:

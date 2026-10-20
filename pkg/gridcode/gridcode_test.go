@@ -323,7 +323,7 @@ func TestSelectableWithoutPassword(t *testing.T) {
 func TestPageFor(t *testing.T) {
 	// Not known: codes outside the list, the AS/NZS 4777.2:2015 codes
 	// without a version.
-	for _, c := range []Code{33, 0xFFFF, 6, 16} {
+	for _, c := range []Code{33, 0xFFFF, 6, 16, 9, 11, 12} {
 		if p, known := PageFor(c, -1); known || p != nil {
 			t.Errorf("PageFor(%d, -1) = %v, %v; want unknown", c, p, known)
 		}
@@ -342,6 +342,8 @@ func TestPageFor(t *testing.T) {
 		{2, -1, pageUK}, {20, -1, pageUK}, {31, -1, pageUK}, {3, -1, pageItaly},
 		{4, -1, pageGermanyA}, {5, -1, pageGermanyB},
 		{6, 0, pageAUNZ2015}, {16, 0, pageAUNZ2015}, {7, 1, pageAUNZ2015B}, {15, 2, pageAUNZ2015B},
+		{9, 0, pageFrance}, {9, 1, pageFrance}, {9, 2, pageEurope},
+		{11, 0, pageBelgium}, {11, 1, pageEurope}, {12, 0, pageAustria}, {12, 2, pageEurope},
 		{10, -1, pageSpain}, {17, -1, pageEurope}, {18, -1, pageEurope}, {19, -1, pageEurope}, {30, -1, pageEurope},
 		{22, -1, pageAUNZM}, {25, -1, pageAUNZM}, {29, -1, pageAUNZM}, {32, -1, pagePoland},
 	} {

@@ -91,9 +91,9 @@ func SelectableWithoutPassword(c Code, firmware uint32) bool {
 }
 
 // pageOf maps grid codes to their parameter page, nil for codes without
-// one. The AS/NZS 4777.2:2015 codes (6, 7, 15, 16) are not here: their
-// page follows the parameter-set version (PageFor). Reverse-engineered
-// from the original's page choice.
+// one. For the AS/NZS 4777.2:2015 codes (6, 7, 15, 16), France (9),
+// Belgium (11) and Austria (12) the page follows the parameter-set
+// version (PageFor). Reverse-engineered from the original's page choice.
 var pageOf = map[Code]*Page{
 	0: nil, 1: nil, 21: nil,
 	2: pageUK, 20: pageUK, 31: pageUK,
@@ -114,9 +114,10 @@ var pageOf = map[Code]*Page{
 
 // PageFor returns the parameter page of grid code c with parameter-set
 // version v (negative: not known). known is false when the page is not
-// known: for a code not in Codes, and for the AS/NZS 4777.2:2015 codes
-// without a version. p is nil for a code without parameters (0, 1, 21)
-// and when the page is not known.
+// known: for a code not in Codes, and for a code whose page follows the
+// version when that is not known. From version 2 France, and from
+// version 1 Belgium and Austria, use the Europe page. p is nil for a code
+// without parameters (0, 1, 21) and when the page is not known.
 func PageFor(c Code, v int) (p *Page, known bool) {
 	switch c {
 	case 6, 7, 15, 16:
@@ -127,6 +128,17 @@ func PageFor(c Code, v int) (p *Page, known bool) {
 			return pageAUNZ2015, true
 		}
 		return pageAUNZ2015B, true
+	case 9, 11, 12:
+		from := 1
+		if c == 9 {
+			from = 2
+		}
+		switch {
+		case v < 0:
+			return nil, false
+		case v >= from:
+			return pageEurope, true
+		}
 	}
 	p, known = pageOf[c]
 	return p, known

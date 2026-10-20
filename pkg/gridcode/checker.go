@@ -108,72 +108,120 @@ func ParamSetVersion(table []byte, g Code) (uint8, error) {
 	return table[off], nil
 }
 
-// EditMask returns the bits of grid word w (128-191) that grid code g lets
-// the user change, from a grid-info table: 0 for a word the code does not
-// use, the mask the table lists for the word, or else all bits (0x000F for
-// word 190). ok is false when the table has no entry for g. The original
-// shows the voltage lock-in of the reactive-power group by bit 5 of word
-// 148's mask. Reverse-engineered.
+// gridEntry is a grid code's entry of a grid-info table.
+type gridEntry struct {
+	format byte
+	used   []byte // bitmap of the grid words the code uses, bit w-128
+	values []byte // from format 2: a u16 default per used word except 128 and 191
+	masks  []byte // (word - 128, u16 mask) triples
+}
+
+// uses reports whether the entry uses grid word w.
+func (e gridEntry) uses(w uint16) bool {
+	i := int(w - CheckerWordA)
+	return w >= CheckerWordA && i < 8*len(e.used) && e.used[i/8]>>(i%8)&1 != 0
+}
+
+// entryOf returns grid code g's entry of table; ok is false when the table
+// has none (an empty entry is ok, using no word).
 //
 // A code's entry: the version byte (format 1 and later), a u16 (format 3
 // and later), two bitmaps of the 64 grid words of the table's bitmap
 // length each (the second: the words the code uses; an entry whose
 // second bitmap starts with 0 is empty), from format 2 a u16 default per
 // used word except 128 and 191, then (word - 128, u16 mask) triples up to
-// a 0 byte.
-func EditMask(table []byte, g Code, w uint16) (mask uint16, ok bool, err error) {
-	if table == nil || len(table) < tableOffOffsets || w < CheckerWordA || w > CheckerWordB {
-		return 0, false, nil
+// a 0 byte. Reverse-engineered.
+func entryOf(table []byte, g Code) (e gridEntry, ok bool, err error) {
+	if table == nil || len(table) < tableOffOffsets {
+		return e, false, nil
 	}
-	format, n := table[tableOffFormat], int(table[tableOffBitmap])
-	if int(g) >= int(table[tableOffCount]) || format < 1 {
-		return 0, false, nil
+	e.format = table[tableOffFormat]
+	n := int(table[tableOffBitmap])
+	if int(g) >= int(table[tableOffCount]) || e.format < 1 {
+		return e, false, nil
 	}
 	short := fmt.Errorf("gridcode: grid-info entry of grid code %d is cut short", g)
 	at := tableOffOffsets + 2*int(g)
 	if at+2 > len(table) {
-		return 0, false, short
+		return e, false, short
 	}
 	o := int(binary.LittleEndian.Uint16(table[at:])) + 1
-	if format > 2 {
+	if e.format > 2 {
 		o += 2
 	}
-	if o+2*n > len(table) {
-		return 0, false, short
+	if n == 0 || o+2*n > len(table) {
+		return e, false, short
 	}
-	used := table[o+n : o+2*n]
-	if used[0] == 0 {
-		return 0, true, nil
+	e.used = table[o+n : o+2*n]
+	if e.used[0] == 0 {
+		e.used = make([]byte, n)
+		return e, true, nil
 	}
-	i := int(w - CheckerWordA)
-	if i >= 8*n || used[i/8]>>(i%8)&1 == 0 {
-		return 0, true, nil
-	}
-	all := uint16(0xFFFF)
-	if w == 190 {
-		all = 0x000F
-	}
-	if format < 2 {
-		return all, true, nil
+	if e.format < 2 {
+		return e, true, nil
 	}
 	set := 0
-	for _, b := range used {
+	for _, b := range e.used {
 		set += bits.OnesCount8(b)
 	}
-	for e := o + 2*n + 2*(set-2); ; e += 3 {
-		if e >= len(table) {
-			return 0, false, short
+	o += 2 * n
+	end := o + 2*max(0, set-2)
+	if end > len(table) {
+		return e, false, short
+	}
+	e.values = table[o:end]
+	for t := end; ; t += 3 {
+		if t >= len(table) || table[t] != 0 && t+3 > len(table) {
+			return e, false, short
 		}
-		if table[e] == 0 {
-			return all, true, nil
-		}
-		if e+3 > len(table) {
-			return 0, false, short
-		}
-		if int(table[e]) == i {
-			return binary.LittleEndian.Uint16(table[e+1:]), true, nil
+		if table[t] == 0 {
+			e.masks = table[end:t]
+			return e, true, nil
 		}
 	}
+}
+
+// EditMask returns the bits of grid word w (128-191) that grid code g lets
+// the user change, from a grid-info table: 0 for a word the code does not
+// use, the mask the table lists for the word, or else all bits (0x000F for
+// word 190). ok is false when the table has no entry for g. The original
+// shows the voltage lock-in of the reactive-power group by bit 5 of word
+// 148's mask. Reverse-engineered.
+func EditMask(table []byte, g Code, w uint16) (mask uint16, ok bool, err error) {
+	e, ok, err := entryOf(table, g)
+	if !ok || err != nil || !e.uses(w) {
+		return 0, ok, err
+	}
+	for t := 0; t+3 <= len(e.masks); t += 3 {
+		if uint16(e.masks[t]) == w-CheckerWordA {
+			return binary.LittleEndian.Uint16(e.masks[t+1:]), true, nil
+		}
+	}
+	if w == 190 {
+		return 0x000F, true, nil
+	}
+	return 0xFFFF, true, nil
+}
+
+// Defaults returns the default values the grid-info table gives grid code
+// g for the grid words it uses, except the checker words 128 and 191; nil
+// when the table has no entry for g or no defaults (format below 2).
+// Reverse-engineered: on a real file they are the values VEConfigure
+// shows after choosing the code.
+func Defaults(table []byte, g Code) (map[uint16]uint16, error) {
+	e, ok, err := entryOf(table, g)
+	if !ok || err != nil || e.values == nil {
+		return nil, err
+	}
+	d := map[uint16]uint16{}
+	i := 0
+	for w := CheckerWordA + 1; w < CheckerWordB && 2*i+2 <= len(e.values); w++ {
+		if e.uses(w) {
+			d[w] = binary.LittleEndian.Uint16(e.values[2*i:])
+			i++
+		}
+	}
+	return d, nil
 }
 
 // ErrDeviceWrite is returned (wrapped) by CheckDeviceWrite.
