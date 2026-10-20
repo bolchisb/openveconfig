@@ -81,7 +81,8 @@ func (m Model) version(c Code) int {
 
 // mask returns EditMask of grid code c and word w; known is false when it
 // is not known. Without a table the original's built-in masks are 0 for
-// the words asked here (word 148 of codes from 5, word 158 of code 4).
+// the words asked here (word 148 of code 2 and of codes from 5, word 158 of
+// code 4).
 func (m Model) mask(c Code, w uint16) (mask uint16, known bool) {
 	if !m.Known {
 		return 0, false
@@ -106,7 +107,7 @@ func PageOf(c Code, m Model) (p *Page, known bool) {
 	if p == nil {
 		return p, known
 	}
-	p = p.WithReactivePower(c, m)
+	p = p.WithReactivePower(c, m).forCode(c, m)
 	if t := pageTitle(c, v); t != "" {
 		q := *p
 		q.Title = t

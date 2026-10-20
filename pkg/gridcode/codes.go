@@ -214,6 +214,17 @@ func SelectableWithoutPassword(c Code, firmware uint32) bool {
 	return false
 }
 
+// InternalProtection reports whether a device has built-in interface (NS)
+// protection, from the extra bytes of its device version (as a settings
+// file holds them): bit 2 of the second byte. With fewer bytes it has not.
+// Reverse-engineered: the original reads the flag there and, when grid
+// code 4 (external NS protection) is chosen on a device with it, offers
+// code 5 (internal NS protection) instead, and code 4 instead of 5 on a
+// device without it.
+func InternalProtection(versionExtra []byte) bool {
+	return len(versionExtra) >= 2 && versionExtra[1]&0x04 != 0
+}
+
 // pageOf maps grid codes to their parameter page, nil for codes without
 // one. For the AS/NZS 4777.2:2015 codes (6, 7, 15, 16), France (9),
 // Belgium (11) and Austria (12) the page follows the parameter-set

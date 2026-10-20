@@ -27,7 +27,12 @@ type Page struct {
 	Name string
 	// Title, if not "", is the original's caption of the page for the grid
 	// code it is shown for, where that differs from the page's own.
-	Title  string
+	Title string
+	// Table, if not nil, is the fixed table the original shows at the top
+	// of the page for the grid code (the interface protection of the
+	// standard): a header row, then rows of cells, worded as the original
+	// shows them.
+	Table  [][]string
 	Params []Param
 	// Unsupported names parameters of the page that are left out of Params
 	// because how they map to the words is not known (values spread over
@@ -135,6 +140,10 @@ type Param struct {
 	// Choice only: the allowed field values and this project's names for
 	// them.
 	Choices map[int]string
+
+	// cei marks a parameter of the CEI 0-21 page that the original
+	// converts with handlers of its own (cei.go).
+	cei ceiPart
 }
 
 // tripDelayTick is the tick of a TripDelay field, in seconds.
@@ -254,6 +263,75 @@ func (p Param) PackWords(word, high uint16, v float64) (uint16, uint16, error) {
 		high&^p.HighMask | uint16(f>>p.width())<<h.shift()&p.HighMask, nil
 }
 
+func (p Param) ceiDroop() bool { return p.cei == ceiOverDroop || p.cei == ceiUnderDroop }
+
+// FieldIn returns p's field from the grid words; word returns the value of
+// a grid word. It is FieldWords, except for a CEI 0-21 droop, which
+// follows from two words (cei.go).
+func (p Param) FieldIn(word func(uint16) uint16) int {
+	if p.ceiDroop() {
+		return p.ceiField(word)
+	}
+	var high uint16
+	if p.High != 0 {
+		high = word(p.High)
+	}
+	return p.FieldWords(word(p.Word), high)
+}
+
+// PackIn returns the grid words that change when p is set to display
+// value v, with their new values; word returns the current value of a grid
+// word. It is PackWords, except that a CEI 0-21 start frequency or droop
+// also rewrites the rest of its curve, and that a CEI 0-21 frequency out of
+// order is refused (ErrFrequencyOrder).
+func (p Param) PackIn(word func(uint16) uint16, v float64) (map[uint16]uint16, error) {
+	own := map[uint16]uint16{}
+	if p.ceiDroop() {
+		if _, err := p.field(v); err != nil {
+			return nil, err
+		}
+	} else {
+		var high uint16
+		if p.High != 0 {
+			high = word(p.High)
+		}
+		w, h, err := p.PackWords(word(p.Word), high, v)
+		if err != nil {
+			return nil, err
+		}
+		own[p.Word] = w
+		if p.High != 0 {
+			own[p.High] = h
+		}
+	}
+	if p.cei != ceiNone {
+		return p.ceiPack(word, own, v)
+	}
+	return own, nil
+}
+
+// Words returns the grid words p is stored in, each with the bits of it
+// that p uses (with its Twin); a word p only reads has no bits (the start frequency of a
+// CEI 0-21 droop).
+func (p Param) Words() map[uint16]uint16 {
+	m := map[uint16]uint16{p.Word: p.Mask | p.Twin}
+	if p.High != 0 {
+		m[p.High] |= p.HighMask
+	}
+	switch p.cei {
+	case ceiOverStart, ceiUnderStart:
+		for w := p.Word + 1; w <= p.Word+5; w++ {
+			m[w] = 0xFFFF
+		}
+	case ceiOverDroop, ceiUnderDroop:
+		m[p.Word-1] = 0
+		for w := p.Word + 1; w <= p.Word+4; w++ {
+			m[w] = 0xFFFF
+		}
+	}
+	return m
+}
+
 // Pack returns word with p's field (and its Twin) set to display value v;
 // the other bits of word are unchanged. A number is rounded to the nearest
 // field value and must lie within p's limits; a checkbox takes 0 or 1; a
@@ -261,6 +339,9 @@ func (p Param) PackWords(word, high uint16, v float64) (uint16, uint16, error) {
 func (p Param) Pack(word uint16, v float64) (uint16, error) {
 	if p.High != 0 {
 		return word, fmt.Errorf("gridcode: %s spans two words; use PackWords", p.Name)
+	}
+	if p.ceiDroop() {
+		return word, fmt.Errorf("gridcode: %s spans several words; use PackIn", p.Name)
 	}
 	f, err := p.field(v)
 	if err != nil {

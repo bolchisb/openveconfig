@@ -621,7 +621,7 @@ func TestGridPolandPage(t *testing.T) {
 		}
 	}
 	u.settings.load(d, nil)
-	if want := "Polish grid code settings"; g.paramsItem.Text != want {
+	if want := "Polish grid code settings (EU 2016/631)"; g.paramsItem.Text != want {
 		t.Errorf("tab %q, want %q", g.paramsItem.Text, want)
 	}
 	start := paramRowOf(t, g, "Over-frequency power reduction: start frequency")
@@ -700,6 +700,63 @@ func TestGridDeviceTable(t *testing.T) {
 		}
 		if it := gridCodeItem(9, m, 2699481); it.subtitle != want || !strings.HasSuffix(it.label, want+" (needs password)") {
 			t.Errorf("table %t: list entry %q, %q; want the standard %q", table != nil, it.subtitle, it.label, want)
+		}
+	}
+}
+
+// TestGridNSProtection chooses the Germany codes for a file of a device
+// with and without built-in interface protection: the question offers the
+// other code, and Cancel keeps the code as it was.
+func TestGridNSProtection(t *testing.T) {
+	u := newTestUI(t)
+	g := newGridTab(u)
+	sf, err := parseSettingsFile("grid.rvsc", gridFile(0x0300, 0x0300).Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadSettingsFile(u, sf)
+	code := func() uint16 {
+		v, _ := u.settings.dev.Raw(vebus.SettingID(gridCodeSetting))
+		return v
+	}
+	answer := func(button string) {
+		t.Helper()
+		dlg := u.win.Canvas().Overlays().Top()
+		if dlg == nil {
+			t.Fatal("no question")
+		}
+		bs := findObjects(dlg, func(o fyne.CanvasObject) bool { b, ok := o.(*widget.Button); return ok && b.Text == button })
+		if len(bs) != 1 {
+			t.Fatalf("no %q button in %q", button, labelTexts(dlg))
+		}
+		test.Tap(bs[0].(*widget.Button))
+	}
+	sf.unit.VersionExtra = []byte{0x08, 0x04}
+	for _, tc := range []struct {
+		button string
+		want   uint16
+	}{{"Cancel", 0}, {"Yes", 5}, {"No", 4}} {
+		selectCode(t, g, 4)
+		answer(tc.button)
+		if c := code(); c != tc.want {
+			t.Errorf("code 4 with internal protection, %s: code %d, want %d", tc.button, c, tc.want)
+		}
+	}
+	selectCode(t, g, 5) // fits: no question
+	if c := code(); c != 5 || u.win.Canvas().Overlays().Top() != nil {
+		t.Errorf("code 5 with internal protection: code %d", c)
+	}
+
+	sf.unit.VersionExtra = nil
+	selectCode(t, g, 4)
+	for _, tc := range []struct {
+		button string
+		want   uint16
+	}{{"Cancel", 4}, {"OK", 4}} {
+		selectCode(t, g, 5)
+		answer(tc.button)
+		if c := code(); c != tc.want {
+			t.Errorf("code 5 without internal protection, %s: code %d, want %d", tc.button, c, tc.want)
 		}
 	}
 }

@@ -94,21 +94,20 @@ func gridReport(d *vebus.Device, grid gridcode.Model) []reportGroup {
 	}
 	var groups []reportGroup
 	index := map[string]int{}
+params:
 	for _, prm := range p.Params {
-		word, err := d.Raw(vebus.SettingID(prm.Word))
-		if err != nil {
-			continue
+		for w := range prm.Words() {
+			if _, err := d.Raw(vebus.SettingID(w)); err != nil {
+				continue params
+			}
 		}
 		if show, _ := d.Raw(vebus.SettingID(prm.ShowWord)); !prm.Shown(show) {
 			continue
 		}
-		var high uint16
-		if prm.High != 0 {
-			if high, err = d.Raw(vebus.SettingID(prm.High)); err != nil {
-				continue
-			}
-		}
-		f := prm.FieldWords(word, high)
+		f := prm.FieldIn(func(w uint16) uint16 {
+			raw, _ := d.Raw(vebus.SettingID(w))
+			return raw
+		})
 		i, ok := index[prm.Group]
 		if !ok {
 			i = len(groups)

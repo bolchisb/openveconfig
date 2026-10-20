@@ -75,8 +75,8 @@ func testPages() []*Page {
 func TestRoundTrip(t *testing.T) {
 	for _, pg := range testPages() {
 		for _, p := range pg.Params {
-			if p.High != 0 {
-				continue // TestTwoWordField
+			if p.High != 0 || p.ceiDroop() {
+				continue // TestTwoWordField, TestCEICurve
 			}
 			for _, f := range fieldValues(p) {
 				for _, base := range otherBits {

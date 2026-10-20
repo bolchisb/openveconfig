@@ -18,11 +18,11 @@ func gridLabels() map[string]string {
 		"Italy (CEI 0-21)":                                                      tr("CEI grid code settings (CEI 0-21)"),
 		"Germany, variant A (VDE-AR-N 4105, short form)":                        tr("VDE grid code settings (VDE-AR-N 4105, variant A)"),
 		"Germany, variant B (VDE-AR-N 4105, full form)":                         tr("VDE grid code settings (VDE-AR-N 4105, variant B)"),
-		"Australia/New Zealand (AS/NZS 4777.2:2015)":                            tr("AS/NZS 4777 grid code settings"),
-		"Australia/New Zealand (AS/NZS 4777.2:2015, parameter set 1 and later)": tr("AS/NZS 4777 grid code settings"),
+		"Australia/New Zealand (AS/NZS 4777.2:2015)":                            tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2015)"),
+		"Australia/New Zealand (AS/NZS 4777.2:2015, parameter set 1 and later)": tr("AS/NZS 4777 grid code settings (AS/NZS 4777.2:2015)"),
 		"South Africa (NRS 097-2-1)":                                            tr("NRS097 grid code settings (NRS 097-2-1)"),
 		"France (UTE C15-712-1)":                                                tr("UTE C15 grid code settings (UTE C15-712-1)"),
-		"Spain (RD 1699/2011)":                                                  tr("RD1699 grid code settings"),
+		"Spain (RD 1699/2011)":                                                  tr("RD1699 grid code settings (RD 1699/2011)"),
 		"Belgium (C10/11)":                                                      tr("C10/11 grid code settings"),
 		"Austria (TOR-D4)":                                                      tr("TOR-D4 grid code settings"),
 		"Chile (NTG-BT)":                                                        tr("NTG-BT grid code settings"),
@@ -30,7 +30,7 @@ func gridLabels() map[string]string {
 		"Europe (EN 50549-1)":                                                   tr("European grid code settings (EN 50549-1)"),
 		// The original sets this page's caption by grid code (Page.Title).
 		"Australia/New Zealand, stand-alone (AS/NZS 4777.2:2020 appendix M)": tr("Australia/New Zealand, stand-alone (AS/NZS 4777.2:2020 appendix M)"),
-		"Poland":    tr("Polish grid code settings"),
+		"Poland":    tr("Polish grid code settings (EU 2016/631)"),
 		"Microgrid": tr("Microgrid related settings"),
 
 		// Captions the original gives a page for some grid codes.
@@ -40,6 +40,8 @@ func gridLabels() map[string]string {
 		"DK2 (Eastern Denmark)":                                  tr("DK2 (Eastern Denmark)"),
 		"C10/11 grid code settings":                              tr("C10/11 grid code settings"),
 		"Northern Ireland grid code settings":                    tr("Northern Ireland grid code settings (G99/NI)"),
+		"UK G99 grid code settings":                              tr("UK G99 grid code settings"),
+		"UK G98 grid code settings":                              tr("UK G98 grid code settings"),
 		"Czech 2023 grid code settings":                          tr("Czech 2023 grid code settings"),
 		"AS/NZS4777.2:2020 Australia A (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia A (Stand alone appendix M)"),
 		"AS/NZS4777.2:2020 Australia B (Stand alone appendix M)": tr("AS/NZS4777.2:2020 Australia B (Stand alone appendix M)"),
@@ -79,7 +81,7 @@ func gridLabels() map[string]string {
 		"Network-support mode: lower activation frequency":                                  tr("Start network service LF threshold"),
 		"Droop paired with power limit PSMax":                                               tr("Droop for PSMax"),
 		"AC current cap for charging and feed-in":                                           tr("Max AC current"),
-		"Use auxiliary input 2 as 4.2 kW charge-power cap signal (German EnWG section 14a)": tr("Use AUX2 as 4.2 kW charge limit signal (§14a)"),
+		"Use auxiliary input 2 as 4.2 kW charge-power cap signal (German EnWG section 14a)": tr("Use AUX2 as 4.2kW charge limit signal (§14a)"),
 		"cos-phi(P) point 1: active power":                                                  tr("Cos phi curve point 1"),
 		"cos-phi(P) point 2: active power":                                                  tr("Cos phi curve point 2"),
 		"cos-phi(P) point 3: active power":                                                  tr("Cos phi curve point 3"),
@@ -223,7 +225,21 @@ func gridLabels() map[string]string {
 		"fixed delay":                              tr("Use specified retry delay"),
 		"random delay":                             tr("Use random retry delay"),
 
+		// The cells of the fixed protection tables (gridcode.Page.Table)
+		// that are words.
+		"Protection function": tr("Protection function"),
+		"Trip setting":        tr("Trip setting"),
+		"Trip delay":          tr("Trip delay"),
+		"LOM detection":       tr("LOM detection"),
+		"see LOM setting":     tr("see LOM setting"),
+		"Reconnection time":   tr("Reconnection time"),
+		"under voltage":       tr("under voltage"),
+		"over voltage":        tr("over voltage"),
+		"under freq.":         tr("under freq."),
+		"over freq.":          tr("over freq."),
+
 		// Units with words.
+		"seconds":              tr("seconds"),
 		"% of nominal current": tr("% of INom"),
 		"% of Un":              tr("% Un"),
 		"% of nominal voltage": tr("% of Un"),
