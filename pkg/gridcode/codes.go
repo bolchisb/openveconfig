@@ -44,11 +44,13 @@ var codes = []CodeInfo{
 	{19, "Denmark", "DK2, Eastern Denmark (Technical regulation 3.3.1)", "Danish rule, eastern grid"},
 	{20, "Northern Ireland", "G99/NI April 2019", "Northern Irish generator rule"},
 	{21, "", "none", "As code 1, with the neutral path joined outside the unit; not compliant"},
-	// The original sets the standard of 22-25 at run time; not known.
-	{22, "Australia A", "AS/NZS 4777.2 (edition not known, likely 2020)", "Regional setting A"},
-	{23, "Australia B", "AS/NZS 4777.2 (edition not known, likely 2020)", "Regional setting B"},
-	{24, "Australia C", "AS/NZS 4777.2 (edition not known, likely 2020)", "Regional setting C"},
-	{25, "New Zealand", "AS/NZS 4777.2:2020", "2020 rule"},
+	// The original always sets the standard of 22-25 when settings are
+	// loaded: this text, with a suffix that follows the grid-info table
+	// (LookupFor).
+	{22, "Australia A", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M", "Regional setting A"},
+	{23, "Australia B", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M", "Regional setting B"},
+	{24, "Australia C", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M", "Regional setting C"},
+	{25, "New Zealand", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M", "2020 rule"},
 	{26, "Australia A", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M (with N-bypass)", "Stand-alone use with neutral bypass"},
 	{27, "Australia B", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M (with N-bypass)", "Stand-alone use with neutral bypass"},
 	{28, "Australia C", "AS/NZS 4777.2:2020+A1+A2 stand alone app. M (with N-bypass)", "Stand-alone use with neutral bypass"},
@@ -69,6 +71,128 @@ func Lookup(c Code) (CodeInfo, bool) {
 		}
 	}
 	return CodeInfo{}, false
+}
+
+// LookupFor returns grid code c as the original's grid code list shows it
+// for settings with the grid-info table of model m, from a device with
+// firmware version firmware: for some codes the standard follows the
+// table (whether the code is in it, its parameter-set version, an edit
+// mask, a flag of its entry) and the firmware. Where that cannot be told
+// (m not known, or what the original does is not known), the standard is
+// Lookup's. Reverse-engineered.
+func LookupFor(c Code, m Model, firmware uint32) (CodeInfo, bool) {
+	ci, ok := Lookup(c)
+	if ok {
+		if s := m.standard(c, firmware); s != "" {
+			ci.Standard = s
+		}
+	}
+	return ci, ok
+}
+
+// standard returns the standard the original's list shows for grid code
+// c with model m and firmware, "" for Lookup's.
+func (m Model) standard(c Code, firmware uint32) string {
+	if !m.Known {
+		return ""
+	}
+	listed, listedKnown := m.listed(c)
+	v := m.version(c)
+	switch c {
+	case 2:
+		in31, known31 := m.listed(31)
+		mask, _ := m.mask(2, 148)
+		switch {
+		case !known31:
+		case in31:
+			return "G99/1 Amendment 8"
+		case mask == 0:
+		case v == 0:
+			return "G98/1 March 2019, G99/1 May 2018"
+		case v == 1:
+			return "G98/1 Amendment 6, G99/1 Amendment 8"
+		}
+		// INFERRED: from version 2 the original leaves the entry as it
+		// was, its built-in text when nothing changed it before.
+	case 4, 5:
+		if mask, _ := m.mask(4, 158); mask != 0 {
+			side := "external"
+			if c == 5 {
+				side = "internal"
+			}
+			return "VDE-AR-N 4105:2018-11, " + side + " NS protection"
+		}
+	case 6, 7:
+		return m.withSuffix(c, listed, listedKnown, " (AC Neutral path not externally joined)")
+	case 9:
+		if v == 1 || v == 2 {
+			return "VDE V 0126-1-1 VFR 2019"
+		}
+	case 11:
+		// Not in the table: left as it was (INFERRED: the built-in text).
+		switch {
+		case !listedKnown || !listed:
+		case v == 0:
+			return "C10/11:2012-04"
+		default:
+			return "C10/11 ed. 2.1:2019-09"
+		}
+	case 12:
+		// The original asks this only while settings are loaded (INFERRED
+		// from where it sets the flag it tests); the list is shown only then.
+		// The version counts as 0 when the code is not in the table (and
+		// is 0 without one).
+		switch {
+		case firmware%1000 < 450:
+		case !listed || v == 0:
+			return "TOR-D4 V2.3:2016-7"
+		default:
+			return "TOR-Erzeuger A V1.1:2019-12"
+		}
+	case 22, 23, 24, 25:
+		return m.withSuffix(c, listed, listedKnown, " (no N-bypass)")
+	}
+	return ""
+}
+
+// withSuffix returns Lookup's standard of grid code c with suffix added
+// when the original adds it: when c is in the table and its entry's flags
+// are not there (format below 3) or have bit 15 clear. What the bit means
+// is not known. "" when that cannot be told.
+func (m Model) withSuffix(c Code, listed, known bool, suffix string) string {
+	ci, _ := Lookup(c)
+	switch {
+	case !known:
+		return ""
+	case !listed:
+		return ci.Standard
+	}
+	if e, _, _ := entryOf(m.Table, c); e.flags >= 0 && e.flags&0x8000 != 0 {
+		return ci.Standard
+	}
+	return ci.Standard + suffix
+}
+
+// listed reports whether grid code c has an entry in the grid-info table
+// of m that is not empty, the original's test of whether the device knows
+// the code; known is false when that cannot be told. Without a table the
+// original knows codes 0-4 and not those from 13; for 5-12 it depends on
+// a flag of its own that is not known. A table of format 0 is not
+// followed here. Reverse-engineered.
+func (m Model) listed(c Code) (listed, known bool) {
+	switch {
+	case !m.Known:
+		return false, false
+	case m.Table == nil:
+		return c < 5, c < 5 || c >= 13
+	case m.Table[tableOffFormat] < 1:
+		return false, false
+	}
+	e, ok, err := entryOf(m.Table, c)
+	if err != nil {
+		return false, false
+	}
+	return ok && e.used[0] != 0, true
 }
 
 // SelectableWithoutPassword reports whether grid code c can be chosen

@@ -111,6 +111,7 @@ func ParamSetVersion(table []byte, g Code) (uint8, error) {
 // gridEntry is a grid code's entry of a grid-info table.
 type gridEntry struct {
 	format byte
+	flags  int    // the u16 after the version byte (format 3 and later), -1 before
 	used   []byte // bitmap of the grid words the code uses, bit w-128
 	values []byte // from format 2: a u16 default per used word except 128 and 191
 	masks  []byte // (word - 128, u16 mask) triples
@@ -125,12 +126,12 @@ func (e gridEntry) uses(w uint16) bool {
 // entryOf returns grid code g's entry of table; ok is false when the table
 // has none (an empty entry is ok, using no word).
 //
-// A code's entry: the version byte (format 1 and later), a u16 (format 3
-// and later), two bitmaps of the 64 grid words of the table's bitmap
-// length each (the second: the words the code uses; an entry whose
-// second bitmap starts with 0 is empty), from format 2 a u16 default per
-// used word except 128 and 191, then (word - 128, u16 mask) triples up to
-// a 0 byte. Reverse-engineered.
+// A code's entry: the version byte (format 1 and later), a u16 of flags
+// (format 3 and later; see LookupFor), two bitmaps of the 64 grid words
+// of the table's bitmap length each (the second: the words the code
+// uses; an entry whose second bitmap starts with 0 is empty), from format
+// 2 a u16 default per used word except 128 and 191, then (word - 128, u16
+// mask) triples up to a 0 byte. Reverse-engineered.
 func entryOf(table []byte, g Code) (e gridEntry, ok bool, err error) {
 	if table == nil || len(table) < tableOffOffsets {
 		return e, false, nil
@@ -146,11 +147,15 @@ func entryOf(table []byte, g Code) (e gridEntry, ok bool, err error) {
 		return e, false, short
 	}
 	o := int(binary.LittleEndian.Uint16(table[at:])) + 1
+	e.flags = -1
 	if e.format > 2 {
 		o += 2
 	}
 	if n == 0 || o+2*n > len(table) {
 		return e, false, short
+	}
+	if e.format > 2 {
+		e.flags = int(binary.LittleEndian.Uint16(table[o-2:]))
 	}
 	e.used = table[o+n : o+2*n]
 	if e.used[0] == 0 {

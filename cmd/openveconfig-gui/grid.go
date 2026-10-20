@@ -360,7 +360,7 @@ func (g *gridTabView) updateCode() {
 		slices.Sort(g.codeValues)
 	}
 	for _, v := range g.codeValues {
-		items = append(items, gridCodeItem(gridcode.Code(v), d.Firmware))
+		items = append(items, gridCodeItem(gridcode.Code(v), g.u.settings.grid, d.Firmware))
 	}
 	g.code.SetItems(items)
 	g.code.SetSelectedIndex(slices.Index(g.codeValues, cur))
@@ -375,12 +375,13 @@ func (g *gridTabView) updateCode() {
 		"but not sent straight to a device."))
 }
 
-// gridCodeLabel names grid code c for the choice, with a note when it
-// needs a password on the given firmware.
-func gridCodeLabel(c gridcode.Code, firmware uint32) string {
+// gridCodeLabel names grid code c for the choice, as the original's list
+// does with the grid-info table of m, with a note when it needs a password
+// on the given firmware.
+func gridCodeLabel(c gridcode.Code, m gridcode.Model, firmware uint32) string {
 	num := strconv.Itoa(int(c))
 	var label string
-	switch ci, ok := gridcode.Lookup(c); {
+	switch ci, ok := gridcode.LookupFor(c, m, firmware); {
 	case !ok:
 		label = tr("{{.Number}}: unknown grid code", args{"Number": num})
 	case ci.Region == "":
@@ -395,11 +396,12 @@ func gridCodeLabel(c gridcode.Code, firmware uint32) string {
 }
 
 // gridCodeItem returns grid code c as an item of the picker: its number and
-// region, its standard, and whether it needs a password on firmware.
-func gridCodeItem(c gridcode.Code, firmware uint32) codeItem {
+// region, its standard as the original shows it with the grid-info table
+// of m, and whether it needs a password on firmware.
+func gridCodeItem(c gridcode.Code, m gridcode.Model, firmware uint32) codeItem {
 	num := strconv.Itoa(int(c))
-	it := codeItem{label: gridCodeLabel(c, firmware), locked: !gridcode.SelectableWithoutPassword(c, firmware)}
-	switch ci, ok := gridcode.Lookup(c); {
+	it := codeItem{label: gridCodeLabel(c, m, firmware), locked: !gridcode.SelectableWithoutPassword(c, firmware)}
+	switch ci, ok := gridcode.LookupFor(c, m, firmware); {
 	case !ok:
 		it.title = tr("{{.Number}}: unknown grid code", args{"Number": num})
 	case ci.Region == "":

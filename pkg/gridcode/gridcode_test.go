@@ -296,6 +296,114 @@ func TestCodes(t *testing.T) {
 	}
 }
 
+// listEntry is a made-up grid-info entry for listTable: its version, its
+// flags and the grid words it uses besides 128 and 191 (nil: an empty
+// entry).
+type listEntry struct {
+	version byte
+	flags   uint16
+	words   []uint16
+}
+
+// listTable builds a format-3 grid-info table of n grid codes; codes
+// without an entry in entries get an empty one.
+func listTable(n int, entries map[Code]listEntry) []byte {
+	b := []byte{0, 0, 3, byte(n), 8}
+	var body []byte
+	for c := range Code(n) {
+		off := tableOffOffsets + 2*n + len(body)
+		b = append(b, byte(off), byte(off>>8))
+		e := entries[c]
+		used := make([]byte, 8)
+		if e.words != nil {
+			for _, w := range append([]uint16{128, 191}, e.words...) {
+				used[(w-128)/8] |= 1 << ((w - 128) % 8)
+			}
+		}
+		body = append(body, e.version, byte(e.flags), byte(e.flags>>8))
+		body = append(body, make([]byte, 8)...)
+		body = append(body, used...)
+		if e.words != nil {
+			body = append(body, make([]byte, 2*len(e.words))...) // defaults
+		}
+		body = append(body, 0)
+	}
+	return append(b, body...)
+}
+
+func TestLookupFor(t *testing.T) {
+	const fw, oldFW = 2600480, 2600449 // revisions 480 and 449
+	listed := []uint16{140}
+	table := func(entries map[Code]listEntry) Model {
+		t.Helper()
+		m := TableModel(listTable(32, entries))
+		if !m.Known {
+			t.Fatal("table refused")
+		}
+		return m
+	}
+	std := func(m Model, c Code, firmware uint32) string {
+		ci, ok := LookupFor(c, m, firmware)
+		if !ok {
+			t.Fatalf("LookupFor(%d) found no code", c)
+		}
+		return ci.Standard
+	}
+	static := func(c Code) string { ci, _ := Lookup(c); return ci.Standard }
+	m := table(map[Code]listEntry{
+		2:  {0, 0, []uint16{148}},
+		4:  {0, 0, []uint16{158}},
+		6:  {1, 0, listed},
+		7:  {1, 0x8000, listed},
+		9:  {1, 0, listed},
+		11: {0, 0, listed},
+		12: {1, 0, listed},
+		22: {1, 0, listed},
+	})
+	for _, tc := range []struct {
+		m    Model
+		c    Code
+		fw   uint32
+		want string
+	}{
+		{m, 2, fw, "G98/1 March 2019, G99/1 May 2018"},
+		{table(map[Code]listEntry{2: {1, 0, []uint16{148}}}), 2, fw, "G98/1 Amendment 6, G99/1 Amendment 8"},
+		{table(map[Code]listEntry{2: {2, 0, []uint16{148}}}), 2, fw, static(2)},
+		{table(map[Code]listEntry{2: {0, 0, listed}}), 2, fw, static(2)}, // word 148 not used
+		{TableModel(listTable(33, map[Code]listEntry{2: {1, 0, []uint16{148}}, 31: {0, 0, listed}})), 2, fw, "G99/1 Amendment 8"},
+		{m, 4, fw, "VDE-AR-N 4105:2018-11, external NS protection"},
+		{m, 5, fw, "VDE-AR-N 4105:2018-11, internal NS protection"},
+		{table(nil), 5, fw, static(5)},
+		{m, 6, fw, "AS/NZS 4777.2:2015 (AC Neutral path not externally joined)"},
+		{m, 7, fw, static(7)}, // flag bit 15 set
+		{table(nil), 6, fw, static(6)},
+		{m, 9, fw, "VDE V 0126-1-1 VFR 2019"},
+		{table(nil), 9, fw, static(9)},
+		{m, 11, fw, "C10/11:2012-04"},
+		{table(map[Code]listEntry{11: {2, 0, listed}}), 11, fw, "C10/11 ed. 2.1:2019-09"},
+		{table(nil), 11, fw, static(11)}, // not in the table
+		{m, 12, fw, "TOR-Erzeuger A V1.1:2019-12"},
+		{m, 12, oldFW, static(12)},
+		{table(nil), 12, fw, "TOR-D4 V2.3:2016-7"},
+		{table(map[Code]listEntry{12: {0, 0, listed}}), 12, fw, "TOR-D4 V2.3:2016-7"},
+		{m, 22, fw, static(22) + " (no N-bypass)"},
+		{m, 23, fw, static(23)}, // not in the table
+		// Without a table: codes 0-4 are known, from 13 not.
+		{TableModel(nil), 2, fw, static(2)},
+		{TableModel(nil), 6, fw, static(6)},
+		{TableModel(nil), 11, fw, static(11)},
+		{TableModel(nil), 12, fw, "TOR-D4 V2.3:2016-7"},
+		{TableModel(nil), 22, fw, static(22)},
+		// A table that could not be read.
+		{Model{}, 12, fw, static(12)},
+		{Model{}, 22, fw, static(22)},
+	} {
+		if got := std(tc.m, tc.c, tc.fw); got != tc.want {
+			t.Errorf("table %x, code %d, firmware %d: %q, want %q", tc.m.Table, tc.c, tc.fw, got, tc.want)
+		}
+	}
+}
+
 func TestSelectableWithoutPassword(t *testing.T) {
 	for _, tc := range []struct {
 		c    Code

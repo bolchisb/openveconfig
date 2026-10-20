@@ -68,7 +68,7 @@ func settingsReport(u *ui) []reportPage {
 			value := entryValueText(d, e.ID())
 			if e.ID() == vebus.SettingID(gridCodeSetting) {
 				raw, _ := d.Raw(e.ID())
-				value = gridCodeLabel(gridcode.Code(raw), d.Firmware)
+				value = gridCodeLabel(gridcode.Code(raw), u.settings.grid, d.Firmware)
 			}
 			rp.groups[i].rows = append(rp.groups[i].rows, [2]string{settingName(d, e.ID()), value})
 		}

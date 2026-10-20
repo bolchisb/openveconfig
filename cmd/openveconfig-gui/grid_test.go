@@ -535,7 +535,8 @@ func madeUpGridTable() []byte {
 
 // TestGridDeviceTable checks that the grid-info table read from a device
 // sets the page as from a file: France at version 2 gets the compact
-// reactive-power layout and the VFR 2019 caption.
+// reactive-power layout and the VFR 2019 caption, and its entry of the
+// grid code list the VFR 2019 standard.
 func TestGridDeviceTable(t *testing.T) {
 	for _, table := range [][]byte{madeUpGridTable(), nil} {
 		sim := simulator.New(simulator.Config{VersionInterval: -1, GridInfo: table,
@@ -551,6 +552,13 @@ func TestGridDeviceTable(t *testing.T) {
 		compact := slices.ContainsFunc(p.Params, func(q gridcode.Param) bool { return q.Name == "Lowest cos phi allowed while following a Q set-point" })
 		if want := table != nil; compact != want || (p.Title == "VFR 2019 grid code settings") != want {
 			t.Errorf("table %t: compact layout %t, title %q", want, compact, p.Title)
+		}
+		want := "UTE C15-712-1:2013-07"
+		if table != nil {
+			want = "VDE V 0126-1-1 VFR 2019"
+		}
+		if it := gridCodeItem(9, m, 2699481); it.subtitle != want || !strings.HasSuffix(it.label, want+" (needs password)") {
+			t.Errorf("table %t: list entry %q, %q; want the standard %q", table != nil, it.subtitle, it.label, want)
 		}
 	}
 }
