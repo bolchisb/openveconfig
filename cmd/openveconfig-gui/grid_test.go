@@ -511,6 +511,7 @@ func TestGridCodePicker(t *testing.T) {
 		t.Fatalf("%d codes match \"roman\", want 1", n)
 	}
 	list.Select(0)
+	givePassword(t, u, "OK") // Romania needs the password
 	if raw, _ := d.Raw(vebus.SettingID(gridCodeSetting)); raw != 14 {
 		t.Errorf("grid code %d, want 14", raw)
 	}
@@ -738,17 +739,22 @@ func TestGridNSProtection(t *testing.T) {
 	}{{"Cancel", 0}, {"Yes", 5}, {"No", 4}} {
 		selectCode(t, g, 4)
 		answer(tc.button)
+		if tc.want != 0 {
+			givePassword(t, u, "OK") // 4 and 5 need the password
+		}
 		if c := code(); c != tc.want {
 			t.Errorf("code 4 with internal protection, %s: code %d, want %d", tc.button, c, tc.want)
 		}
 	}
-	selectCode(t, g, 5) // fits: no question
+	selectCode(t, g, 5) // fits: no question but the password's
+	givePassword(t, u, "OK")
 	if c := code(); c != 5 || u.win.Canvas().Overlays().Top() != nil {
 		t.Errorf("code 5 with internal protection: code %d", c)
 	}
 
 	sf.unit.VersionExtra = nil
 	selectCode(t, g, 4)
+	givePassword(t, u, "OK")
 	for _, tc := range []struct {
 		button string
 		want   uint16
@@ -758,5 +764,67 @@ func TestGridNSProtection(t *testing.T) {
 		if c := code(); c != tc.want {
 			t.Errorf("code 5 without internal protection, %s: code %d, want %d", tc.button, c, tc.want)
 		}
+	}
+}
+
+// givePassword answers the access password dialog on top of u's window
+// with a made-up password and button.
+func givePassword(t *testing.T, u *ui, button string) {
+	t.Helper()
+	dlg := u.win.Canvas().Overlays().Top()
+	if dlg == nil || !strings.Contains(labelTexts(dlg), "Enter access password") {
+		t.Fatal("no access password dialog")
+	}
+	entry := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.Entry); return ok })[0].(*widget.Entry)
+	entry.SetText("MADE-UP")
+	test.Tap(findButton(t, dlg, button))
+}
+
+// TestGridCodeAsksPassword chooses a code that needs a password, as in the
+// original: for a settings file it is asked at every new choice and
+// Cancel undoes the choice; with a device it is asked once per
+// connection; choosing a code that needs none, or the same code again,
+// asks nothing.
+func TestGridCodeAsksPassword(t *testing.T) {
+	u := newTestUI(t)
+	g := newGridTab(u)
+	sf, err := parseSettingsFile("grid.rvsc", gridFile(0x0300, 0x0300).Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadSettingsFile(u, sf)
+	d := u.settings.dev
+	code := func() uint16 {
+		v, _ := d.Raw(vebus.SettingID(gridCodeSetting))
+		return v
+	}
+	selectCode(t, g, 14)
+	givePassword(t, u, "Cancel")
+	if c := code(); c != 0 {
+		t.Errorf("file, Cancel: code %d, want 0", c)
+	}
+	selectCode(t, g, 14)
+	givePassword(t, u, "OK")
+	if c := code(); c != 14 || u.win.Canvas().Overlays().Top() != nil {
+		t.Errorf("file, OK: code %d", c)
+	}
+	selectCode(t, g, 14) // the same code: nothing asked
+	selectCode(t, g, 0)  // needs no password
+	if u.win.Canvas().Overlays().Top() != nil {
+		t.Error("a password is asked for the same code or for code 0")
+	}
+	selectCode(t, g, 14) // a file keeps no password: asked again
+	givePassword(t, u, "OK")
+
+	s := fakeSession(false)
+	u.sess = s // no listeners: the monitor poller would race with the test driver
+	selectCode(t, g, 17)
+	givePassword(t, u, "OK")
+	if len(s.passwords) != 1 {
+		t.Errorf("device: %d passwords kept, want 1", len(s.passwords))
+	}
+	selectCode(t, g, 14) // already given for this connection
+	if c := code(); c != 14 || u.win.Canvas().Overlays().Top() != nil {
+		t.Errorf("device, second code: code %d, or asked again", c)
 	}
 }

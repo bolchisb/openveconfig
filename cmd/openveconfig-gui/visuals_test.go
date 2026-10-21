@@ -232,6 +232,25 @@ func TestBatteryChart(t *testing.T) {
 	if low == nil || low.x1 != xs[0] || low.x2 != xs[2] {
 		t.Errorf("low battery zone %+v, want from the shut-down to the pre-alarm level", low)
 	}
+	// The normal zone runs from the pre-alarm level up to float, then a green
+	// float band up to absorption, then a purple absorption band above it.
+	zone := func(name fyne.ThemeColorName) *plotArea {
+		for i := range s.plot.areas {
+			if s.plot.areas[i].colour == name {
+				return &s.plot.areas[i]
+			}
+		}
+		return nil
+	}
+	if z := zone(colorNameZoneOK); z == nil || z.x1 != xs[2] || z.x2 != xs[3] {
+		t.Errorf("normal zone %+v, want from the pre-alarm level to float", z)
+	}
+	if z := zone(colorNameZoneFloat); z == nil || z.x1 != xs[3] || z.x2 != xs[4] {
+		t.Errorf("float band %+v, want from float to absorption", z)
+	}
+	if z := zone(colorNameZoneAbsorb); z == nil || z.x1 != xs[4] {
+		t.Errorf("absorption band %+v, want from absorption upward", z)
+	}
 
 	if batteryChart(chartDevice(map[uint16]chartSetting{12: {sc: -100, raw: 120}})) != nil {
 		t.Error("a chart without setting 11")

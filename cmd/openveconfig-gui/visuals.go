@@ -431,11 +431,13 @@ func batteryChart(d *vebus.Device) *chartSpec {
 		marks = append(marks, scaleMark{v: v, name: tr("Pre-alarm"), decimals: 2})
 		low = v
 	}
-	if v, ok := setting(d, 3); ok {
-		marks = append(marks, scaleMark{v: v, name: tr("Float"), context: true, decimals: 2})
+	floatV, hasFloat := setting(d, 3)
+	if hasFloat {
+		marks = append(marks, scaleMark{v: floatV, name: tr("Float"), context: true, decimals: 2})
 	}
-	if v, ok := setting(d, 2); ok {
-		marks = append(marks, scaleMark{v: v, name: tr("Absorption"), context: true, decimals: 2})
+	absV, hasAbs := setting(d, 2)
+	if hasAbs {
+		marks = append(marks, scaleMark{v: absV, name: tr("Absorption"), context: true, decimals: 2})
 	}
 	// Labels alternate below and above the bar in the order of the levels,
 	// so that neighbours are on different sides.
@@ -455,10 +457,25 @@ func batteryChart(d *vebus.Device) *chartSpec {
 	pad := max(0.1*(hi-lo), 0.05*hi)
 	lo, hi = lo-pad, hi+pad
 	low = max(low, shut)
+	// The normal zone is split into the charge-target steps: blue up to the
+	// float level, a green float band up to absorption, and a purple
+	// absorption band above it. Each boundary is clamped into [low, hi], so a
+	// band with no width (a missing float or absorption setting, or levels out
+	// of the usual order) collapses and scaleScene skips it, leaving the plain
+	// blue normal zone.
+	fl, ab := hi, hi
+	if hasFloat {
+		fl = max(low, min(floatV, hi))
+	}
+	if hasAbs {
+		ab = max(fl, min(absV, hi))
+	}
 	zones := []scaleZone{
 		{lo, shut, colorNameZoneOff},
 		{shut, low, colorNameZoneWarn},
-		{low, hi, colorNameZoneOK},
+		{low, fl, colorNameZoneOK},
+		{fl, ab, colorNameZoneFloat},
+		{ab, hi, colorNameZoneAbsorb},
 	}
 	return &chartSpec{
 		title: tr("Battery voltage levels"),
@@ -467,6 +484,8 @@ func batteryChart(d *vebus.Device) *chartSpec {
 			{colorNameZoneOff, tr("Inverter off")},
 			{colorNameZoneWarn, tr("Low battery")},
 			{colorNameZoneOK, tr("Normal")},
+			{colorNameZoneFloat, tr("Float")},
+			{colorNameZoneAbsorb, tr("Absorption")},
 		},
 		caption: tr("The inverter shuts down when the battery voltage falls to the shut-down level and starts again once it rises to the restart level. Float and absorption are shown for comparison."),
 	}

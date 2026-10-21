@@ -246,11 +246,13 @@ func (g *gridTabView) chooseCode(d *vebus.Device, code uint16) {
 	}
 	u.settings.changed()
 	// A code that needs a password asks for one, as in the original,
-	// which also checks it here; this program only hands it to the
-	// device when the settings are sent (accesspassword.go). Without
-	// one the choice, and the defaults it loaded, are undone.
+	// also for a settings file and a real device; the original also
+	// checks it here. This program only hands it to the device when the
+	// settings are sent, where passwordsEnabled allows it
+	// (accesspassword.go). Without one the choice, and the defaults it
+	// loaded, are undone.
 	s := u.sess
-	if !passwordsEnabled(s) || len(s.passwords) > 0 || gridcode.SelectableWithoutPassword(gridcode.Code(code), d.Firmware) {
+	if code == old || s != nil && len(s.passwords) > 0 || gridcode.SelectableWithoutPassword(gridcode.Code(code), d.Firmware) {
 		return
 	}
 	askAccessPasswords(u, s, func(ok bool) {
@@ -475,7 +477,7 @@ func (g *gridTabView) updateCode() {
 	g.codeRow.setChanged(d.Dirty(id))
 	g.codeRow.setMarkers(d.ResetRequired(id), ok && a.PasswordRequired() || !gridcode.SelectableWithoutPassword(gridcode.Code(cur), d.Firmware))
 	g.codeNote.SetText(tr("Codes marked \"needs password\" are accepted by the device only after the installer password for grid codes " +
-		"has been entered. This program cannot enter it. A changed grid code can be saved to a settings file, " +
+		"has been entered; it is asked for when such a code is chosen. A changed grid code can be saved to a settings file, " +
 		"but not sent straight to a device."))
 }
 

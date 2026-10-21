@@ -38,21 +38,28 @@ const demoPassword = "DEMO"
 func passwordsEnabled(s *session) bool { return s != nil && (s.demo || accessPasswordsOnHardware) }
 
 // askAccessPasswords asks for the access passwords of s, as the original
-// tool does, and calls done with whether the user gave some.
+// tool does, and calls done with whether the user gave some. s is nil when
+// no device is connected (a settings file): the passwords are then not
+// kept, and a send asks for them again.
 func askAccessPasswords(u *ui, s *session, done func(ok bool)) {
 	entry := widget.NewPasswordEntry()
 	prompt := widget.NewLabel(tr("Enter access password(s) (comma separated)."))
-	note := widget.NewLabel(tr("This program does not check the password: it hands it to the device when the settings are sent, " +
-		"and the device decides whether to accept the changes. The password is not kept or saved; it is forgotten when you disconnect."))
-	note.Wrapping = fyne.TextWrapWord
-	content := container.NewVBox(prompt, entry, note)
-	if s.demo {
+	content := container.NewVBox(prompt, entry)
+	if s != nil {
+		note := widget.NewLabel(tr("This program does not check the password: it hands it to the device when the settings are sent, " +
+			"and the device decides whether to accept the changes. The password is not kept or saved; it is forgotten when you disconnect."))
+		note.Wrapping = fyne.TextWrapWord
+		content.Add(note)
+	}
+	if s != nil && s.demo {
 		content.Add(widget.NewLabel(tr("The demo devices accept the password {{.Password}}.", args{"Password": demoPassword})))
 	}
 	dlg := dialog.NewCustomConfirm(tr("Access password"), tr("OK"), tr("Cancel"), content, func(ok bool) {
 		pw := splitPasswords(entry.Text)
 		if ok && len(pw) > 0 && u.sess == s {
-			s.passwords = pw
+			if s != nil {
+				s.passwords = pw
+			}
 			done(true)
 			return
 		}

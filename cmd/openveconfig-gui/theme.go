@@ -41,6 +41,13 @@ const (
 	colorNameZoneOK   fyne.ThemeColorName = "zoneOK"
 	colorNameZoneWarn fyne.ThemeColorName = "zoneWarn"
 	colorNameZoneOff  fyne.ThemeColorName = "zoneOff"
+	// colorNameZoneFloat and colorNameZoneAbsorb split the normal zone of the
+	// battery scale into the charge-target steps: the float band and the
+	// absorption band. Bluish green and reddish purple (also Okabe-Ito) stay
+	// apart from the blue normal zone and from each other for colour-blind
+	// readers.
+	colorNameZoneFloat  fyne.ThemeColorName = "zoneFloat"
+	colorNameZoneAbsorb fyne.ThemeColorName = "zoneAbsorb"
 	// colorNameSeriesVoltage and colorNameSeriesCurrent are the two lines of
 	// the charge profile; vermilion and blue stay apart for colour-blind
 	// readers.
@@ -83,6 +90,7 @@ type tokens struct {
 	onWarning                          color.NRGBA // text on warning
 	ledGreen, ledAmber, ledRed         color.NRGBA // remote panel LEDs
 	zoneOK, zoneWarn, zoneOff          color.NRGBA // chart zones (colorNameZoneOK …)
+	zoneFloat, zoneAbsorb              color.NRGBA // charge-target bands of the battery scale
 	seriesVoltage, seriesCurrent       color.NRGBA // charge profile lines
 	scrollBarBackground                color.NRGBA
 	hover, pressed, shadow             uint8 // opacity of the foreground, the foreground and black
@@ -100,6 +108,7 @@ var (
 		warning: rgb(0xF59E0B), errorColor: rgb(0xDC2626), success: rgb(0x0F766E), onSemantic: rgb(0xFFFFFF),
 		onWarning: rgb(0x0F172A), ledGreen: rgb(0x047857), ledAmber: rgb(0xD97706), ledRed: rgb(0xDC2626),
 		zoneOK: rgb(0x0072B2), zoneWarn: rgb(0xE6B400), zoneOff: rgb(0xD62828),
+		zoneFloat: rgb(0x009E73), zoneAbsorb: rgb(0xCC79A7),
 		seriesVoltage: rgb(0xD55E00), seriesCurrent: rgb(0x0072B2),
 		scrollBarBackground: rgb(0xEEF2F7), hover: 0x0D, pressed: 0x1A, shadow: 0x33,
 		cardShadow: 0x12, tint: 0x1F,
@@ -114,6 +123,7 @@ var (
 		warning: rgb(0xFBBF24), errorColor: rgb(0xF87171), success: rgb(0x2DD4BF), onSemantic: rgb(0x0B1120),
 		onWarning: rgb(0x0B1120), ledGreen: rgb(0x34D399), ledAmber: rgb(0xF59E0B), ledRed: rgb(0xF87171),
 		zoneOK: rgb(0x56B4E9), zoneWarn: rgb(0xF0E442), zoneOff: rgb(0xFF5C5C),
+		zoneFloat: rgb(0x4FD6A8), zoneAbsorb: rgb(0xE59BCB),
 		seriesVoltage: rgb(0xE8632A), seriesCurrent: rgb(0x3A94CF),
 		scrollBarBackground: rgb(0x162036), hover: 0x14, pressed: 0x29, shadow: 0x80,
 		cardShadow: 0x59, tint: 0x29,
@@ -159,6 +169,8 @@ func (k tokens) palette() map[fyne.ThemeColorName]color.Color {
 		colorNameZoneOK:                          k.zoneOK,
 		colorNameZoneWarn:                        k.zoneWarn,
 		colorNameZoneOff:                         k.zoneOff,
+		colorNameZoneFloat:                       k.zoneFloat,
+		colorNameZoneAbsorb:                      k.zoneAbsorb,
 		colorNameSeriesVoltage:                   k.seriesVoltage,
 		colorNameSeriesCurrent:                   k.seriesCurrent,
 		colorNameLEDGreen:                        k.ledGreen,
