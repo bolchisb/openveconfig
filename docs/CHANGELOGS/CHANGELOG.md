@@ -4,6 +4,18 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 
 ## 2026-10-21
 
+### GUI: battery voltage chart shows the charge-target steps
+
+- **Battery voltage levels chart** (`cmd/openveconfig-gui/visuals.go`, `theme.go`): the single blue *Normal* zone is split into the charge steps it already marks — blue *Normal* up to the float level, a green *Float* band from float to absorption, and a purple *Absorption* band above it. Zones are clamped into the normal range, so a model without a float or absorption setting (or with out-of-order levels) collapses the empty band back to the plain blue zone. Two new theme tokens, `zoneFloat` (Okabe-Ito bluish green) and `zoneAbsorb` (reddish purple), with light and dark variants; both stay distinguishable from the blue zone and from each other under red-green colour blindness, in keeping with the chart's existing Okabe-Ito palette. Legend reuses the existing *Float*/*Absorption* strings (no new translations). `TestBatteryChart` checks the two new bands' bounds.
+
+### Firmware: GUI flashing wizard and live-device `.rvsc` auto-backup (simulator/demo only, gated off for real hardware)
+
+- **Settings backup** (`pkg/firmware/backup.go`, #38, epic #46): `BackupSettings` reads every catalogue setting of the connected device (`pkg/vebus.ReadAll`) and builds a one-unit `*rvsc.File` of its firmware number, setting-info table and setting values, ready to `MarshalBinary`. It is a settings backup: the long ID, serial number and assistant area are left out because the MK2 protocol has no command that reads them from a device (`vebus.MatchRVSC`). The file can be applied back with `rvsc-apply`. Simulator-driven test checks the round trip and that `MatchRVSC` accepts the file against the device it was read from.
+- **`.rvsc` writer** (`pkg/rvsc/build.go`): `Build` is the inverse of `Parse` for the sections the tool writes — tool-info, setting-info and one setting-data section per unit — using the community-reported byte layout the package already documents (reverse-engineered #7/#56: setting-data section version 3 with six device-version extra bytes; identity fields a caller omits are left zero). Round-trip test (`build_test.go`).
+- **CLI `firmware flash`** (`cmd/openveconfig-cli/firmware.go`): backs the device settings up to a timestamped `.rvsc` next to the firmware file (or `--backup <path>`) and prints where, BEFORE pre-flight and flashing. The backup runs after the hardware-safety gate, so a real port without the opt-in is still refused before any connection.
+- **GUI firmware-update wizard** (`cmd/openveconfig-gui/firmwarewizard.go`, Tools ▸ Firmware update…): choose `.vff` file → confirm the device → confirm the warning that settings reset to defaults and the update can brick the device → auto-backup to a chosen `.rvsc` → progress from the `Reprogrammer` callback → result. Wired to `pkg/firmware`; the demo flashes an in-process `BootSim`.
+- **Safety unchanged** (#38): the wizard and CLI call `CheckHardwareGate`; the wizard runs fully only against the demo. On a real connection it stops at the confirm step with the gate's refusal and offers no override — opening the real path stays a hardware task, not a GUI toggle. No new Victron data or strings; new format constants cite the existing clean-room facts.
+
 ### Firmware reprogramming core, behind the simulator (gated off for real hardware)
 
 - **`pkg/firmware`** (#38, epic #46): the software core of VE.Bus device firmware reprogramming, implemented from the clean-room behavioural spec. It is exercised against the simulator only; writing to a real device is gated off by default.

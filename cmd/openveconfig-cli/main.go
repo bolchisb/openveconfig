@@ -97,13 +97,14 @@ type options struct {
 	simulator bool
 	verbose   bool
 
-	probe      bool // ports
-	yes, raw   bool // write-setting
-	fwGate     bool // firmware flash: opt in to writing a real device
-	maxSetting uint // dump
-	maxRAM     uint // dump
-	probeArg   uint // assistants probe
-	probeCount uint // assistants probe
+	probe      bool   // ports
+	yes, raw   bool   // write-setting
+	fwGate     bool   // firmware flash: opt in to writing a real device
+	fwBackup   string // firmware flash: where to save the settings backup
+	maxSetting uint   // dump
+	maxRAM     uint   // dump
+	probeArg   uint   // assistants probe
+	probeCount uint   // assistants probe
 	rvsc       rvscOptions
 	apply      applyOptions
 	system     systemOptions

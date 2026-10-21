@@ -144,6 +144,7 @@ type appMenu struct {
 	print, export                      *fyne.MenuItem
 	review                             *fyne.MenuItem
 	remote, monitor                    *fyne.MenuItem
+	firmware                           *fyne.MenuItem
 }
 
 func newAppMenu(u *ui) *appMenu {
@@ -179,9 +180,11 @@ func newAppMenu(u *ui) *appMenu {
 
 	m.remote = item(tr("Show panel"), func() { showRemotePanel(u) })
 	m.monitor = item(tr("Show VE.Bus monitor"), func() { showVEBusMonitor(u) })
+	m.firmware = item(tr("Firmware update…"), func() { showFirmwareWizard(u) })
 	tools := fyne.NewMenu(tr("Tools"), m.remote, m.monitor,
 		item(tr("System Configurator"), func() { showSystemConfigurator(u) }),
-		item(tr("Quick Configure"), func() { showQuickConfigure(u) }))
+		item(tr("Quick Configure"), func() { showQuickConfigure(u) }),
+		fyne.NewMenuItemSeparator(), m.firmware)
 
 	language := item(tr("Languages"), nil)
 	language.ChildMenu = languageMenu(u)
@@ -211,6 +214,7 @@ func (m *appMenu) update(u *ui) {
 	set(m.export, loaded)
 	set(m.remote, connected)
 	set(m.monitor, connected)
+	set(m.firmware, connected)
 	label := tr("Com port…")
 	if connected {
 		label = tr("Disconnect")
