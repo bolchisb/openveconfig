@@ -77,29 +77,28 @@ func TestSendPlanRejectsOversizeCode(t *testing.T) {
 	}
 }
 
-func TestSendRefusesRealDevice(t *testing.T) {
+func TestSendRefusedAtFirstWrite(t *testing.T) {
 	plan, _ := SendPlan(Pair{}, 2, 1, map[uint16]uint16{129: 7})
-	w := &fakeWriter{}
-	rep, err := Send(context.Background(), w, false, plan)
+	// A device that refuses the very first write (the grid code, 81) — as a
+	// real device does without the installer password for the grid words —
+	// yields a *SendError with nothing written and the rest pending.
+	w := &fakeWriter{failAt: 81, err: errors.New("access level required")}
+	rep, err := Send(context.Background(), w, plan)
 	if rep != nil {
 		t.Errorf("rep = %+v, want nil", rep)
-	}
-	if !errors.Is(err, ErrNotHardwareValidated) {
-		t.Fatalf("err = %v, want ErrNotHardwareValidated", err)
-	}
-	// It also names the refused grid settings (CheckDeviceWrite).
-	if !errors.Is(err, ErrDeviceWrite) {
-		t.Errorf("err = %v, want it to wrap ErrDeviceWrite", err)
 	}
 	var se *SendError
 	if !errors.As(err, &se) {
 		t.Fatalf("err is not *SendError: %v", err)
 	}
-	if len(se.Done) != 0 || len(se.Pending) != len(plan) {
-		t.Errorf("Done %d, Pending %d; want nothing written, whole plan pending", len(se.Done), len(se.Pending))
+	if se.At == nil || se.At.ID != 81 {
+		t.Fatalf("At = %+v, want refusal at setting 81", se.At)
+	}
+	if len(se.Done) != 0 || len(se.Pending) != len(plan)-1 {
+		t.Errorf("Done %d, Pending %d; want nothing written and the rest pending", len(se.Done), len(se.Pending))
 	}
 	if len(w.done) != 0 {
-		t.Errorf("writer got %d writes; want none on a real device", len(w.done))
+		t.Errorf("writer got %d writes; want none after the first is refused", len(w.done))
 	}
 }
 
@@ -107,7 +106,7 @@ func TestSendReportsPartialState(t *testing.T) {
 	plan, _ := SendPlan(Pair{}, 2, 1, map[uint16]uint16{129: 7, 130: 8})
 	// Refuse the second parameter word (130): 81, 128, 129 go out first.
 	w := &fakeWriter{failAt: 130, err: errors.New("access level required")}
-	rep, err := Send(context.Background(), w, true, plan)
+	rep, err := Send(context.Background(), w, plan)
 	if rep != nil {
 		t.Errorf("rep = %+v, want nil on failure", rep)
 	}
@@ -134,7 +133,7 @@ func TestSendContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	w := &fakeWriter{}
-	_, err := Send(ctx, w, true, plan)
+	_, err := Send(ctx, w, plan)
 	var se *SendError
 	if !errors.As(err, &se) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want cancelled *SendError", err)

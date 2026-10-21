@@ -65,7 +65,7 @@ func TestSendSimulatorFullSequence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendPlan: %v", err)
 	}
-	rep, err := gridcode.Send(context.Background(), c, true, plan)
+	rep, err := gridcode.Send(context.Background(), c, plan)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestSendSimulatorRefusalPoints(t *testing.T) {
 			if err != nil {
 				t.Fatalf("SendPlan: %v", err)
 			}
-			rep, err := gridcode.Send(context.Background(), c, true, plan)
+			rep, err := gridcode.Send(context.Background(), c, plan)
 			if rep != nil {
 				t.Errorf("rep = %+v, want nil on refusal", rep)
 			}
@@ -154,16 +154,5 @@ func TestSendSimulatorRefusalPoints(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestSendSimulatorGateDoesNotApply confirms the simulator path is allowed
-// (the gate only refuses real devices).
-func TestSendSimulatorGateDoesNotApply(t *testing.T) {
-	if err := gridcode.CheckSendGate(true); err != nil {
-		t.Errorf("CheckSendGate(simulator) = %v, want nil", err)
-	}
-	if err := gridcode.CheckSendGate(false); !errors.Is(err, gridcode.ErrNotHardwareValidated) {
-		t.Errorf("CheckSendGate(real) = %v, want ErrNotHardwareValidated", err)
 	}
 }

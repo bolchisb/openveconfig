@@ -2,7 +2,6 @@ package gridcode
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -12,11 +11,11 @@ import (
 // Sending grid data straight to a device (#52). A changed grid code (setting
 // 81) and changed grid parameters (settings 129-190) are written together
 // with the two check words (settings 128 and 191) kept consistent, in a
-// fixed order (SendPlan). The order has not been verified on hardware, and a
-// real device requires the installer password for the grid words, so Send
-// runs the full sequence against the simulator only and refuses a real device
-// up front (CheckSendGate, ErrNotHardwareValidated). This mirrors the
-// firmware hardware gate (pkg/firmware.CheckHardwareGate).
+// fixed order (SendPlan). Send runs the full sequence against any device.
+// A real device requires the installer password for the grid words and
+// refuses the writes itself (through WriteSetting) when it is not given; the
+// grid settings reach a device only through this dedicated path, never with
+// the ordinary bulk "Send settings" (CheckDeviceWrite).
 
 // SendWrite is one setting write of a grid send: a setting ID (81, or a grid
 // word 128-191) and its new raw value.
@@ -73,25 +72,6 @@ func PlanIDs(plan []SendWrite) []uint16 {
 	return ids
 }
 
-// ErrNotHardwareValidated gates the real-device grid send: the send sequence
-// (SendPlan) has not been verified on hardware (#52, #3), so a real device is
-// refused before anything is written. The full sequence runs against the
-// simulator only.
-var ErrNotHardwareValidated = errors.New(
-	"gridcode: grid send is not yet validated on hardware (#52/#3); refusing to write to a real device")
-
-// CheckSendGate enforces the safety gate, mirroring
-// pkg/firmware.CheckHardwareGate: a grid send is allowed only against the
-// simulator. A real device returns ErrNotHardwareValidated. There is no
-// opt-in: opening the real-hardware path is a hardware-validation task, not a
-// flag. It must be called before anything is written.
-func CheckSendGate(isSimulator bool) error {
-	if isSimulator {
-		return nil
-	}
-	return ErrNotHardwareValidated
-}
-
 // SettingWriter writes one setting to a device. *mk2.Client satisfies it.
 type SettingWriter interface {
 	WriteSetting(ctx context.Context, id uint16, value uint16) error
@@ -137,27 +117,13 @@ func joinIDs(ws []SendWrite) string {
 	return strings.Join(s, ", ")
 }
 
-// Send writes the grid plan to the device behind w. It runs the full sequence
-// only against the simulator (isSimulator); a real device is refused before
-// any write (CheckSendGate), with the whole plan reported as Pending so the
-// caller knows nothing was changed. CheckDeviceWrite names the grid settings
-// a real device refuses for want of the installer password.
-//
-// On the simulator the writes go out in plan order. A write the device
-// refuses (for example a password-required check word modelled by the
-// simulator) or a cancelled context stops the send; the returned *SendError
-// then holds the writes that already reached the device (Done) and those that
-// did not (Pending, with At the one that failed), so the caller can report the
-// state the device was left in. On success it returns a *SendReport and a nil
-// error.
-func Send(ctx context.Context, w SettingWriter, isSimulator bool, plan []SendWrite) (*SendReport, error) {
-	if err := CheckSendGate(isSimulator); err != nil {
-		// Report, for the user, the grid settings a real device refuses.
-		if dw := CheckDeviceWrite(PlanIDs(plan)); dw != nil {
-			err = fmt.Errorf("%w (%w)", err, dw)
-		}
-		return nil, &SendError{Pending: slices.Clone(plan), Err: err}
-	}
+// Send writes the grid plan to the device behind w, in plan order. A write
+// the device refuses (for example a password-required check word) or a
+// cancelled context stops the send; the returned *SendError then holds the
+// writes that already reached the device (Done) and those that did not
+// (Pending, with At the one that failed), so the caller can report the state
+// the device was left in. On success it returns a *SendReport and a nil error.
+func Send(ctx context.Context, w SettingWriter, plan []SendWrite) (*SendReport, error) {
 	var done []SendWrite
 	for i, wr := range plan {
 		if err := ctx.Err(); err != nil {

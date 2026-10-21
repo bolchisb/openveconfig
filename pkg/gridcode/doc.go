@@ -13,17 +13,15 @@
 // inferences, marked INFERRED. None has been checked against a device yet.
 //
 // The checker words (settings 128 and 191) are computed by Stamp and
-// checked by Pair.Consistent and Pair.CheckShown (checker.go). Writing them
-// straight to a device needs a fixed write order that has not been checked
-// on hardware, so CheckDeviceWrite refuses grid settings for a device;
-// settings files can be stamped and saved.
+// checked by Pair.Consistent and Pair.CheckShown (checker.go). They carry
+// the grid code and must be written in a fixed order, so CheckDeviceWrite
+// keeps grid settings out of the ordinary bulk write; they go through the
+// dedicated send instead, and settings files can be stamped and saved.
 //
 // SendPlan builds the ordered writes of that fixed order (setting 81, check
 // word 128, the parameter words, check word 191 last) and Send runs them
-// (#52). Send mirrors the firmware hardware gate: the full sequence runs
-// against the simulator only; a real device is refused up front
-// (CheckSendGate, ErrNotHardwareValidated), and a stopped send reports which
-// writes had already reached the device (SendError).
+// against the device (#52). A stopped send reports which writes had already
+// reached the device (SendError).
 //
 // Not known, and therefore not implemented:
 //   - Passwords, unlocking and key codes. They are out of scope; only values

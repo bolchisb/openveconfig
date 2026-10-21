@@ -123,11 +123,10 @@ func TestGridCodeSelectAndSend(t *testing.T) {
 	}
 }
 
-// TestGridSendPlanAndGate checks the grid "Send to device" of #52: the plan
-// builder picks up the changed grid code and parameter words with stamped
-// check words, a real device is refused before any write, and the simulator
-// runs the full sequence.
-func TestGridSendPlanAndGate(t *testing.T) {
+// TestGridSendPlan checks the grid "Send to device" of #52: the plan builder
+// picks up the changed grid code and parameter words with stamped check
+// words, and Send runs the full sequence so the device holds the new values.
+func TestGridSendPlan(t *testing.T) {
 	_, s, g, d := gridSetup(t, 2699481)
 	selectCode(t, g, 17)
 	if err := d.SetRaw(vebus.SettingID(150), 0x1234); err != nil {
@@ -145,31 +144,17 @@ func TestGridSendPlanAndGate(t *testing.T) {
 		t.Errorf("plan missing the changed param 150: %+v", plan)
 	}
 
-	// Real device: refused before anything is written (the gate, #52/#3).
+	// The send runs the full sequence and the device holds the new values.
+	var rep *gridcode.SendReport
 	var serr error
 	if err := s.Do(ctxT(t), func(ctx context.Context, c *mk2.Client) error {
-		_, serr = gridcode.Send(ctx, c, false, plan)
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if !errors.Is(serr, gridcode.ErrNotHardwareValidated) {
-		t.Fatalf("real-device send = %v, want ErrNotHardwareValidated", serr)
-	}
-	if v := deviceValue(t, s, gridCodeSetting); v != 0 {
-		t.Errorf("device grid code = %d after a refused send, want 0 (nothing sent)", v)
-	}
-
-	// Simulator: the full sequence runs and the device holds the new values.
-	var rep *gridcode.SendReport
-	if err := s.Do(ctxT(t), func(ctx context.Context, c *mk2.Client) error {
-		rep, serr = gridcode.Send(ctx, c, true, plan)
+		rep, serr = gridcode.Send(ctx, c, plan)
 		return serr
 	}); err != nil {
-		t.Fatalf("simulator send: %v", err)
+		t.Fatalf("send: %v", err)
 	}
 	if rep == nil || len(rep.Done) != len(plan) {
-		t.Fatalf("simulator send report = %+v, want all %d writes done", rep, len(plan))
+		t.Fatalf("send report = %+v, want all %d writes done", rep, len(plan))
 	}
 	if v := deviceValue(t, s, gridCodeSetting); v != 17 {
 		t.Errorf("device grid code = %d, want 17", v)
@@ -264,8 +249,8 @@ func TestGridParamEditBlocksSend(t *testing.T) {
 
 	// Sending is refused before anything is written, also the grid code.
 	sendSettings(u)
-	if dlg := u.win.Canvas().Overlays().Top(); dlg == nil || !strings.Contains(labelTexts(dlg), "cannot be sent straight to a device yet") {
-		t.Fatal("no message that grid parameters cannot be sent")
+	if dlg := u.win.Canvas().Overlays().Top(); dlg == nil || !strings.Contains(labelTexts(dlg), "dedicated \"Send grid settings to device\" action") {
+		t.Fatal("no message that grid parameters go through the dedicated grid send")
 	}
 	for _, all := range []bool{false, true} {
 		if rep, err := writeSettings(ctxT(t), s, d, all, nil); rep != nil || err == nil {

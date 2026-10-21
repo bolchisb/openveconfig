@@ -7,9 +7,10 @@ package main
 // The device keeps two checker words (settings 128 and 191) with the grid
 // parameters (gridcode.Stamp). A settings file with a changed grid code or
 // changed grid parameters is saved with newly stamped checker words
-// (settingsFile.save). Sending them straight to a device would need a
-// fixed write order that has not been verified on hardware, so grid
-// changes are never sent to a device (gridWriteCheck). Whether a grid code
+// (settingsFile.save). Grid changes reach a device only through the
+// dedicated grid-send action (#52, sendToDevice), never with the ordinary
+// bulk "Send settings" (gridWriteCheck), because the two check words must be
+// written in a fixed order. Whether a grid code
 // needs a password is up to the device; this program never enters or
 // derives one (docs/CLEAN-ROOM.md, "Access control").
 
@@ -76,10 +77,10 @@ func changedGridSettings(d *vebus.Device) []uint16 {
 	return ids
 }
 
-// gridWriteCheck refuses to send d to a device when its grid code or grid
-// words were changed (gridcode.CheckDeviceWrite): the checker words would
-// have to be written in a fixed order that has not been verified on
-// hardware.
+// gridWriteCheck refuses to send d's grid code or grid words with the
+// ordinary bulk "Send settings" (gridcode.CheckDeviceWrite): their two check
+// words must be written in a fixed order, so they go through the dedicated
+// grid-send action (sendToDevice) instead.
 func gridWriteCheck(d *vebus.Device) error {
 	ids := changedGridSettings(d)
 	err := gridcode.CheckDeviceWrite(ids)
@@ -90,10 +91,9 @@ func gridWriteCheck(d *vebus.Device) error {
 	for i, id := range ids {
 		list[i] = strconv.Itoa(int(id))
 	}
-	return &uiError{err: err, msg: tr("The grid code or grid parameters were changed (settings {{.Settings}}). They cannot be sent straight to a device yet: "+
-		"the device keeps two check words with them that must be updated in a fixed order, which has not been verified on hardware. "+
-		"Nothing was sent. To apply them, save them in a settings file and apply that file through a GX device (VRM Remote VEConfigure), "+
-		"or undo the grid changes on the Grid page to send the other settings.",
+	return &uiError{err: err, msg: tr("The grid code or grid parameters were changed (settings {{.Settings}}). They are not sent with the other settings: "+
+		"the device keeps two check words with them that must be written in a fixed order, so they are sent with the dedicated \"Send grid settings to device\" action on the Grid page. "+
+		"Nothing was sent. Use that action to send the grid changes, or undo them on the Grid page to send the other settings.",
 		args{"Settings": strings.Join(list, ", ")})}
 }
 
@@ -929,10 +929,9 @@ func gridSendPlan(d *vebus.Device, grid gridcode.Model) ([]gridcode.SendWrite, e
 }
 
 // sendToDevice sends the changed grid code and grid parameters straight to
-// the device (#52). Against a real device it is refused before anything is
-// written (gridcode.CheckSendGate); against the demo simulator it runs the
-// full sequence. This path is separate from the ordinary "Send settings",
-// which never touches the grid settings (gridWriteCheck).
+// the device (#52), after a confirmation. This path is separate from the
+// ordinary "Send settings", which never touches the grid settings
+// (gridWriteCheck).
 func (g *gridTabView) sendToDevice() {
 	u := g.u
 	s := u.sess
@@ -953,12 +952,6 @@ func (g *gridTabView) sendToDevice() {
 	plan, err := gridSendPlan(d, u.settings.grid)
 	if err != nil {
 		showError(u, &uiError{err: err, msg: tr("The grid send could not be prepared: {{.Err}}", args{"Err": err})})
-		return
-	}
-	// Real-device safety gate: refuse before anything is written (#52, #3).
-	if gridcode.CheckSendGate(s.demo) != nil {
-		showMessage(u, tr("Send to device"), tr("Sending the grid code and grid parameters straight to a device is not yet validated on hardware (#52, #3), "+
-			"so it is refused and nothing was sent. Save them to a settings file and apply that file through a GX device (VRM Remote VEConfigure) instead."))
 		return
 	}
 	c := newConfirm(u, tr("Send to device"), tr("Send the grid code and the changed grid parameters to the device at address {{.Address}}? "+
@@ -988,7 +981,7 @@ func (g *gridTabView) runGridSend(s *session, d *vebus.Device, plan []gridcode.S
 				if err := c.SetAddress(ctx, d.Address); err != nil {
 					return err
 				}
-				rep, serr = gridcode.Send(ctx, c, s.demo, plan)
+				rep, serr = gridcode.Send(ctx, c, plan)
 				return nil
 			})
 			if err != nil {
