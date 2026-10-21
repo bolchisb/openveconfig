@@ -68,12 +68,27 @@ func ParseFormat(spec string) (Format, error) {
 	f.Type = t
 	var err error
 	for i, p := range []*int64{&f.Min, &f.Max, &f.Default} {
-		if *p, err = strconv.ParseInt(tok[i+1], 10, 64); err != nil {
+		if *p, err = parseBound(tok[i+1]); err != nil {
 			return f, fmt.Errorf("format %q: %v", spec, err)
 		}
 	}
 	f.Extra = tok[4:]
 	return f, nil
+}
+
+// parseBound reads a minimum, maximum or default: decimal, or hexadecimal
+// with the 0x prefix the sources also write (0N 0 0x3FFF 10).
+func parseBound(s string) (int64, error) {
+	neg := strings.HasPrefix(s, "-")
+	t, base := strings.TrimPrefix(s, "-"), 10
+	if len(t) > 2 && t[0] == '0' && (t[1] == 'x' || t[1] == 'X') {
+		t, base = t[2:], 16
+	}
+	v, err := strconv.ParseInt(t, base, 64)
+	if neg {
+		v = -v
+	}
+	return v, err
 }
 
 // Show returns raw as the user sees it, with the format's decimals.

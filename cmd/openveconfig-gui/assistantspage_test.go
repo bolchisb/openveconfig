@@ -213,7 +213,7 @@ func openAdd(t *testing.T, u *ui, pg *page) fyne.CanvasObject {
 	t.Helper()
 	test.Tap(findButton(t, pg.view, "Add assistant"))
 	dlg := u.win.Canvas().Overlays().Top()
-	if dlg == nil || !strings.Contains(dialogTexts(dlg), "Preview walks through") {
+	if dlg == nil || !strings.Contains(dialogTexts(dlg), "Preview is the same walk") {
 		t.Fatal("no Add assistant dialog")
 	}
 	return dlg
@@ -358,12 +358,12 @@ func TestAssistantWizard(t *testing.T) {
 	want("Step 4 · Confirm")
 	radio().SetSelected("Choice 2")
 	test.Tap(next)
-	want("Summary", "Battery", "Choice 3", "Level", "50.50 V", "Nothing was written")
+	want("Summary", "Battery", "Choice 3", "Level", "50.50 V", "is put into the open file")
 	if strings.Contains(dialogTexts(dlg), "Confirm") {
 		t.Error("an unlisted step is in the summary")
 	}
-	if !findButton(t, dlg, "Add to the file").Disabled() {
-		t.Error("Add to the file is enabled")
+	if findButton(t, dlg, "Add to the file").Disabled() {
+		t.Error("Add to the file is disabled with a file open")
 	}
 	test.Tap(back)
 	want("Step 4 · Confirm")
@@ -373,7 +373,7 @@ func TestAssistantWizard(t *testing.T) {
 	test.Tap(next)
 	want("Summary")
 	test.Tap(findButton(t, dlg, "Close"))
-	if top := u.win.Canvas().Overlays().Top(); top == nil || !strings.Contains(dialogTexts(top), "Preview walks through") {
+	if top := u.win.Canvas().Overlays().Top(); top == nil || !strings.Contains(dialogTexts(top), "Preview is the same walk") {
 		t.Error("closing the preview does not return to Add assistant")
 	}
 	if got, _ := sf.unit.AssistantImage(); !bytes.Equal(got, img) || countChanges(u.settings.dev).total() != 0 {
@@ -402,6 +402,68 @@ func TestAssistantWizardStop(t *testing.T) {
 		t.Errorf("Back after the stop shows:\n%s", text)
 	}
 
+}
+
+// TestAssistantAddToFile: walking an assistant to its summary and
+// pressing Add to the file puts it in the open file, and adding one the
+// file already holds is refused.
+func TestAssistantAddToFile(t *testing.T) {
+	dir := writePackages(t)
+	u, pg := assistantsUI(t, dir)
+	bare, err := assistant.Load(dir, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := bare.Build(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sf := assistantFile(t, empty.Bytes)
+	loadSettingsFile(u, sf)
+
+	toSummary := func() fyne.CanvasObject {
+		t.Helper()
+		dlg := previewOf(t, u, pg, "Test helper/synthetic")
+		next := findButton(t, dlg, "Next")
+		radio := func() *widget.RadioGroup {
+			r := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.RadioGroup); return ok })
+			return r[0].(*widget.RadioGroup)
+		}
+		test.Tap(next) // step 1, its default
+		test.Tap(next) // step 2, no input
+		test.Tap(next) // step 3, its default
+		radio().SetSelected("Choice 2")
+		test.Tap(next) // step 4
+		if text := dialogTexts(dlg); !strings.Contains(text, "Summary") {
+			t.Fatalf("did not reach the summary:\n%s", text)
+		}
+		return dlg
+	}
+
+	test.Tap(findButton(t, toSummary(), "Add to the file"))
+	waitFor(t, "the assistant to be added", func() bool {
+		img, err := sf.unit.AssistantImage()
+		if err != nil {
+			return false
+		}
+		l, err := assistant.ParseLayout(img)
+		if err != nil || len(l.Users()) != 1 || l.Users()[0] != 0x0190 {
+			return false
+		}
+		// The page follows the file.
+		return len(u.assistants.installed) == 1 && u.assistants.installed[0] == 0x0190
+	})
+
+	// The same one again is refused and the file is left as it is.
+	before, _ := sf.unit.AssistantImage()
+	test.Tap(findButton(t, toSummary(), "Add to the file"))
+	waitFor(t, "the refusal", func() bool {
+		top := u.win.Canvas().Overlays().Top()
+		return top != nil && strings.Contains(dialogTexts(top), "already in the file")
+	})
+	if got, _ := sf.unit.AssistantImage(); !bytes.Equal(got, before) {
+		t.Error("the refused add changed the file")
+	}
 }
 
 // TestAssistantWizardEarlyStop: an assistant that stops before its first

@@ -31,11 +31,6 @@ var essAnswers = [][]int64{
 	{5000, 5000},             // PV inverter power, PV panel power, W
 }
 
-// settingNames are the names the sources use for the unit's settings, as
-// far as the spec gives them (addendum §8.4); the original's full table of
-// names is not in it.
-var settingNames = map[int]string{64: "eestBatteryCapacity", 81: "eecvGridCode"}
-
 // essDevice describes the unit for the composer (spec addendum §8.4): the
 // firmware version from the file, the settings with their metadata from
 // the file, the package folder's index, and the values the spec gives.
@@ -68,7 +63,7 @@ func essDevice(t *testing.T, dir string, f *rvsc.File, u *rvsc.Unit) assistant.D
 		t.Fatal(err)
 	}
 	for id, raw := range u.Settings() {
-		name, ok := settingNames[id]
+		name, ok := assistant.SettingName(id)
 		if !ok || id >= len(info.Settings) {
 			continue
 		}
@@ -114,6 +109,9 @@ func realImage(t *testing.T) ([]byte, *assistant.Composer) {
 	var ids []uint16
 	for i := len(l.IDs) - 2; i >= 1; i-- { // the users, in program order
 		ids = append(ids, l.IDs[i])
+	}
+	if len(ids) == 0 {
+		t.Skip("the backup in ASSISTANT_RVSC holds no assistants")
 	}
 	c, err := assistant.Load(dir, "en", ids...)
 	if err != nil {

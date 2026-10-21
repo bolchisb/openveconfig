@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"errors"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,29 +28,57 @@ import (
 	"github.com/bolchisb/openveconfig/pkg/assistant/asm"
 	"github.com/bolchisb/openveconfig/pkg/assistant/vap"
 	"github.com/bolchisb/openveconfig/pkg/assistant/wizard"
+	"github.com/bolchisb/openveconfig/pkg/mk2"
 	"github.com/bolchisb/openveconfig/pkg/vebus"
 )
 
-// assistantSettingNames are the names the assistant sources use for
-// settings, by setting ID: the only ones known so far (#32).
-var assistantSettingNames = map[uint16]string{64: "eestBatteryCapacity", 81: "eecvGridCode"}
-
 // assistantLabels returns the environment the assistant sources read
-// (assistant.Labels): the firmware and the named settings of the loaded
-// model, and the package folder's index. The model does not hold the
-// unit's nominal power, DC and AC voltage or Winmon ID offset, so their
-// labels are left out rather than computed from zeros: an assistant that
-// reads one stops with an unknown label.
+// (assistant.Labels): the firmware, the named settings and flags of the
+// loaded model, the unit's values worked out from that model
+// (Device.FromSettings), and the package folder's index. With no model
+// loaded the unit's values are left out rather than computed from zeros:
+// an assistant that reads one then stops with an unknown label instead of
+// being given a wrong number.
 func assistantLabels(u *ui, dir string) map[string]asm.Value {
 	var dev assistant.Device
 	dev.PackageVersion, dev.DownloadedBy, _ = vap.ReadIndex(dir)
 	d := u.settings.dev
-	if d != nil {
+	if d == nil {
+		l := assistant.Labels(dev)
+		for _, k := range []string{"cMultiVersion", "cPNominal", "cIInvNominal", "hwDC", "hwAC", "cWinmonIDOffset"} {
+			delete(l, k)
+		}
+		return l
+	}
+	{
 		dev.MultiVersion = int64(d.Firmware)
-		for id, name := range assistantSettingNames {
+		if f := u.settings.file; f != nil {
+			dev.VersionExtra = f.unit.VersionExtra
+		}
+		dev.FromSettings(func(id int) (mk2.SettingInfo, bool) {
+			if id < 0 || id > math.MaxUint16 {
+				return mk2.SettingInfo{}, false
+			}
+			info, ok := d.SettingInfo(uint16(id))
+			return info, ok && info.Sc != 0
+		})
+		for n := 0; n < assistant.FlagCount; n++ {
+			name, named := assistant.FlagName(n)
+			if !named || !d.Supported(vebus.FlagID(uint16(n))) {
+				continue
+			}
+			v, err := d.Flag(uint16(n))
+			def, derr := d.Default(vebus.FlagID(uint16(n)))
+			if err != nil || derr != nil {
+				continue
+			}
+			dev.Flags = append(dev.Flags, assistant.DeviceFlag{Name: name, Default: def == 1, Value: v})
+		}
+		for _, id := range d.SettingIDs() {
+			name, named := assistant.SettingName(int(id))
 			info, ok := d.SettingInfo(id)
 			raw, err := d.Raw(vebus.SettingID(id))
-			if !ok || err != nil {
+			if !named || !ok || err != nil {
 				continue
 			}
 			dev.Settings = append(dev.Settings, assistant.DeviceSetting{ID: int(id), Name: name, Scale: int64(info.Sc),
@@ -57,23 +86,18 @@ func assistantLabels(u *ui, dir string) map[string]asm.Value {
 		}
 	}
 	l := assistant.Labels(dev)
-	for _, k := range []string{"cPNominal", "cIInvNominal", "hwDC", "hwAC", "cWinmonIDOffset"} {
-		delete(l, k)
-	}
-	if d == nil {
-		delete(l, "cMultiVersion")
-	}
 	return l
 }
 
 // previewAssistant opens the preview of a, from the package folder dir.
 func previewAssistant(u *ui, dir string, a availableAssistant) {
 	runWithProgress(u, tr("Opening the assistant"), func(context.Context, func(done, total int)) error {
-		w := &assistantWizard{u: u, title: a.title, n: 1}
+		w := &assistantWizard{u: u, title: a.title, n: 1, dir: dir, id: a.info.ID}
 		lang := "en"
 		if p, err := vap.Load(a.info.Path); err == nil {
 			lang = packageLanguage(p)
 		}
+		w.lang = lang
 		c, err := assistant.Load(dir, lang, a.info.ID)
 		var st *wizard.Step
 		if err == nil {
@@ -91,7 +115,13 @@ func previewAssistant(u *ui, dir string, a availableAssistant) {
 type assistantWizard struct {
 	u     *ui
 	title string
-	sess  *wizard.Session // nil when the assistant could not be loaded
+	// dir, id and lang name the package being previewed, so its summary
+	// can put it into the file; dir is "" for an assistant opened from
+	// the file, which is in it already.
+	dir  string
+	id   uint16
+	lang string
+	sess *wizard.Session // nil when the assistant could not be loaded
 	dlg   dialog.Dialog
 	body  *fyne.Container
 	// n is the number of the step shown, from 1.
@@ -381,11 +411,67 @@ func (w *assistantWizard) summaryView() fyne.CanvasObject {
 		label = tr("Add to the file")
 	}
 	add := widget.NewButtonWithIcon(label, theme.ContentAddIcon(), nil)
-	add.Disable()
+	add.Importance = widget.HighImportance
+	switch {
+	case w.dir == "": // an assistant of the file: editing it comes later
+		add.Disable()
+		box.Add(container.NewHBox(add))
+		box.Add(callout(theme.InfoIcon(), tr("Nothing was written. Saving the answers of an assistant already in the "+
+			"file comes once {{.App}} can replace one in place.", args{"App": appName})))
+		return box
+	case w.u.settings.file == nil:
+		add.Disable()
+		box.Add(container.NewHBox(add))
+		box.Add(callout(theme.InfoIcon(), tr("Nothing was written. Open a settings file to add an assistant to it.")))
+		return box
+	}
+	add.OnTapped = func() { w.addToFile() }
 	box.Add(container.NewHBox(add))
-	box.Add(callout(theme.InfoIcon(), tr("Nothing was written. Writing a configured assistant to a file or a unit comes once "+
-		"{{.App}} builds the same assistant code as VEConfigure.", args{"App": appName})))
+	box.Add(callout(theme.InfoIcon(), tr("The assistant is put into the open file. The file itself is written "+
+		"when you save it.")))
 	return box
+}
+
+// addToFile builds the file's assistants with this one after them and
+// puts the result in the open file; the assistants already there keep
+// their answers. The file on disk changes only when the user saves it.
+func (w *assistantWizard) addToFile() {
+	sf := w.u.settings.file
+	if sf == nil || w.dir == "" || w.sess == nil {
+		return
+	}
+	answers, dir, lang, id := w.sess.Answers(), w.dir, w.lang, w.id
+	labels := assistantLabels(w.u, dir)
+	runWithProgress(w.u, tr("Adding the assistant"), func(context.Context, func(done, total int)) error {
+		img, err := sf.unit.AssistantImage()
+		if err != nil {
+			return &uiError{err: err, msg: tr("The file's assistants cannot be read: {{.Err}}", args{"Err": err})}
+		}
+		out, err := assistant.Add(dir, lang, img, id, labels, answers)
+		if err != nil {
+			return addError(err)
+		}
+		fyne.Do(func() {
+			sf.unit.SetAssistantImage(out.Bytes)
+			w.u.settings.changed()
+			w.dlg.Hide()
+			showMessage(w.u, tr("Assistant added"),
+				tr("{{.Name}} is in the open file, which uses {{.Used}} of {{.Total}} bytes of assistant memory. Save the file to write it.",
+					args{"Name": w.title, "Used": out.Used, "Total": assistant.Budget}))
+		})
+		return nil
+	})
+}
+
+// addError says why an assistant could not be added.
+func addError(err error) error {
+	switch {
+	case errors.Is(err, assistant.ErrTooBig):
+		return &uiError{err: err, msg: tr("The assistants do not fit in the unit's assistant memory. Nothing was changed.")}
+	case errors.Is(err, assistant.ErrAlreadyThere):
+		return &uiError{err: err, msg: tr("This assistant is already in the file. Nothing was changed.")}
+	}
+	return &uiError{err: err, msg: tr("The assistant cannot be built yet: {{.Err}}. Nothing was changed.", args{"Err": err})}
 }
 
 // showInstalledSummary shows the values of the file's assistant name, as

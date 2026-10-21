@@ -4,6 +4,59 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 
 ## 2026-10-21
 
+### Assistants: the compiler clears the shipped packages, and one can be added to a file (#32)
+
+Before this, no shipped assistant could be opened at all: every one stopped on the first `.IF` of the hidden
+`asfStart`. All nineteen in a VEConfigure package folder now walk to their first step, fourteen build an
+image, and the summary's **Add to the file** button works.
+
+- **Calculator** (`pkg/assistant/asm/calc.go`): an operand of `AND`/`OR`/`XOR` written as a string holds an
+  expression and is calculated (`.IF 'Params=1' or '!DispatchFlagTested'`); the right-hand one is left alone
+  when the left already settles the result, which is why the sources quote it — it may name a label of a
+  branch not taken. `Known('cVEConfigVersion')` calculates its quoted argument instead of always answering
+  true (nearly every call in the sources quotes it, so the check was passing silently). `Err(condition,
+  message)` raises only when the condition holds and is 0 otherwise, so it can be added into an expression.
+  `pos(element, list)` counts from 0 and is -1 when absent, beside the string form that counts from 1.
+  `ins(container, item, index)` takes the container first, as `copy` and `del` do, and works on a list;
+  positions in a list count from 0 in all three. A unary `+` is accepted, which the sources produce when
+  they join expression pieces. A function and a plain label may share a name, and a value no longer takes
+  the function away.
+- **Assembler** (`pkg/assistant/asm/asm.go`, `ctx.go`): `$ParamString` is a macro call's arguments as
+  written, which the macros that defer their work re-assemble themselves with. A pass that stopped — the
+  wizard waiting at a step — no longer reports the labels the unreached rest of the program would have
+  defined; `Result.Errors` still holds them, and an error of any other kind is still reported. New
+  `Ctx.Reassign` sets a label whatever it holds, for a directive that writes its own value into a name the
+  source also used for something else.
+- **Wizard** (`pkg/assistant/wizard`): a format's bounds may be hexadecimal (`0N 0 0x3FFF 10`). `.ALS`
+  takes its mode letter quoted as well as bare. A build with no image to read back reads it as zero rather
+  than failing, so an assistant the unit does not hold yet can be built; the read-back build itself still
+  needs the image. `.AID` defines no label of its own; the step's label is given its value by the `.AUE`
+  that shows the step, as three lists the sources index with `@` — the values the step held, the ones it
+  was reached with and the ones it ends with, one entry per field. `$HandledAUEStep` is a string, which a
+  source joins to text to build an expression over that step's label.
+- **Environment** (`pkg/assistant/varnames.go`, `fromsettings.go`, `env.go`): the 311-entry table of the
+  names the sources use for the unit's RAM variables, flags and settings, with `SettingName`/`FlagName`
+  (entry 0 is a sentinel, 1-38 RAM variables, 39-118 flags, 119-310 settings). A flag's current bit is read
+  as `<name>_VEC`, the suffix a setting's value takes. `Device.FromSettings` works out the values no reply
+  carries — the AC voltage, the DC code, the nominal power, the Winmon ID offset, `cRatedPower` and
+  `cDeviceInfo` — from the settings model, so they are there from a saved file as well as from a unit.
+  `Layout.Users` returns an image's user assistants in program order.
+- **Adding** (`pkg/assistant/add.go`, `cmd/openveconfig-gui/assistantwizard.go`): `assistant.Add` builds the
+  image that holds what a file holds plus one more assistant; the ones already there keep their answers,
+  read back from the image first, and `ErrTooBig`/`ErrAlreadyThere` are refused before anything is made.
+  The GUI's summary puts the assistant into the open file, which the user then saves as usual, and
+  `assistantLabels` no longer drops the unit's values — it derives them.
+- **Still open**: of the nineteen, two stop on a precondition of the test unit (feed-in not allowed), two
+  need answers a default build does not give, and `Microgrid enabler` reads `cgcVersionNone`, which nothing
+  in the sources defines. Replacing an assistant already in a file is not implemented yet, and the Add
+  button of the picker dialog still only previews.
+- **Tests**: `calc_test.go` covers the string operands, the quoted `Known`, `Err(condition, message)`,
+  `pos`/`ins`/`copy`/`del` on lists and the unary `+`; `asm_test.go` that a stopped pass keeps its unknown
+  labels out of the reported error; `wizard_test.go` the hexadecimal bounds and the image-less build;
+  `varnames_test.go` the name table against the two anchors; `fromsettings_test.go` the derived values
+  against the unit the spec records; `add_test.go` that a second assistant goes in after the first and the
+  first keeps its answer; `assistantspage_test.go` `TestAssistantAddToFile` the whole path through the GUI.
+
 ### Grid send is enabled for real devices (#52, hardware-validated); firmware flash stays gated (#38)
 
 - **Removed the artificial grid-send gate** (`pkg/gridcode/send.go`, #52): the maintainer validated the dedicated grid send on real hardware, so `CheckSendGate`/`ErrNotHardwareValidated` (which refused a real device up front) are deleted. `Send` loses its `isSimulator` parameter — it is now `Send(ctx, w, plan)` — and runs the plan against any device. The `SendPlan` order (81 → check word A 128 → parameter words 129-190 → check word B 191 last) and the typed `*SendError` (`Done`/`Pending`/`At`) reporting are unchanged, so an interrupted send still reports the exact state the device was left in, and a device that refuses a write (e.g. a missing installer password surfaced through `WriteSetting`) still stops the send and is reported the same way.

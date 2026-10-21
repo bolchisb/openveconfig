@@ -351,6 +351,16 @@ func (p *parser) evalStr(v Value) (Value, error) {
 
 func (p *parser) unary() (Value, error) {
 	switch {
+	case p.isOp("+"):
+		// A unary plus leaves a number as it is. The sources build
+		// expressions by joining pieces with '+', so two separators in a
+		// row put one here.
+		p.pos++
+		v, err := p.unary()
+		if err != nil || v.isNum() {
+			return v, err
+		}
+		return v, fmt.Errorf("%w: +%s", ErrType, v.kindName())
 	case p.isOp("-"):
 		p.pos++
 		v, err := p.unary()
@@ -719,17 +729,33 @@ func init() {
 			}
 			return slice(a[0], a[1], n, true)
 		},
-		"ins": func(p *parser, a []Value) (Value, error) { // ins(sub, s, index)
+		// ins(s, sub, index) or ins(list, element, index): the thing being
+		// added into comes first, as it does in copy and del (the sources
+		// write ins(del(S, i, 1), '1', i) to replace one element).
+		"ins": func(p *parser, a []Value) (Value, error) {
 			if err := nargs(a, 3, 3); err != nil {
 				return Value{}, err
 			}
 			i, err := a[2].AsInt()
-			if err != nil || a[0].K != Str || a[1].K != Str {
-				return Value{}, fmt.Errorf("%w: ins(string, string, index)", ErrType)
+			if err != nil {
+				return Value{}, err
 			}
-			s := a[1].S
-			i = min(max(i, 1), int64(len(s))+1)
-			return StrVal(s[:i-1] + a[0].S + s[i-1:]), nil
+			switch a[0].K {
+			case Str:
+				if a[1].K != Str {
+					return Value{}, fmt.Errorf("%w: ins(string, string, index)", ErrType)
+				}
+				s := a[0].S
+				i = min(max(i, 1), int64(len(s))+1)
+				return StrVal(s[:i-1] + a[1].S + s[i-1:]), nil
+			case List:
+				l := a[0].L
+				i = min(max(i, 0), int64(len(l)))
+				out := append([]Value(nil), l[:i]...)
+				out = append(out, a[1])
+				return ListVal(append(out, l[i:]...)...), nil
+			}
+			return Value{}, fmt.Errorf("%w: ins into %s", ErrType, a[0].kindName())
 		},
 		"pos": func(p *parser, a []Value) (Value, error) { // pos(sub, s) or pos(element, list)
 			if err := nargs(a, 2, 2); err != nil {
@@ -869,16 +895,18 @@ func slice(v, at Value, n int64, del bool) (Value, error) {
 	if err != nil {
 		return Value{}, err
 	}
-	var size int64
+	// Positions in a string count from 1, as they do in Pascal; in a list
+	// they count from 0, as the @ operator and pos do.
+	var size, base int64
 	switch v.K {
 	case Str:
-		size = int64(len(v.S))
+		size, base = int64(len(v.S)), 1
 	case List:
-		size = int64(len(v.L))
+		size, base = int64(len(v.L)), 0
 	default:
 		return Value{}, fmt.Errorf("%w: copy/del of %s", ErrType, v.kindName())
 	}
-	lo := min(max(i, 1), size+1) - 1
+	lo := min(max(i, base), size+base) - base
 	hi := min(lo+max(n, 0), size)
 	if v.K == Str {
 		if del {

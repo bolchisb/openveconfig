@@ -28,6 +28,7 @@ type assistantPicker struct {
 	shown    []availableAssistant
 	selected int // index in shown; -1 for none
 	preview  *widget.Button
+	add      *widget.Button
 	dlg      *dialog.CustomDialog
 }
 
@@ -66,16 +67,15 @@ func (ap *assistantsPage) showAdd() {
 
 	p.preview = widget.NewButtonWithIcon(tr("Preview…"), theme.MediaPlayIcon(), p.previewSelected)
 	p.preview.Importance = widget.HighImportance
-	add := widget.NewButtonWithIcon(tr("Add"), theme.ContentAddIcon(), nil)
-	add.Disable()
+	p.add = widget.NewButtonWithIcon(tr("Add"), theme.ContentAddIcon(), p.previewSelected)
 	closeButton := widget.NewButton(tr("Close"), func() { p.dlg.Hide() })
-	note := mutedText(tr("Preview walks through an assistant's questions and writes nothing. "+
-		"Adding an assistant to the file comes once {{.App}} builds the same assistant code as VEConfigure.", args{"App": appName}))
+	note := mutedText(tr("Add walks through the assistant's questions and its summary puts it into the open "+
+		"file, which you then save as usual. Preview is the same walk with nothing to put it into."))
 
 	frame := container.NewStack(newThemeRect(colorNamePage, theme.ColorNameSeparator, -1, fyne.NewSize(560, 340)), p.body)
 	content := container.NewBorder(container.NewVBox(p.search, p.count), note, nil, nil, frame)
 	p.dlg = dialog.NewCustomWithoutButtons(tr("Add assistant"), content, ap.u.win)
-	p.dlg.SetButtons([]fyne.CanvasObject{closeButton, add, p.preview})
+	p.dlg.SetButtons([]fyne.CanvasObject{closeButton, p.preview, p.add})
 	p.dlg.SetOnClosed(func() {
 		if ap.picker == p {
 			ap.picker = nil
@@ -167,10 +167,17 @@ func (p *assistantPicker) refresh() {
 }
 
 func (p *assistantPicker) updateButtons() {
-	if p.selected >= 0 && p.selected < len(p.shown) {
+	chosen := p.selected >= 0 && p.selected < len(p.shown)
+	if chosen {
 		p.preview.Enable()
 	} else {
 		p.preview.Disable()
+	}
+	// Add needs a file to put the assistant into.
+	if chosen && p.ap.u.settings.file != nil {
+		p.add.Enable()
+	} else {
+		p.add.Disable()
 	}
 }
 

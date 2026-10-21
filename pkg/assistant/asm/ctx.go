@@ -47,6 +47,14 @@ func (c *Ctx) Define(name string, v Value) error {
 	return c.a.define(c.f, name, v, nil, false, false)
 }
 
+// Reassign sets a label in the line's scope whatever it already holds,
+// even a fixed one: it is for a directive that keeps its own value in a
+// label of the source's choosing and writes it afresh each time, so a
+// name the source also used for something else is not a clash.
+func (c *Ctx) Reassign(name string, v Value) error {
+	return c.a.reassign(c.f, name, v)
+}
+
 // Undefine makes a label unknown, as .UNSET does.
 func (c *Ctx) Undefine(name string) {
 	if l := c.a.find(c.f, nil, name); l != nil {

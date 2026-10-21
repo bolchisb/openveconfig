@@ -65,6 +65,8 @@ func TestCalculator(t *testing.T) {
 		{"!(1 < 2)", BoolVal(false)},
 		{"!0", IntVal(-1)},
 		{"-hwDC", IntVal(-48)},
+		{"+7", IntVal(7)},
+		{"[] + 1 + +2 + 3", ListVal(IntVal(1), IntVal(2), IntVal(3))}, // a separator twice over
 		{"true XOR FALSE", BoolVal(true)},
 		{"'2B '+str(hwDC*1300/12)", StrVal("2B 5200")},
 		{"str(1=1)", StrVal("TRUE")},
@@ -81,7 +83,12 @@ func TestCalculator(t *testing.T) {
 		{"copy(s, 4)", StrVal("lo")},
 		{"copy(s, 9, 2)", StrVal("")},
 		{"del(s, 1, 2)", StrVal("llo")},
-		{"ins('XY', s, 3)", StrVal("heXYllo")},
+		{"ins(s, 'XY', 3)", StrVal("heXYllo")},
+		{"ins(del(s, 2, 1), 'E', 2)", StrVal("hEllo")}, // replace one, as the sources do
+		{"ins(l, 9, 0)", ListVal(IntVal(9), IntVal(7), IntVal(8))},
+		{"ins(l, 9, 1)", ListVal(IntVal(7), IntVal(9), IntVal(8))},
+		{"del(l, 0, 1)", ListVal(IntVal(8))}, // a list counts from 0
+		{"copy(l, 1, 1)", ListVal(IntVal(8))},
 		{"pos('ll', s)", IntVal(3)},
 		{"pos('z', s)", IntVal(0)},
 		{"pos(8, l)", IntVal(1)},
