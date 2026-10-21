@@ -293,6 +293,14 @@ func (p *parser) binary(level int) (Value, error) {
 		if t.s == "^" {
 			next = level // right-associative
 		}
+		if logicalOps[t.s] {
+			v, err := p.logical(t.s, a, next)
+			if err != nil {
+				return v, err
+			}
+			a = v
+			continue
+		}
 		b, err := p.binary(next)
 		if err != nil {
 			return b, err
@@ -301,6 +309,44 @@ func (p *parser) binary(level int) (Value, error) {
 			return a, err
 		}
 	}
+}
+
+// logicalOps are the operators whose operands may be written as a string
+// holding an expression; see (*parser).logical.
+var logicalOps = map[string]bool{"OR": true, "AND": true, "XOR": true}
+
+// logical applies OR, AND or XOR. An operand may be a string holding an
+// expression, which is calculated here: the sources quote the right-hand
+// side — '(cVEConfigVersion MOD 1000)<167' — so that it is reached only
+// when the left-hand side has not already settled the result, letting it
+// name labels that a branch not taken need not define (inferred from how
+// the sources use the operators, which are reverse-engineered, #8).
+func (p *parser) logical(op string, a Value, next int) (Value, error) {
+	a, err := p.evalStr(a)
+	if err != nil {
+		return a, err
+	}
+	b, err := p.binary(next)
+	if err != nil {
+		return b, err
+	}
+	if b.K == Str && a.K == Bool {
+		if x := a.I != 0; op == "OR" && x || op == "AND" && !x {
+			return BoolVal(x), nil
+		}
+	}
+	if b, err = p.evalStr(b); err != nil {
+		return b, err
+	}
+	return binop(op, a, b)
+}
+
+// evalStr calculates the text of a string operand as an expression.
+func (p *parser) evalStr(v Value) (Value, error) {
+	if v.K != Str {
+		return v, nil
+	}
+	return p.sc.eval(v.S)
 }
 
 func (p *parser) unary() (Value, error) {
@@ -451,6 +497,17 @@ func (p *parser) call(name string) (Value, error) {
 	}
 	p.pos++ // )
 	if strings.EqualFold(name, "known") {
+		// The sources name the label as a string — Known('cVEConfigVersion')
+		// — so what is asked is whether that expression can be calculated
+		// (inferred; nearly every call in the sources quotes its argument).
+		if argErr == nil && len(args) == 1 && args[0].K == Str {
+			if _, err := p.sc.eval(args[0].S); err != nil {
+				if !errors.Is(err, ErrUnknown) {
+					return Value{}, err
+				}
+				argErr = err
+			}
+		}
 		return BoolVal(argErr == nil), nil
 	}
 	if v, ok, err := p.sc.call(name, args); ok {
@@ -674,9 +731,21 @@ func init() {
 			i = min(max(i, 1), int64(len(s))+1)
 			return StrVal(s[:i-1] + a[0].S + s[i-1:]), nil
 		},
-		"pos": func(p *parser, a []Value) (Value, error) { // pos(sub, s)
+		"pos": func(p *parser, a []Value) (Value, error) { // pos(sub, s) or pos(element, list)
 			if err := nargs(a, 2, 2); err != nil {
 				return Value{}, err
+			}
+			// In a list pos counts from 0 and is -1 when the element is
+			// not there; in a string it counts from 1 and is 0 (inferred
+			// from the comparisons the sources make, <0 against a list
+			// and !=0 against a string).
+			if a[1].K == List {
+				for i, v := range a[1].L {
+					if v.Equal(a[0]) {
+						return IntVal(int64(i)), nil
+					}
+				}
+				return IntVal(-1), nil
 			}
 			if a[0].K != Str || a[1].K != Str {
 				return Value{}, fmt.Errorf("%w: pos(string, string)", ErrType)
@@ -727,6 +796,20 @@ func init() {
 			return StrVal(fmt.Sprintf("%0*X", w, uint64(x))), nil
 		},
 		"err": func(p *parser, a []Value) (Value, error) {
+			// Err(condition, message) raises message only when the
+			// condition holds, and is 0 otherwise so that it can be added
+			// into an expression, which is how the sources use it
+			// (reverse-engineered, #8).
+			if len(a) == 2 {
+				ok, err := a[0].AsBool()
+				if err != nil {
+					return Value{}, err
+				}
+				if !ok {
+					return IntVal(0), nil
+				}
+				return Value{}, &UserError{Msg: a[1].String()}
+			}
 			msg := "error"
 			if len(a) > 0 {
 				msg = a[0].String()

@@ -48,7 +48,7 @@ Begin .AID Begin, R, 2, 0
  DATA notGivenByAnyone
 `
 	testEarly = `
- DATA 'text' OR TRUE
+ DATA 'text' + 1
 Begin .AID Begin, R, 2, 0
  .AUE Begin, go
 `

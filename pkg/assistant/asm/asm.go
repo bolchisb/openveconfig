@@ -428,7 +428,7 @@ func (a *Assembler) line(f *frame, l srcLine) error {
 		return b(a, c, ops)
 	}
 	if m := a.macros[key(mnem)]; m != nil {
-		return a.callMacro(c, m, splitOps(ops))
+		return a.callMacro(c, m, ops, splitOps(ops))
 	}
 	return fmt.Errorf("%w: unknown mnemonic %s", ErrSyntax, mnem)
 }
@@ -687,8 +687,11 @@ func (a *Assembler) defMacro(f *frame, name, ops string) error {
 // callMacro assembles the body of m with its parameters bound: a
 // parameter is the value of its argument, or for s:param the argument's
 // text; Params is the number of arguments (reverse-engineered, #8). A
-// missing argument leaves its parameter unknown.
-func (a *Assembler) callMacro(c *Ctx, m *macro, args []string) error {
+// missing argument leaves its parameter unknown. $ParamString is ops, the
+// arguments as written, which the macros that defer their work use to
+// re-assemble themselves (inferred: every source that reads it does so as
+// .ASSEMBLE '…'+$ParamString).
+func (a *Assembler) callMacro(c *Ctx, m *macro, ops string, args []string) error {
 	if len(args) < m.min {
 		return fmt.Errorf("%w: %d arguments, at least %d expected", ErrSyntax, len(args), m.min)
 	}
@@ -699,6 +702,7 @@ func (a *Assembler) callMacro(c *Ctx, m *macro, args []string) error {
 		l.stale = stale
 	}
 	bind("params", IntVal(int64(len(args))), nil, false)
+	bind("$paramstring", StrVal(ops), nil, false)
 	for i, p := range m.params {
 		switch {
 		case i >= len(args):

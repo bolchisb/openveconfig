@@ -84,6 +84,9 @@ func TestCalculator(t *testing.T) {
 		{"ins('XY', s, 3)", StrVal("heXYllo")},
 		{"pos('ll', s)", IntVal(3)},
 		{"pos('z', s)", IntVal(0)},
+		{"pos(8, l)", IntVal(1)},
+		{"pos(9, l)", IntVal(-1)},
+		{"pos(26, [] + 0 + 26 + 27)", IntVal(1)},
 		{"len(s)", IntVal(5)},
 		{"val('2*hwDC')", IntVal(96)},
 		{"ord('A')", IntVal(65)},
@@ -91,6 +94,14 @@ func TestCalculator(t *testing.T) {
 		{"hex(10, 4)", StrVal("000A")},
 		{"known(hwDC)", BoolVal(true)},
 		{"known(nothere + 1)", BoolVal(false)},
+		{"known('hwDC')", BoolVal(true)},
+		{"known('nothere')", BoolVal(false)},
+		{"false OR 'hwDC = 48'", BoolVal(true)},
+		{"true AND 'hwDC > 40'", BoolVal(true)},
+		{"true AND 'hw' + 'DC = 48'", BoolVal(true)},
+		{"true OR 'nothere'", BoolVal(true)},    // the string is not calculated
+		{"false AND 'nothere'", BoolVal(false)}, // nor here
+		{"7 + Err(1 > 2, 'boom')", IntVal(7)},   // the condition does not hold
 		{"Round(2.5) + Trunc(-1.7)", IntVal(1)},
 		{"Sqrt(16)", FloatVal(4)},
 		{"x := 5 + 1", IntVal(6)},
@@ -107,6 +118,34 @@ func TestCalculator(t *testing.T) {
 	}
 	if sc["x"].I != 6 {
 		t.Errorf(":= did not assign: %v", sc["x"])
+	}
+}
+
+// TestLogicalStringOperand covers an operand written as a string holding
+// an expression, as the first .IF of asfStart uses them.
+func TestLogicalStringOperand(t *testing.T) {
+	const line = `!Known('cVEConfigVersion') OR '(cVEConfigVersion MOD 1000)<167'`
+	for _, tc := range []struct {
+		name string
+		sc   mapScope
+		want Value
+	}{
+		// 50201 MOD 1000 is 201, which is not older than 167.
+		{"known and recent", mapScope{"cveconfigversion": IntVal(50201)}, BoolVal(false)},
+		{"known and old", mapScope{"cveconfigversion": IntVal(50123)}, BoolVal(true)},
+		// Undefined, the left-hand side settles it: the quoted right-hand
+		// side names a label that is not there and must not be calculated.
+		{"undefined", mapScope{}, BoolVal(true)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := evalExpr(tc.sc, line)
+			if err != nil {
+				t.Fatalf("%s: %v", line, err)
+			}
+			if !got.Equal(tc.want) || got.K != tc.want.K {
+				t.Errorf("= %v (%s), want %v", got, got.kindName(), tc.want)
+			}
+		})
 	}
 }
 
@@ -134,6 +173,9 @@ func TestCalculatorErrors(t *testing.T) {
 	var ue *UserError
 	if _, err := evalExpr(sc, "err('no RAM')"); !errors.As(err, &ue) || ue.Msg != "no RAM" {
 		t.Errorf("err(): %v", err)
+	}
+	if _, err := evalExpr(sc, "err(1 < 2, 'no RAM')"); !errors.As(err, &ue) || ue.Msg != "no RAM" {
+		t.Errorf("err(condition): %v", err)
 	}
 	if ErrDivZero.Error() != "Division by ZERO" {
 		t.Error("division message")
