@@ -79,7 +79,20 @@ type SettingInfoTable struct {
 	// its low 24 bits are a firmware number that can differ from the
 	// units' (FORMAT.md §3.3).
 	FirmwareWord uint32
-	Settings     []mk2.SettingInfo
+	// HeaderByte8 is the header's ninth byte (offset 8). Reverse-engineered
+	// (#74): it is not constant across devices (2 and 0x2f both seen), so it
+	// is kept rather than assumed. Build writes it when non-zero and the
+	// structural default 2 otherwise.
+	HeaderByte8 byte
+	Settings    []mk2.SettingInfo
+	// AccessRegion and GridTable are the device-provided bytes after the
+	// setting records (reverse-engineered, #74): a 276-byte access region in
+	// the samples, then a u16 length and that many grid-table bytes (read
+	// back by GridInfo). They are inputs to Build only; SettingInfo does not
+	// populate them. When both are empty Build omits the trailer, as it
+	// always has.
+	AccessRegion []byte
+	GridTable    []byte
 }
 
 // SettingInfo decodes the BareSettingInfo section. The bytes after the
@@ -99,6 +112,7 @@ func (f *File) SettingInfo() (*SettingInfoTable, error) {
 	}
 	t := &SettingInfoTable{
 		FirmwareWord: binary.LittleEndian.Uint32(p[infoOffFirmware:]),
+		HeaderByte8:  p[8],
 		Settings:     make([]mk2.SettingInfo, n/infoRecordLen),
 	}
 	for i := range t.Settings {

@@ -18,6 +18,13 @@
 // on hardware, so CheckDeviceWrite refuses grid settings for a device;
 // settings files can be stamped and saved.
 //
+// SendPlan builds the ordered writes of that fixed order (setting 81, check
+// word 128, the parameter words, check word 191 last) and Send runs them
+// (#52). Send mirrors the firmware hardware gate: the full sequence runs
+// against the simulator only; a real device is refused up front
+// (CheckSendGate, ErrNotHardwareValidated), and a stopped send reports which
+// writes had already reached the device (SendError).
+//
 // Not known, and therefore not implemented:
 //   - Passwords, unlocking and key codes. They are out of scope; only values
 //     the user supplies may ever be sent (docs/CLEAN-ROOM.md, "Access

@@ -145,6 +145,9 @@ type gridTabView struct {
 	page       *gridcode.Page // the page the rows show
 	pageCode   int            // the grid code the parameters were built for; -1 none
 	undo       *widget.Button
+	// send sends the changed grid code and grid parameters straight to the
+	// device (#52); shown only for a model read from a device.
+	send *widget.Button
 	// loaded holds the grid words as loaded, to show what changed and to
 	// undo the changes.
 	loaded map[uint16]uint16
@@ -196,6 +199,9 @@ func newGridTab(u *ui) *gridTabView {
 	g.ordinary.build()
 
 	g.undo = widget.NewButton(tr("Undo grid parameter changes"), g.undoChanges)
+	g.send = widget.NewButtonWithIcon(tr("Send grid settings to device"), theme.UploadIcon(), g.sendToDevice)
+	g.send.Importance = widget.HighImportance
+	g.send.Hide()
 	g.params = container.NewStack()
 	g.paramsItem = container.NewTabItem(tr("Grid parameters"), g.params)
 	g.subTabs = container.NewAppTabs(
@@ -392,6 +398,19 @@ func (g *gridTabView) update(rebuild bool) {
 		g.undo.Disable()
 		g.undo.Hide()
 	}
+	// The send button is shown only for a model read from a device, and is
+	// enabled only while the grid code or grid parameters were changed (#52).
+	d := g.u.settings.dev
+	if g.u.sess != nil && d != nil && g.u.settings.file == nil {
+		g.send.Show()
+		if len(changedGridSettings(d)) > 0 {
+			g.send.Enable()
+		} else {
+			g.send.Disable()
+		}
+	} else {
+		g.send.Hide()
+	}
 }
 
 // loadCodeDefaults sets grid words 129-190 of d to the defaults the
@@ -578,7 +597,7 @@ func (g *gridTabView) buildParams(code int) {
 			note(tr("Not supported yet (how they are stored is not known): {{.Names}}", args{"Names": strings.Join(names, "; ")}))
 		}
 	}
-	objs = append(objs, container.NewHBox(g.undo))
+	objs = append(objs, container.NewHBox(g.undo, g.send))
 	g.params.Objects = []fyne.CanvasObject{newForm(objs...)}
 	g.params.Refresh()
 }
@@ -868,6 +887,167 @@ func (g *gridTabView) undoChanges() {
 		}
 	}
 	g.apply(errors.Join(errs...))
+}
+
+// gridSendPlan builds the ordered writes that send the loaded model d to its
+// device (#52): the grid code (81), the changed parameter words (129-190) and
+// the two check words (128, 191) stamped for the next generation
+// (gridcode.SendPlan). The parameter-set version comes from the device's
+// grid-info table (0 when it is not known). The current check words are read
+// from d, which are the device's, since the UI never edits them directly.
+func gridSendPlan(d *vebus.Device, grid gridcode.Model) ([]gridcode.SendWrite, error) {
+	code, err := d.Raw(vebus.SettingID(gridCodeSetting))
+	if err != nil {
+		return nil, err
+	}
+	a, err := d.Raw(vebus.SettingID(firstGridWord))
+	if err != nil {
+		return nil, err
+	}
+	b, err := d.Raw(vebus.SettingID(lastGridWord))
+	if err != nil {
+		return nil, err
+	}
+	var v uint8
+	if grid.Known {
+		if v, err = gridcode.ParamSetVersion(grid.Table, gridcode.Code(code)); err != nil {
+			return nil, err
+		}
+	}
+	params := map[uint16]uint16{}
+	for id := firstGridWord + 1; id < lastGridWord; id++ {
+		sid := vebus.SettingID(id)
+		if d.Supported(sid) && d.Dirty(sid) {
+			raw, err := d.Raw(sid)
+			if err != nil {
+				return nil, err
+			}
+			params[id] = raw
+		}
+	}
+	return gridcode.SendPlan(gridcode.Pair{A: a, B: b}, gridcode.Code(code), v, params)
+}
+
+// sendToDevice sends the changed grid code and grid parameters straight to
+// the device (#52). Against a real device it is refused before anything is
+// written (gridcode.CheckSendGate); against the demo simulator it runs the
+// full sequence. This path is separate from the ordinary "Send settings",
+// which never touches the grid settings (gridWriteCheck).
+func (g *gridTabView) sendToDevice() {
+	u := g.u
+	s := u.sess
+	d := u.settings.dev
+	switch {
+	case s == nil:
+		showMessage(u, tr("Send to device"), tr("Connect to a device first."))
+		return
+	case d == nil || u.settings.file != nil:
+		showMessage(u, tr("Send to device"), tr("The grid code and grid parameters can be sent only to the device they were read from. "+
+			"Read a device's settings with \"Get settings\" first."))
+		return
+	}
+	if len(changedGridSettings(d)) == 0 {
+		showMessage(u, tr("Send to device"), tr("The grid code and grid parameters were not changed, so there is nothing to send."))
+		return
+	}
+	plan, err := gridSendPlan(d, u.settings.grid)
+	if err != nil {
+		showError(u, &uiError{err: err, msg: tr("The grid send could not be prepared: {{.Err}}", args{"Err": err})})
+		return
+	}
+	// Real-device safety gate: refuse before anything is written (#52, #3).
+	if gridcode.CheckSendGate(s.demo) != nil {
+		showMessage(u, tr("Send to device"), tr("Sending the grid code and grid parameters straight to a device is not yet validated on hardware (#52, #3), "+
+			"so it is refused and nothing was sent. Save them to a settings file and apply that file through a GX device (VRM Remote VEConfigure) instead."))
+		return
+	}
+	c := newConfirm(u, tr("Send to device"), tr("Send the grid code and the changed grid parameters to the device at address {{.Address}}? "+
+		"The two check words (settings 128 and 191) are updated with them, check word 191 last.", args{"Address": d.Address}),
+		tr("Send"), func() { g.runGridSend(s, d, plan) })
+	c.SetConfirmImportance(widget.HighImportance)
+	showWithKeys(u, c, c.Confirm)
+}
+
+// runGridSend sends plan to d through s, after the access passwords when they
+// are needed, records what reached the device in the model and shows the
+// outcome, including the state the device was left in if the send stopped.
+func (g *gridTabView) runGridSend(s *session, d *vebus.Device, plan []gridcode.SendWrite) {
+	u := g.u
+	send := func() {
+		runWithProgress(u, tr("Sending the grid settings"), func(ctx context.Context, progress func(done, total int)) error {
+			var rep *gridcode.SendReport
+			var serr error
+			var passwords []string
+			if passwordsEnabled(s) {
+				passwords = s.passwords
+			}
+			err := s.Do(ctx, func(ctx context.Context, c *mk2.Client) error {
+				if err := sendAccessPasswords(ctx, c, d.Address, passwords); err != nil {
+					return err
+				}
+				if err := c.SetAddress(ctx, d.Address); err != nil {
+					return err
+				}
+				rep, serr = gridcode.Send(ctx, c, s.demo, plan)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			done := gridSendDone(rep, serr)
+			fyne.Do(func() {
+				if u.settings.dev == d {
+					for _, w := range done {
+						if err := d.SetRead(vebus.SettingID(w.ID), w.Value); err != nil {
+							showError(u, err)
+						}
+					}
+					u.settings.changed()
+					g.load()
+					g.update(true)
+				}
+				g.showGridSendResult(d, rep, serr)
+			})
+			return nil
+		})
+	}
+	withPasswords(u, s, d, send)
+}
+
+// gridSendDone returns the grid writes that reached the device, from a
+// finished report or from the state of a stopped send (gridcode.SendError).
+func gridSendDone(rep *gridcode.SendReport, serr error) []gridcode.SendWrite {
+	if rep != nil {
+		return rep.Done
+	}
+	var se *gridcode.SendError
+	if errors.As(serr, &se) {
+		return se.Done
+	}
+	return nil
+}
+
+// showGridSendResult shows whether the grid send succeeded or, if it stopped,
+// which grid settings had already reached the device.
+func (g *gridTabView) showGridSendResult(d *vebus.Device, rep *gridcode.SendReport, serr error) {
+	u := g.u
+	done := gridSendDone(rep, serr)
+	if serr == nil {
+		showMessage(u, tr("Send to device"), trn("{{.Count}} grid setting was sent to the device.",
+			"{{.Count}} grid settings were sent to the device.", len(done)))
+		return
+	}
+	if len(done) == 0 {
+		showMessage(u, tr("Send to device"), tr("Nothing was sent: {{.Err}}", args{"Err": serr}))
+		return
+	}
+	list := make([]string, len(done))
+	for i, w := range done {
+		list[i] = strconv.Itoa(int(w.ID))
+	}
+	showMessage(u, tr("Send to device"), tr("The send stopped after {{.Count}} grid settings reached the device (settings {{.Settings}}). "+
+		"Check word 191 was not written, so the device may refuse the grid data until the send is completed. Error: {{.Err}}",
+		args{"Count": strconv.Itoa(len(done)), "Settings": strings.Join(list, ", "), "Err": serr}))
 }
 
 // paramDecimals returns the number of decimals that shows one step of p,

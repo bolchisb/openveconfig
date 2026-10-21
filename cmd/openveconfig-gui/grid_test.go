@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"slices"
@@ -119,6 +120,62 @@ func TestGridCodeSelectAndSend(t *testing.T) {
 	selectCode(t, g, 6)
 	if g.rows != nil || !strings.Contains(labelTexts(g.params), "not known yet") {
 		t.Errorf("code 6: %d rows, text %q", len(g.rows), labelTexts(g.params))
+	}
+}
+
+// TestGridSendPlanAndGate checks the grid "Send to device" of #52: the plan
+// builder picks up the changed grid code and parameter words with stamped
+// check words, a real device is refused before any write, and the simulator
+// runs the full sequence.
+func TestGridSendPlanAndGate(t *testing.T) {
+	_, s, g, d := gridSetup(t, 2699481)
+	selectCode(t, g, 17)
+	if err := d.SetRaw(vebus.SettingID(150), 0x1234); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := gridSendPlan(d, g.u.settings.grid)
+	if err != nil {
+		t.Fatalf("gridSendPlan: %v", err)
+	}
+	if len(plan) < 4 || plan[0].ID != gridCodeSetting || plan[0].Value != 17 ||
+		plan[1].ID != gridcode.CheckerWordA || plan[len(plan)-1].ID != gridcode.CheckerWordB {
+		t.Fatalf("plan order wrong: %+v", plan)
+	}
+	if !slices.ContainsFunc(plan, func(w gridcode.SendWrite) bool { return w.ID == 150 && w.Value == 0x1234 }) {
+		t.Errorf("plan missing the changed param 150: %+v", plan)
+	}
+
+	// Real device: refused before anything is written (the gate, #52/#3).
+	var serr error
+	if err := s.Do(ctxT(t), func(ctx context.Context, c *mk2.Client) error {
+		_, serr = gridcode.Send(ctx, c, false, plan)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(serr, gridcode.ErrNotHardwareValidated) {
+		t.Fatalf("real-device send = %v, want ErrNotHardwareValidated", serr)
+	}
+	if v := deviceValue(t, s, gridCodeSetting); v != 0 {
+		t.Errorf("device grid code = %d after a refused send, want 0 (nothing sent)", v)
+	}
+
+	// Simulator: the full sequence runs and the device holds the new values.
+	var rep *gridcode.SendReport
+	if err := s.Do(ctxT(t), func(ctx context.Context, c *mk2.Client) error {
+		rep, serr = gridcode.Send(ctx, c, true, plan)
+		return serr
+	}); err != nil {
+		t.Fatalf("simulator send: %v", err)
+	}
+	if rep == nil || len(rep.Done) != len(plan) {
+		t.Fatalf("simulator send report = %+v, want all %d writes done", rep, len(plan))
+	}
+	if v := deviceValue(t, s, gridCodeSetting); v != 17 {
+		t.Errorf("device grid code = %d, want 17", v)
+	}
+	if v := deviceValue(t, s, 150); v != 0x1234 {
+		t.Errorf("device setting 150 = 0x%04X, want 0x1234", v)
 	}
 }
 

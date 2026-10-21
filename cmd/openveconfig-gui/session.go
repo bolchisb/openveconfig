@@ -64,6 +64,9 @@ var newSimulator = func() *simulator.Simulator {
 func demoAssistantUnit() simulator.Device {
 	d := simulator.SystemDevice(simulator.SystemUnit{LongID: 0x10000001})
 	d.Assistants = &simulator.AssistantMemory{Image: simulator.ProgramArea(900), RAM: []uint16{0x0052, 0, 0}}
+	// Grid code and grid words, so the demo can exercise the grid "Send to
+	// device" action (#52); the demo device accepts them without a password.
+	d.Profile.Settings = append(d.Profile.Settings, simulator.GridSettings()...)
 	return d
 }
 
