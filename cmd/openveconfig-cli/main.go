@@ -20,6 +20,7 @@
 //	rvsc-system    put the system layout of a .vms file into a .rvsc/.rvms backup (offline)
 //	apply          write the settings of a dump file to devices (dry run without --yes)
 //	firmware info      check a .vff firmware file and show its parts (offline)
+//	firmware flash     flash a .vff file to a device (simulator only; real device gated off, #38)
 //	system show        find the units of a VE.Bus system and check their records
 //	system write       write a .vms layout to the units (dry run without --yes)
 //	system reset       restart every unit of the system (needs --yes)
@@ -98,6 +99,7 @@ type options struct {
 
 	probe      bool // ports
 	yes, raw   bool // write-setting
+	fwGate     bool // firmware flash: opt in to writing a real device
 	maxSetting uint // dump
 	maxRAM     uint // dump
 	probeArg   uint // assistants probe

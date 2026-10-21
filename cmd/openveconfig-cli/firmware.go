@@ -2,34 +2,59 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	fw "github.com/bolchisb/openveconfig/pkg/firmware"
+	"github.com/bolchisb/openveconfig/pkg/serialport"
 	"github.com/bolchisb/openveconfig/pkg/vff"
 )
 
 var firmwareCmd = &command{
 	name:    "firmware",
-	args:    "info <file.vff>",
-	summary: "check a .vff firmware file and show its parts and metadata (offline)",
+	args:    "info|flash <file.vff>",
+	summary: "check a .vff firmware file (info), or flash it to a device (flash)",
 	help: `firmware info reads a .vff file, checks every record's check byte and every
 part's checksum, and shows the version, the parts, their metadata and the
-number of records. Nothing is flashed and no device is needed. The code and
-EEPROM records are not read beyond their check bytes.
+number of records. Nothing is flashed and no device is needed.
 
-Metadata keys whose meaning is not known are shown as they are. An invalid
-file gives a non-zero exit status.`,
-	timeout: time.Minute,
-	run:     runFirmware,
+firmware flash checks the file against the connected device (firmware family
+and bootblock requirements), then streams it to the device's bootloader,
+printing progress. It needs --simulator or --port.
+
+SAFETY: flashing can brick hardware and is NOT yet validated on real
+hardware (#38). Against --simulator it runs fully. Against a real --port it
+refuses before sending anything, unless you pass
+--i-understand-this-can-brick-my-device; even then it stays behind that flag.`,
+	timeout: 10 * time.Minute,
+	setFlags: func(fs *flag.FlagSet, o *options) {
+		o.register(fs)
+		fs.BoolVar(&o.fwGate, "i-understand-this-can-brick-my-device", false,
+			"allow flashing a REAL device (off by default; #38 is not hardware-validated)")
+	},
+	run: runFirmware,
 }
 
 func runFirmware(ctx context.Context, e *env) error {
-	if len(e.args) == 0 || e.args[0] != "info" {
-		return e.usageError("want a subcommand: info")
+	if len(e.args) == 0 {
+		return e.usageError("want a subcommand: info or flash")
 	}
+	switch e.args[0] {
+	case "info":
+		return runFirmwareInfo(ctx, e)
+	case "flash":
+		return runFirmwareFlash(ctx, e)
+	default:
+		return e.usageError("unknown subcommand %q: want info or flash", e.args[0])
+	}
+}
+
+func runFirmwareInfo(ctx context.Context, e *env) error {
 	if len(e.args) != 2 {
 		return e.usageError("want firmware info <file.vff>")
 	}
@@ -66,4 +91,107 @@ func runFirmware(ctx context.Context, e *env) error {
 		fmt.Fprintf(w, "warning: %s\n", strings.TrimSpace(warn))
 	}
 	return nil
+}
+
+func runFirmwareFlash(ctx context.Context, e *env) error {
+	if len(e.args) != 2 {
+		return e.usageError("want firmware flash <file.vff>")
+	}
+	if err := e.opts.validate(); err != nil {
+		return e.usageError("%v", err)
+	}
+	data, err := os.ReadFile(e.args[1])
+	if err != nil {
+		return err
+	}
+	f, err := vff.Parse(data)
+	if err != nil {
+		return fmt.Errorf("%s: %w", e.args[1], err)
+	}
+	// Safety gate FIRST: refuse a real device without the opt-in before
+	// touching the port, so nothing destructive (or even a connection) is
+	// attempted (#38).
+	if err := fw.CheckHardwareGate(e.opts.simulator, e.opts.fwGate); err != nil {
+		return err
+	}
+
+	w := e.stdout
+	// Pre-flight: read the device's firmware number over the normal MK2
+	// protocol, then check the file against it.
+	target, err := e.readTarget(ctx)
+	if err != nil {
+		return fmt.Errorf("pre-flight: %w", err)
+	}
+	if err := fw.Preflight(f, target); err != nil {
+		return err
+	}
+	fv, _ := f.Version()
+	fmt.Fprintf(w, "pre-flight OK: device firmware %d, file firmware %d\n", target.FirmwareNumber, fv)
+
+	// Reprogram over the bootloader transport (a different framing, so not
+	// the MK2 client).
+	t, err := e.openReprogram()
+	if err != nil {
+		return err
+	}
+	defer t.Close()
+	rp := fw.NewReprogrammer(t, &fw.Options{Progress: func(p fw.Progress) {
+		switch p.Phase {
+		case fw.PhaseEntering:
+			fmt.Fprintln(w, "entering bootloader")
+		case fw.PhaseErasing:
+			fmt.Fprintf(w, "erasing firmware (%d blocks)\n", p.Total)
+		case fw.PhaseProgramming:
+			if e.opts.verbose {
+				fmt.Fprintf(w, "  block %d/%d\n", p.Block, p.Total)
+			}
+		case fw.PhaseDone:
+			fmt.Fprintf(w, "programmed %d blocks\n", p.Total)
+		}
+	}})
+	defer rp.Close()
+	if err := rp.EnterBootloader(ctx); err != nil {
+		return err
+	}
+	if err := rp.Program(ctx, f, target); err != nil {
+		return err
+	}
+	fmt.Fprintln(w, "firmware flashed successfully")
+	return nil
+}
+
+// readTarget reads the connected device's firmware number for pre-flight.
+func (e *env) readTarget(ctx context.Context) (fw.Target, error) {
+	c, err := e.connectDevice(ctx)
+	if err != nil {
+		return fw.Target{}, err
+	}
+	defer c.Close()
+	num, err := c.SoftwareVersion(ctx)
+	if err != nil {
+		return fw.Target{}, fmt.Errorf("read device firmware number: %w", err)
+	}
+	// The bootblock version is read over the bootloader on real hardware; the
+	// MK2 protocol does not expose it, so it is left unknown (-1) and the
+	// bootblock gate is skipped against the simulator.
+	return fw.Target{FirmwareNumber: num, BootblockVersion: -1, BootblockRevision: -1}, nil
+}
+
+// reprogramTransport is the raw serial line the Reprogrammer writes to.
+type reprogramTransport interface {
+	io.ReadWriteCloser
+}
+
+// newReprogramSim returns the --simulator bootloader target. Tests replace
+// it to simulate an interruption or to inspect the written blocks.
+var newReprogramSim = func() reprogramTransport { return fw.NewBootSim(fw.BootConfig{}) }
+
+// openReprogram opens the transport for the reprogram phase: the bootloader
+// fake for --simulator, or the real serial port when the opt-in gate is
+// already passed.
+func (e *env) openReprogram() (reprogramTransport, error) {
+	if e.opts.simulator {
+		return newReprogramSim(), nil
+	}
+	return serialport.Open(e.opts.port)
 }
