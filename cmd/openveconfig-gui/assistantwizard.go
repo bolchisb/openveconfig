@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -232,14 +233,57 @@ func (w *assistantWizard) stepHead(st *wizard.Step) fyne.CanvasObject {
 	return captionText(tr("Step {{.Number}} · {{.Name}}", args{"Number": strconv.Itoa(max(w.n, 1)), "Name": st.Name}), theme.ColorNamePlaceHolder)
 }
 
-// wizardStepText is the package's text of st.
+// wizardStepText is the package's text of st, with the markup it carries
+// worked out: the places filled with the step's values, bold where the
+// package asks for it, and links as links.
 func wizardStepText(st *wizard.Step) fyne.CanvasObject {
-	if strings.TrimSpace(st.Text) == "" {
+	if strings.TrimSpace(wizard.PlainText(st.Text, st.Values)) == "" {
 		return mutedText(tr("The assistant package has no text for this step."))
 	}
-	t := widget.NewLabel(strings.TrimSpace(st.Text))
-	t.Wrapping = fyne.TextWrapWord
-	return t
+	return richAssistantText(st.Text, st.Values)
+}
+
+// assistantMessage is the text an .AER or .AIP step carries in its
+// values: the package's own words, markup and all.
+func assistantMessage(values []asm.Value) string {
+	var parts []string
+	keep := func(s string) {
+		if strings.TrimSpace(s) != "" {
+			parts = append(parts, s)
+		}
+	}
+	for _, v := range values {
+		switch v.K {
+		case asm.List:
+			for _, e := range v.L {
+				if e.K == asm.Str {
+					keep(e.S)
+				}
+			}
+		case asm.Str:
+			keep(v.S)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// richAssistantText shows a package's text with its markup worked out.
+func richAssistantText(text string, values []asm.Value) fyne.CanvasObject {
+	spans := wizard.Spans(text, values)
+	rt := widget.NewRichText()
+	rt.Wrapping = fyne.TextWrapWord
+	for _, s := range spans {
+		if s.Link != "" {
+			if u, err := url.Parse(s.Link); err == nil {
+				rt.Segments = append(rt.Segments, &widget.HyperlinkSegment{Text: s.Text, URL: u})
+				continue
+			}
+		}
+		rt.Segments = append(rt.Segments, &widget.TextSegment{Text: s.Text,
+			Style: widget.RichTextStyle{Inline: true, TextStyle: fyne.TextStyle{Bold: s.Bold}}})
+	}
+	rt.Refresh()
+	return rt
 }
 
 // stepView shows a step: its text and its inputs, by type.
@@ -251,6 +295,16 @@ func (w *assistantWizard) stepView(st *wizard.Step) fyne.CanvasObject {
 	}
 	switch st.Directive {
 	case ".AER":
+		// When the assistant says what is wrong, its own words stand:
+		// what it asks for is often a setting of the unit, not an answer
+		// to go back and change.
+		if msg := assistantMessage(st.Values); msg != "" {
+			box.Add(richAssistantText(msg, nil))
+			box.Add(callout(theme.NewErrorThemedResource(theme.ErrorIcon()),
+				tr("This is the assistant's own message, not a limitation of {{.App}}. Nothing was written.",
+					args{"App": appName})))
+			return box
+		}
 		box.Add(callout(theme.NewErrorThemedResource(theme.ErrorIcon()),
 			tr("The assistant does not accept the answers given so far. Go back and change them.")))
 		return box
@@ -286,10 +340,16 @@ func (w *assistantWizard) stepView(st *wizard.Step) fyne.CanvasObject {
 		if st.Type != 'E' {
 			fi = i - 1
 		}
-		var f *wizard.Format
-		if fi < len(st.Formats) {
-			f = &st.Formats[fi]
+		// Only a label with a format descriptor is a field. The rest are
+		// values the step's text puts in its places, such as the two ends
+		// of a link: they are not asked for, and go back as they came so
+		// that the step still gets one value per label.
+		if fi >= len(st.Formats) {
+			keep := val
+			inputs = append(inputs, func() (asm.Value, bool) { return keep, true })
+			continue
 		}
+		f := &st.Formats[fi]
 		row, get := valueInput(f, val, i, len(st.Labels))
 		box.Add(row)
 		inputs = append(inputs, get)

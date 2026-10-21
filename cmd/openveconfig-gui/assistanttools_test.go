@@ -191,7 +191,7 @@ func TestAssistantErrorReport(t *testing.T) {
 	loadSettingsFile(u, assistantFile(t, helperImage(t, dir)))
 	test.Tap(findButton(t, toolsTab(t, u, pg), "Error report"))
 	text := dialogTexts(waitTop(t, u, "Nothing is sent anywhere"))
-	for _, want := range []string{"Package folder: " + dir, "6 packages; files that cannot be read: 1", "Settings file: backup.rvsc",
+	for _, want := range []string{"Package folder: " + dir, "7 packages; files that cannot be read: 1", "Settings file: backup.rvsc",
 		"0x0190 Test helper/synthetic", "Connection: none"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report lacks %q:\n%s", want, text)

@@ -35,8 +35,12 @@ func ParseText(b []byte) Text {
 	return t
 }
 
-// Section returns the text of a tag ("" if there is none).
-func (t Text) Section(tag string) string { return t[strings.ToLower(tag)] }
+// Section returns the text of a tag ("" if there is none). The sources
+// name a section both bare and with the "#" its line opens with, so a
+// leading one is ignored.
+func (t Text) Section(tag string) string {
+	return t[strings.ToLower(strings.TrimPrefix(strings.TrimSpace(tag), "#"))]
+}
 
 // Format describes one numeric field of a step: a descriptor such as
 // "2B 4800 5600 5000", whose first token is the number of decimals shown

@@ -46,6 +46,21 @@ image, and the summary's **Add to the file** button works.
   read back from the image first, and `ErrTooBig`/`ErrAlreadyThere` are refused before anything is made.
   The GUI's summary puts the assistant into the open file, which the user then saves as usual, and
   `assistantLabels` no longer drops the unit's values — it derives them.
+- **Step text** (`pkg/assistant/wizard/spans.go`, `cmd/openveconfig-gui/assistantwizard.go`): a step's text
+  carries markup that was being printed raw — ESS's welcome step showed `\FS:1\`, `%0:s` and
+  `\IL:http://…\` on screen. `wizard.Spans` resolves it: `%N:s`/`%N:d` are places for the step's label
+  values in the order `.AUE` names them (a label holding a list fills as many places as it has elements),
+  `\FS:n\` switches the font style, and `\IS\`…`\IL:address\` is a link — which is how a package gives one
+  through a single label. A line holding only `_` is blank and a line opens without its leading `.`. The
+  GUI shows the result as rich text. A stray empty input box on such a step is gone too: a label is a
+  field only when it has a format descriptor, and the rest are values for the text's places — they still
+  go back as they came, so the step gets one value per label.
+- **`AssistantText('#Tag')`** (`pkg/assistant/wizard/text.go`): a section may be named with the `#` its
+  line opens with as well as bare, and 58 of the calls in the sources do. We looked up the bare name only,
+  so those calls returned nothing — which is why an assistant's own error text came out empty. An `.AER`
+  step now shows that text instead of only our generic line, so the unit's own explanation reaches the
+  user. **ESS walks to its summary and builds (1155 bytes)** once the unit allows feed-in; with the flag
+  off the assistant refuses, as the original does.
 - **Still open**: of the nineteen, two stop on a precondition of the test unit (feed-in not allowed), two
   need answers a default build does not give, and `Microgrid enabler` reads `cgcVersionNone`, which nothing
   in the sources defines. Replacing an assistant already in a file is not implemented yet, and the Add

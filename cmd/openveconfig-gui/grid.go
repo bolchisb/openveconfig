@@ -231,6 +231,43 @@ func newGridTab(u *ui) *gridTabView {
 	return g
 }
 
+// feedInFlag is the flag that lets the unit feed energy back into the
+// grid. The original shows no control for it: it keeps an invisible
+// checkbox that it sets from the grid code whenever the grid tab is
+// refreshed (reverse-engineered, #52). Assistants read it as
+// _AllowEnableFeedIn_VEC, and the shared prelude of the Victron packages
+// stops an assistant that finds it 0 with "Country/grid code not
+// selected", so a grid code chosen here must bring it along.
+const feedInFlag = 37
+
+// checkWordsFit reports whether the checker words fit the grid code of d:
+// either the ones loaded do, or the grid settings were changed and new
+// ones are stamped when the file is saved (settingsFile.save) or the grid
+// is sent (gridcode.SendPlan).
+func (g *gridTabView) checkWordsFit(d *vebus.Device) bool {
+	return g.checkStatus == "" || len(changedGridSettings(d)) > 0
+}
+
+// applyFeedInFlag sets the feed-in flag of d from its grid code, as the
+// original does: on for a known grid code other than 0 whose checker
+// words fit, off otherwise. A unit without the flag is left alone.
+func (g *gridTabView) applyFeedInFlag(d *vebus.Device) {
+	if d == nil || !d.Supported(vebus.FlagID(feedInFlag)) {
+		return
+	}
+	allow := false
+	if code, err := d.Raw(vebus.SettingID(gridCodeSetting)); err == nil && code != 0 {
+		_, known := gridcode.LookupFor(gridcode.Code(code), g.u.settings.grid, d.Firmware)
+		allow = known && g.checkWordsFit(d)
+	}
+	if v, err := d.Flag(feedInFlag); err == nil && v == allow {
+		return
+	}
+	if err := d.SetFlag(feedInFlag, allow); err != nil {
+		showError(g.u, err)
+	}
+}
+
 // chooseCode makes code the grid code of d, the loaded model.
 func (g *gridTabView) chooseCode(d *vebus.Device, code uint16) {
 	u := g.u
@@ -250,6 +287,7 @@ func (g *gridTabView) chooseCode(d *vebus.Device, code uint16) {
 			showError(u, err)
 		}
 	}
+	g.applyFeedInFlag(d)
 	u.settings.changed()
 	// A code that needs a password asks for one, as in the original,
 	// also for a settings file and a real device; the original also
@@ -270,6 +308,7 @@ func (g *gridTabView) chooseCode(d *vebus.Device, code uint16) {
 			if err := errors.Join(errs...); err != nil {
 				showError(u, err)
 			}
+			g.applyFeedInFlag(d)
 			u.settings.changed()
 		}
 	})
@@ -338,6 +377,10 @@ func (g *gridTabView) load() {
 		}
 	}
 	g.checkStatus = checkWordStatus(d, g.u.settings.file, g.u.settings.grid)
+	// The original keeps the feed-in flag in step with the grid code at
+	// every refresh, so a model loaded with the two out of step (a grid
+	// code chosen by a program that forgot the flag) is put right here.
+	g.applyFeedInFlag(d)
 	has := slices.Contains(g.subTabs.Items, g.paramsItem)
 	switch {
 	case len(g.loaded) == 0 && has:

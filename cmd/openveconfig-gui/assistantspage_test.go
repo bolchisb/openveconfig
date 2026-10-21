@@ -47,6 +47,16 @@ Begin .AID Begin, R, 2, 0
  .AUE Begin, go
  DATA notGivenByAnyone
 `
+	// testLinked's first step has a label but no format: it is the two
+	// ends of a link the text puts in its places, not a field to fill.
+	testLinked = `
+hl .SET []+'\IS\'+'\IL:http://example.invalid/doc\'
+Intro .AID Intro, E
+ .AUE Intro, hl
+Begin .AID Begin, R, 2, 0
+ .AUE Begin, go
+ DATA 7
+`
 	testEarly = `
  DATA 'text' + 1
 Begin .AID Begin, R, 2, 0
@@ -75,6 +85,8 @@ func writePackages(t *testing.T) string {
 	write("Helper_0190.vap", 0x0190, testHelper, "Test helper%2Fsynthetic", "#Battery\r\nWhich battery is it?\r\n#Level\r\nThe level to act at.\r\n")
 	write("Stopper_0200.vap", 0x0200, testStopper, "Stopper", "#Begin\r\nGo on?\r\n")
 	write("Early_0210.vap", 0x0210, testEarly, "Early stop", "")
+	write("Linked_0220.vap", 0x0220, testLinked, "Linked",
+		"#Intro\r\n\\FS:1\\Read\\FS:0\\ the %0:smanual%1:s.\r\n_\r\n.A line.\r\n#Begin\r\nGo on?\r\n")
 	if err := os.WriteFile(filepath.Join(dir, "broken.vap"), []byte("not a package"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -238,10 +250,10 @@ func TestAssistantsPageAvailable(t *testing.T) {
 		}
 	}
 	p := u.assistants.picker
-	if len(p.shown) != 3 || p.selected != 0 || findButton(t, add, "Preview…").Disabled() || !findButton(t, add, "Add").Disabled() {
+	if len(p.shown) != 4 || p.selected != 0 || findButton(t, add, "Preview…").Disabled() || !findButton(t, add, "Add").Disabled() {
 		t.Errorf("%d assistants, %d selected; Preview or Add in the wrong state", len(p.shown), p.selected)
 	}
-	if !strings.Contains(text, "3 assistants") {
+	if !strings.Contains(text, "4 assistants") {
 		t.Errorf("no count:\n%s", text)
 	}
 }
@@ -257,7 +269,7 @@ func TestAssistantPickerSearch(t *testing.T) {
 		if len(p.shown) != 1 || p.shown[0].title != want || p.selected != 0 {
 			t.Errorf("search %q shows %v", q, p.shown)
 		}
-		if !strings.Contains(dialogTexts(add), "1 of 3 assistants") {
+		if !strings.Contains(dialogTexts(add), "1 of 4 assistants") {
 			t.Errorf("search %q: no count", q)
 		}
 	}
@@ -266,7 +278,7 @@ func TestAssistantPickerSearch(t *testing.T) {
 		t.Errorf("no match shows:\n%s", text)
 	}
 	p.search.SetText("")
-	if len(p.shown) != 3 {
+	if len(p.shown) != 4 {
 		t.Errorf("an empty search shows %d", len(p.shown))
 	}
 }
@@ -402,6 +414,33 @@ func TestAssistantWizardStop(t *testing.T) {
 		t.Errorf("Back after the stop shows:\n%s", text)
 	}
 
+}
+
+// TestAssistantStepMarkup: a step's text shows with its markup worked
+// out, and a label with no format descriptor is a value for that text,
+// not a field to fill — the step still goes on.
+func TestAssistantStepMarkup(t *testing.T) {
+	u, pg := assistantsUI(t, writePackages(t))
+	dlg := previewOf(t, u, pg, "Linked")
+	text := dialogTexts(dlg)
+	for _, want := range []string{"Read", "the ", "manual", "A line."} {
+		if !strings.Contains(text, want) {
+			t.Errorf("step text lacks %q:\n%s", want, text)
+		}
+	}
+	for _, not := range []string{`\FS:1\`, `\IS\`, `\IL:`, "%0:s", "%1:s", "_"} {
+		if strings.Contains(text, not) {
+			t.Errorf("step text still shows %q:\n%s", not, text)
+		}
+	}
+	if n := len(findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.Entry); return ok })); n != 0 {
+		t.Errorf("%d input fields on a step that asks nothing", n)
+	}
+	// The label without a field goes back as it came, so Next works.
+	test.Tap(findButton(t, dlg, "Next"))
+	if text := dialogTexts(dlg); !strings.Contains(text, "Go on?") {
+		t.Errorf("Next did not reach the second step:\n%s", text)
+	}
 }
 
 // TestAssistantAddToFile: walking an assistant to its summary and

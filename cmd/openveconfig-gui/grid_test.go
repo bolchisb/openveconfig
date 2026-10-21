@@ -870,3 +870,74 @@ func TestGridCodeAsksPassword(t *testing.T) {
 		t.Errorf("device, second code: code %d, or asked again", c)
 	}
 }
+
+// feedInProfile is gridProfile with the flag word (setting 60) that holds
+// the feed-in flag, so the device supports it.
+func feedInProfile(fw uint32) simulator.Profile {
+	p := gridProfile(fw)
+	p.Settings = append(p.Settings, simulator.Setting{ID: 60, Name: "Flags2", Sc: 1, Max: 0x03FF})
+	return p
+}
+
+// TestGridFeedInFlagFollowsCode checks that the feed-in flag follows the
+// grid code on a device, as the original's invisible checkbox does.
+func TestGridFeedInFlagFollowsCode(t *testing.T) {
+	u := newTestUI(t)
+	s, _ := simSession(t, simulator.Device{Address: 0, Profile: feedInProfile(2699481)})
+	u.sess = s
+	g := newGridTab(u)
+	d, _, err := readSettings(ctxT(t), s, 0, deviceSettingIDs(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.settings.load(d, nil)
+	if !d.Supported(vebus.FlagID(feedInFlag)) {
+		t.Fatal("the test device does not support the feed-in flag")
+	}
+	flag := func() bool {
+		t.Helper()
+		v, err := d.Flag(feedInFlag)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if flag() {
+		t.Error("the feed-in flag is on without a grid code")
+	}
+	selectCode(t, g, 17)
+	if !flag() {
+		t.Error("the feed-in flag stayed off after a grid code was chosen")
+	}
+	selectCode(t, g, 0)
+	if flag() {
+		t.Error("the feed-in flag stayed on after the grid code was cleared")
+	}
+}
+
+// TestGridFeedInFlagOnLoad checks that a file whose grid code and feed-in
+// flag are out of step is put right when it is loaded.
+func TestGridFeedInFlagOnLoad(t *testing.T) {
+	u := newTestUI(t)
+	g := newGridTab(u)
+	spec := rvsctest.FromProfile(feedInProfile(2699481), 192, 0x0A0B0C0D, "ZZ0001TEST")
+	versions := make([]byte, 33)
+	versions[17] = 2
+	spec.InfoTail = gridInfoTail(192, versions)
+	// Grid code 17 with checker words that fit it, but the flag off: what
+	// a program that forgot the flag leaves behind.
+	spec.Units[0].Settings[gridCodeSetting] = 17
+	spec.Units[0].Settings[128], spec.Units[0].Settings[191] = 0x0311, 0x0313
+	spec.Units[0].Settings[60] = 0
+	sf, err := parseSettingsFile("grid.rvsc", spec.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadSettingsFile(u, sf)
+	if g.checkStatus != "" {
+		t.Fatalf("the test file's check words do not fit: %s", g.checkStatus)
+	}
+	if v, err := u.settings.dev.Flag(feedInFlag); err != nil || !v {
+		t.Errorf("feed-in flag = %v, %v after loading; want it turned on", v, err)
+	}
+}
