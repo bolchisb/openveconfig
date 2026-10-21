@@ -121,7 +121,7 @@ type plotLabel struct {
 // Opacity of the tints of the charts.
 const (
 	tintPhase = 0x18 // a phase band of the charge profile
-	tintZone  = 0x80 // a zone of a voltage scale; half opacity keeps the zones apart for colour-blind readers
+	tintZone  = 0xff // a zone of a voltage scale, at full opacity so the bar shows the same colours as the legend swatches; the Okabe-Ito hues then stay distinct for colour-blind readers (at half opacity the red and the reddish-purple band wash close together), and the tick marks separate adjacent zones
 )
 
 // scaleX returns the position of v on a scale from lo to hi.
