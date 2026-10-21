@@ -4,6 +4,10 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 
 ## 2026-10-21
 
+### Hardware testing: hardware/firmware matrix (#3)
+
+- **`docs/HARDWARE-TESTING.md` gains a hardware/firmware matrix** (#3): a maintained table of interface / unit model / firmware / compatibility ID / OS / phase reached / result, with a template row kept as the format example. The release rule, the phase overview and phase 3's preconditions, abort criteria and backup/restore steps were already in the document. The phase-execution checks on real hardware stay open (#3, `needs:hardware-test`).
+
 ### `.rvsc`/`.rvms` writer: carry device-provided fields and a minimal assistant area (#74; GX acceptance stays HW-gated)
 
 - **`pkg/rvsc` writer is now a strict superset** (`build.go`, `unit.go`, #74): `Build`/`encodeSettingInfo`/`encodeSettingData` can carry the device-provided parts a real download has but the MK2 protocol cannot read from a bus, when the caller supplies them; a caller that supplies none gets today's structurally valid defaults, so the backup writer is unchanged. New inputs:
