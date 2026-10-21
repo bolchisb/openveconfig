@@ -2,6 +2,12 @@
 
 What was implemented, newest first. Each entry names its issues and commits. Hardware checks that are still open are listed in [docs/HARDWARE-TESTING.md](../HARDWARE-TESTING.md) and on #3.
 
+## 2026-10-21
+
+### GUI: the grid code asks for the password when it is chosen
+
+- **Grid code choice** (#52): choosing a grid code that needs a password asks for the access password right away, as the original does, also for a settings file and for a real device (before, only the demo asked). Cancel undoes the choice and the defaults it loaded; choosing the same code again or a code that needs none asks nothing. With a device the password is kept for the connection; with a file it is not kept, and a send asks again. Handing passwords to a real device stays off (`accessPasswordsOnHardware`) until the hardware check; the program still never checks a password itself. The note under the choice no longer says the program cannot enter the password. `TestGridCodeAsksPassword`.
+
 ## 2026-10-20
 
 ### GUI: new look

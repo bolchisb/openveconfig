@@ -222,7 +222,7 @@
   "Choose the serial port of the MK2 or MK3 interface, let the program look for it, or choose the demo, which simulates two devices.": "Choose the serial port of the MK2 or MK3 interface, let the program look for it, or choose the demo, which simulates two devices.",
   "Choose…": "Choose…",
   "Close": "Close",
-  "Codes marked \"needs password\" are accepted by the device only after the installer password for grid codes has been entered. This program cannot enter it. A changed grid code can be saved to a settings file, but not sent straight to a device.": "Codes marked \"needs password\" are accepted by the device only after the installer password for grid codes has been entered. This program cannot enter it. A changed grid code can be saved to a settings file, but not sent straight to a device.",
+  "Codes marked \"needs password\" are accepted by the device only after the installer password for grid codes has been entered; it is asked for when such a code is chosen. A changed grid code can be saved to a settings file, but not sent straight to a device.": "Codes marked \"needs password\" are accepted by the device only after the installer password for grid codes has been entered; it is asked for when such a code is chosen. A changed grid code can be saved to a settings file, but not sent straight to a device.",
   "Com port:": "Com port:",
   "Com port…": "Com port…",
   "Communication with the device failed: {{.Err}}": "Communication with the device failed: {{.Err}}",

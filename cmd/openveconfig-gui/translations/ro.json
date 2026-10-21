@@ -223,7 +223,7 @@
   "Choose the serial port of the MK2 or MK3 interface, let the program look for it, or choose the demo, which simulates two devices.": "Alegeți portul serial al interfeței MK2 sau MK3, lăsați programul să îl caute sau alegeți demo-ul, care simulează două dispozitive.",
   "Choose…": "Alegeți…",
   "Close": "Închide",
-  "Codes marked \"needs password\" are accepted by the device only after the installer password for grid codes has been entered. This program cannot enter it. A changed grid code can be saved to a settings file, but not sent straight to a device.": "Codurile marcate „necesită parolă” sunt acceptate de dispozitiv doar după ce a fost introdusă parola de instalator pentru codurile de rețea. Acest program nu o poate introduce. Un cod de rețea modificat poate fi salvat într-un fișier de setări, dar nu poate fi trimis direct către un dispozitiv.",
+  "Codes marked \"needs password\" are accepted by the device only after the installer password for grid codes has been entered; it is asked for when such a code is chosen. A changed grid code can be saved to a settings file, but not sent straight to a device.": "Codurile marcate „necesită parolă” sunt acceptate de dispozitiv doar după ce a fost introdusă parola de instalator pentru codurile de rețea; ea este cerută când se alege un astfel de cod. Un cod de rețea modificat poate fi salvat într-un fișier de setări, dar nu poate fi trimis direct către un dispozitiv.",
   "Com port:": "Port COM:",
   "Com port…": "Port COM…",
   "Communication with the device failed: {{.Err}}": "Comunicarea cu dispozitivul a eșuat: {{.Err}}",
