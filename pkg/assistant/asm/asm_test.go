@@ -353,6 +353,20 @@ func TestExtensions(t *testing.T) {
 	if len(seen) < 2 || seen[0] != "x" {
 		t.Errorf("seen %v", seen)
 	}
+	// A pass that stops never reaches the labels defined after it, so the
+	// unknown ones it leaves behind do not hide the stop; they stay in
+	// Result.Errors, and an error of another kind is still reported.
+	res, err = a.Assemble("t", []byte(" DATA later\n .HALT\nlater .EQU 7\n"))
+	if !errors.Is(err, ErrStop) {
+		t.Errorf("stop with a forward label: %v", err)
+	}
+	if res == nil || len(res.Errors) == 0 {
+		t.Errorf("the unknown label was not kept: %+v", res)
+	}
+	if _, err := a.Assemble("t", []byte(" DATA later\n DATA 'x' + 1\n .HALT\nlater .EQU 7\n")); !errors.Is(err, ErrType) {
+		t.Errorf("stop hid a type error: %v", err)
+	}
+
 	a.Directives[".RESTART"] = func(c *Ctx, lbl string, ops []string) error { return ErrRestart }
 	if _, err := a.Assemble("t", []byte(" .RESTART\n")); !errors.Is(err, ErrRestart) {
 		t.Errorf("restart: %v", err)

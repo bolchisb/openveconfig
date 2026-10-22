@@ -7,11 +7,12 @@ package main
 // The device keeps two checker words (settings 128 and 191) with the grid
 // parameters (gridcode.Stamp). A settings file with a changed grid code or
 // changed grid parameters is saved with newly stamped checker words
-// (settingsFile.save). Sending them straight to a device would need a
-// fixed write order that has not been verified on hardware, so grid
-// changes are never sent to a device (gridWriteCheck). Whether a grid code
+// (settingsFile.save). Grid changes reach a device only through the
+// dedicated grid-send action (#52, sendToDevice), never with the ordinary
+// bulk "Send settings" (gridWriteCheck), because the two check words must be
+// written in a fixed order. Whether a grid code
 // needs a password is up to the device; this program never enters or
-// derives one (docs/CLEAN-ROOM.md, "Access control").
+// derives one (CONTRIBUTING.md, "Access control").
 
 import (
 	"context"
@@ -76,10 +77,10 @@ func changedGridSettings(d *vebus.Device) []uint16 {
 	return ids
 }
 
-// gridWriteCheck refuses to send d to a device when its grid code or grid
-// words were changed (gridcode.CheckDeviceWrite): the checker words would
-// have to be written in a fixed order that has not been verified on
-// hardware.
+// gridWriteCheck refuses to send d's grid code or grid words with the
+// ordinary bulk "Send settings" (gridcode.CheckDeviceWrite): their two check
+// words must be written in a fixed order, so they go through the dedicated
+// grid-send action (sendToDevice) instead.
 func gridWriteCheck(d *vebus.Device) error {
 	ids := changedGridSettings(d)
 	err := gridcode.CheckDeviceWrite(ids)
@@ -90,10 +91,9 @@ func gridWriteCheck(d *vebus.Device) error {
 	for i, id := range ids {
 		list[i] = strconv.Itoa(int(id))
 	}
-	return &uiError{err: err, msg: tr("The grid code or grid parameters were changed (settings {{.Settings}}). They cannot be sent straight to a device yet: "+
-		"the device keeps two check words with them that must be updated in a fixed order, which has not been verified on hardware. "+
-		"Nothing was sent. To apply them, save them in a settings file and apply that file through a GX device (VRM Remote VEConfigure), "+
-		"or undo the grid changes on the Grid page to send the other settings.",
+	return &uiError{err: err, msg: tr("The grid code or grid parameters were changed (settings {{.Settings}}). They are not sent with the other settings: "+
+		"the device keeps two check words with them that must be written in a fixed order, so they are sent with the dedicated \"Send grid settings to device\" action on the Grid page. "+
+		"Nothing was sent. Use that action to send the grid changes, or undo them on the Grid page to send the other settings.",
 		args{"Settings": strings.Join(list, ", ")})}
 }
 
@@ -145,6 +145,9 @@ type gridTabView struct {
 	page       *gridcode.Page // the page the rows show
 	pageCode   int            // the grid code the parameters were built for; -1 none
 	undo       *widget.Button
+	// send sends the changed grid code and grid parameters straight to the
+	// device (#52); shown only for a model read from a device.
+	send *widget.Button
 	// loaded holds the grid words as loaded, to show what changed and to
 	// undo the changes.
 	loaded map[uint16]uint16
@@ -196,6 +199,9 @@ func newGridTab(u *ui) *gridTabView {
 	g.ordinary.build()
 
 	g.undo = widget.NewButton(tr("Undo grid parameter changes"), g.undoChanges)
+	g.send = widget.NewButtonWithIcon(tr("Send grid settings to device"), theme.UploadIcon(), g.sendToDevice)
+	g.send.Importance = widget.HighImportance
+	g.send.Hide()
 	g.params = container.NewStack()
 	g.paramsItem = container.NewTabItem(tr("Grid parameters"), g.params)
 	g.subTabs = container.NewAppTabs(
@@ -225,6 +231,43 @@ func newGridTab(u *ui) *gridTabView {
 	return g
 }
 
+// feedInFlag is the flag that lets the unit feed energy back into the
+// grid. The original shows no control for it: it keeps an invisible
+// checkbox that it sets from the grid code whenever the grid tab is
+// refreshed (reverse-engineered, #52). Assistants read it as
+// _AllowEnableFeedIn_VEC, and the shared prelude of the Victron packages
+// stops an assistant that finds it 0 with "Country/grid code not
+// selected", so a grid code chosen here must bring it along.
+const feedInFlag = 37
+
+// checkWordsFit reports whether the checker words fit the grid code of d:
+// either the ones loaded do, or the grid settings were changed and new
+// ones are stamped when the file is saved (settingsFile.save) or the grid
+// is sent (gridcode.SendPlan).
+func (g *gridTabView) checkWordsFit(d *vebus.Device) bool {
+	return g.checkStatus == "" || len(changedGridSettings(d)) > 0
+}
+
+// applyFeedInFlag sets the feed-in flag of d from its grid code, as the
+// original does: on for a known grid code other than 0 whose checker
+// words fit, off otherwise. A unit without the flag is left alone.
+func (g *gridTabView) applyFeedInFlag(d *vebus.Device) {
+	if d == nil || !d.Supported(vebus.FlagID(feedInFlag)) {
+		return
+	}
+	allow := false
+	if code, err := d.Raw(vebus.SettingID(gridCodeSetting)); err == nil && code != 0 {
+		_, known := gridcode.LookupFor(gridcode.Code(code), g.u.settings.grid, d.Firmware)
+		allow = known && g.checkWordsFit(d)
+	}
+	if v, err := d.Flag(feedInFlag); err == nil && v == allow {
+		return
+	}
+	if err := d.SetFlag(feedInFlag, allow); err != nil {
+		showError(g.u, err)
+	}
+}
+
 // chooseCode makes code the grid code of d, the loaded model.
 func (g *gridTabView) chooseCode(d *vebus.Device, code uint16) {
 	u := g.u
@@ -244,6 +287,7 @@ func (g *gridTabView) chooseCode(d *vebus.Device, code uint16) {
 			showError(u, err)
 		}
 	}
+	g.applyFeedInFlag(d)
 	u.settings.changed()
 	// A code that needs a password asks for one, as in the original,
 	// also for a settings file and a real device; the original also
@@ -264,6 +308,7 @@ func (g *gridTabView) chooseCode(d *vebus.Device, code uint16) {
 			if err := errors.Join(errs...); err != nil {
 				showError(u, err)
 			}
+			g.applyFeedInFlag(d)
 			u.settings.changed()
 		}
 	})
@@ -332,6 +377,10 @@ func (g *gridTabView) load() {
 		}
 	}
 	g.checkStatus = checkWordStatus(d, g.u.settings.file, g.u.settings.grid)
+	// The original keeps the feed-in flag in step with the grid code at
+	// every refresh, so a model loaded with the two out of step (a grid
+	// code chosen by a program that forgot the flag) is put right here.
+	g.applyFeedInFlag(d)
 	has := slices.Contains(g.subTabs.Items, g.paramsItem)
 	switch {
 	case len(g.loaded) == 0 && has:
@@ -391,6 +440,19 @@ func (g *gridTabView) update(rebuild bool) {
 	} else {
 		g.undo.Disable()
 		g.undo.Hide()
+	}
+	// The send button is shown only for a model read from a device, and is
+	// enabled only while the grid code or grid parameters were changed (#52).
+	d := g.u.settings.dev
+	if g.u.sess != nil && d != nil && g.u.settings.file == nil {
+		g.send.Show()
+		if len(changedGridSettings(d)) > 0 {
+			g.send.Enable()
+		} else {
+			g.send.Disable()
+		}
+	} else {
+		g.send.Hide()
 	}
 }
 
@@ -578,7 +640,7 @@ func (g *gridTabView) buildParams(code int) {
 			note(tr("Not supported yet (how they are stored is not known): {{.Names}}", args{"Names": strings.Join(names, "; ")}))
 		}
 	}
-	objs = append(objs, container.NewHBox(g.undo))
+	objs = append(objs, container.NewHBox(g.undo, g.send))
 	g.params.Objects = []fyne.CanvasObject{newForm(objs...)}
 	g.params.Refresh()
 }
@@ -868,6 +930,160 @@ func (g *gridTabView) undoChanges() {
 		}
 	}
 	g.apply(errors.Join(errs...))
+}
+
+// gridSendPlan builds the ordered writes that send the loaded model d to its
+// device (#52): the grid code (81), the changed parameter words (129-190) and
+// the two check words (128, 191) stamped for the next generation
+// (gridcode.SendPlan). The parameter-set version comes from the device's
+// grid-info table (0 when it is not known). The current check words are read
+// from d, which are the device's, since the UI never edits them directly.
+func gridSendPlan(d *vebus.Device, grid gridcode.Model) ([]gridcode.SendWrite, error) {
+	code, err := d.Raw(vebus.SettingID(gridCodeSetting))
+	if err != nil {
+		return nil, err
+	}
+	a, err := d.Raw(vebus.SettingID(firstGridWord))
+	if err != nil {
+		return nil, err
+	}
+	b, err := d.Raw(vebus.SettingID(lastGridWord))
+	if err != nil {
+		return nil, err
+	}
+	var v uint8
+	if grid.Known {
+		if v, err = gridcode.ParamSetVersion(grid.Table, gridcode.Code(code)); err != nil {
+			return nil, err
+		}
+	}
+	params := map[uint16]uint16{}
+	for id := firstGridWord + 1; id < lastGridWord; id++ {
+		sid := vebus.SettingID(id)
+		if d.Supported(sid) && d.Dirty(sid) {
+			raw, err := d.Raw(sid)
+			if err != nil {
+				return nil, err
+			}
+			params[id] = raw
+		}
+	}
+	return gridcode.SendPlan(gridcode.Pair{A: a, B: b}, gridcode.Code(code), v, params)
+}
+
+// sendToDevice sends the changed grid code and grid parameters straight to
+// the device (#52), after a confirmation. This path is separate from the
+// ordinary "Send settings", which never touches the grid settings
+// (gridWriteCheck).
+func (g *gridTabView) sendToDevice() {
+	u := g.u
+	s := u.sess
+	d := u.settings.dev
+	switch {
+	case s == nil:
+		showMessage(u, tr("Send to device"), tr("Connect to a device first."))
+		return
+	case d == nil || u.settings.file != nil:
+		showMessage(u, tr("Send to device"), tr("The grid code and grid parameters can be sent only to the device they were read from. "+
+			"Read a device's settings with \"Get settings\" first."))
+		return
+	}
+	if len(changedGridSettings(d)) == 0 {
+		showMessage(u, tr("Send to device"), tr("The grid code and grid parameters were not changed, so there is nothing to send."))
+		return
+	}
+	plan, err := gridSendPlan(d, u.settings.grid)
+	if err != nil {
+		showError(u, &uiError{err: err, msg: tr("The grid send could not be prepared: {{.Err}}", args{"Err": err})})
+		return
+	}
+	c := newConfirm(u, tr("Send to device"), tr("Send the grid code and the changed grid parameters to the device at address {{.Address}}? "+
+		"The two check words (settings 128 and 191) are updated with them, check word 191 last.", args{"Address": d.Address}),
+		tr("Send"), func() { g.runGridSend(s, d, plan) })
+	c.SetConfirmImportance(widget.HighImportance)
+	showWithKeys(u, c, c.Confirm)
+}
+
+// runGridSend sends plan to d through s, after the access passwords when they
+// are needed, records what reached the device in the model and shows the
+// outcome, including the state the device was left in if the send stopped.
+func (g *gridTabView) runGridSend(s *session, d *vebus.Device, plan []gridcode.SendWrite) {
+	u := g.u
+	send := func() {
+		runWithProgress(u, tr("Sending the grid settings"), func(ctx context.Context, progress func(done, total int)) error {
+			var rep *gridcode.SendReport
+			var serr error
+			var passwords []string
+			if passwordsEnabled(s) {
+				passwords = s.passwords
+			}
+			err := s.Do(ctx, func(ctx context.Context, c *mk2.Client) error {
+				if err := sendAccessPasswords(ctx, c, d.Address, passwords); err != nil {
+					return err
+				}
+				if err := c.SetAddress(ctx, d.Address); err != nil {
+					return err
+				}
+				rep, serr = gridcode.Send(ctx, c, plan)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			done := gridSendDone(rep, serr)
+			fyne.Do(func() {
+				if u.settings.dev == d {
+					for _, w := range done {
+						if err := d.SetRead(vebus.SettingID(w.ID), w.Value); err != nil {
+							showError(u, err)
+						}
+					}
+					u.settings.changed()
+					g.load()
+					g.update(true)
+				}
+				g.showGridSendResult(d, rep, serr)
+			})
+			return nil
+		})
+	}
+	withPasswords(u, s, d, send)
+}
+
+// gridSendDone returns the grid writes that reached the device, from a
+// finished report or from the state of a stopped send (gridcode.SendError).
+func gridSendDone(rep *gridcode.SendReport, serr error) []gridcode.SendWrite {
+	if rep != nil {
+		return rep.Done
+	}
+	var se *gridcode.SendError
+	if errors.As(serr, &se) {
+		return se.Done
+	}
+	return nil
+}
+
+// showGridSendResult shows whether the grid send succeeded or, if it stopped,
+// which grid settings had already reached the device.
+func (g *gridTabView) showGridSendResult(d *vebus.Device, rep *gridcode.SendReport, serr error) {
+	u := g.u
+	done := gridSendDone(rep, serr)
+	if serr == nil {
+		showMessage(u, tr("Send to device"), trn("{{.Count}} grid setting was sent to the device.",
+			"{{.Count}} grid settings were sent to the device.", len(done)))
+		return
+	}
+	if len(done) == 0 {
+		showMessage(u, tr("Send to device"), tr("Nothing was sent: {{.Err}}", args{"Err": serr}))
+		return
+	}
+	list := make([]string, len(done))
+	for i, w := range done {
+		list[i] = strconv.Itoa(int(w.ID))
+	}
+	showMessage(u, tr("Send to device"), tr("The send stopped after {{.Count}} grid settings reached the device (settings {{.Settings}}). "+
+		"Check word 191 was not written, so the device may refuse the grid data until the send is completed. Error: {{.Err}}",
+		args{"Count": strconv.Itoa(len(done)), "Settings": strings.Join(list, ", "), "Err": serr}))
 }
 
 // paramDecimals returns the number of decimals that shows one step of p,

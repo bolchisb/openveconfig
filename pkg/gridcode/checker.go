@@ -238,8 +238,8 @@ func Defaults(table []byte, g Code) (map[uint16]uint16, error) {
 }
 
 // ErrDeviceWrite is returned (wrapped) by CheckDeviceWrite.
-var ErrDeviceWrite = errors.New("gridcode: the grid code and grid parameters cannot be sent straight to a device yet: " +
-	"the device's checker words (settings 128 and 191) must be updated in a fixed order that has not been verified on hardware")
+var ErrDeviceWrite = errors.New("gridcode: the grid code and grid parameters are not sent with the ordinary settings: " +
+	"they carry the device's checker words (settings 128 and 191), which must be written in a fixed order, so they are sent with the dedicated grid-send action")
 
 // CheckDeviceWrite checks the IDs of settings about to be written to a
 // device. It returns an error wrapping ErrDeviceWrite, naming them, if they

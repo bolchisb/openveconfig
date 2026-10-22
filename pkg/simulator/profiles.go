@@ -119,6 +119,31 @@ func Synthetic12V230() Profile {
 	}
 }
 
+// GridSettings returns simulated settings for the grid code (setting 81) and
+// the grid words (settings 128-191), so a device accepts the grid send of
+// #52 (gridcode.SendPlan). All start at 0 with the full 16-bit range; the
+// grid code (81) allows codes 0-32. passwordRequired lists IDs (81 or
+// 128-191) that are given an access level above 0, to model a device that
+// refuses them for want of the installer password: a write to one is refused
+// with "access level required" when Config.AccessPasswords is set and the
+// host has not been granted access (see Config.AccessPasswords). All values
+// are invented; the IDs are from gridcode and §7.3.13.2.
+func GridSettings(passwordRequired ...uint16) []Setting {
+	locked := func(id uint16) byte {
+		for _, p := range passwordRequired {
+			if p == id {
+				return 0xFF
+			}
+		}
+		return 0
+	}
+	ss := []Setting{{ID: 81, Name: "GridCode", Sc: 1, Default: 0, Min: 0, Max: 32, AccessLevel: locked(81)}}
+	for id := uint16(128); id <= 191; id++ {
+		ss = append(ss, Setting{ID: id, Name: "GridWord", Sc: 1, Default: 0, Min: 0, Max: 0xFFFF, AccessLevel: locked(id)})
+	}
+	return ss
+}
+
 // Synthetic48V120 is a made-up 48 V / 120 V 60 Hz inverter/charger
 // inverting from its battery with no mains. All values are invented;
 // setting IDs and names are from §7.3.13.2. It does not describe any real

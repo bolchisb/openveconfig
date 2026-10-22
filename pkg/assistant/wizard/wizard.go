@@ -134,7 +134,11 @@ func (p *Program) assemble(o Options) (*Run, error) {
 	}
 	labels["$AssistantStep"] = asm.IntVal(0)
 	labels["$AssistantDisplayStep"] = asm.IntVal(0)
-	labels["$HandledAUEStep"] = asm.IntVal(0)
+	// $HandledAUEStep names the step whose .AUE was handled: a source
+	// joins it to text to build an expression over that step's label,
+	// so it is a string. Nothing here marks a step handled yet, which
+	// leaves it empty (unknown: how the original sets it).
+	labels["$HandledAUEStep"] = asm.StrVal("")
 	labels["$AssistantBackStepList"] = asm.ListVal()
 	a := &asm.Assembler{
 		Open:   p.Open,
@@ -224,8 +228,9 @@ func (s *assembly) aid(c *asm.Ctx, lbl string, ops []string) error {
 	}
 	s.n++
 	s.defs[st.Key] = st
-	// The step label's value is the step's number (inferred).
-	return c.Define(lbl, asm.IntVal(int64(s.n)))
+	// .AID defines no label of its own: the step's label is given its
+	// value by the .AUE that shows the step (reverse-engineered, #32).
+	return nil
 }
 
 func (s *assembly) int(c *asm.Ctx, expr string) (int64, error) {
@@ -269,15 +274,19 @@ func (s *assembly) input(directive string) asm.Directive {
 			return err
 		}
 		st.Labels = ops[1:]
+		reached := s.defaults(c, st)
 		vals, ok := s.o.Answers[st.Key]
 		if !ok {
-			vals = s.defaults(c, st)
+			vals = reached
 		}
 		st.Values = vals
 		s.run.Steps = append(s.run.Steps, st)
 		if s.waits(st) {
 			s.run.Pending = st
 			return asm.ErrStop
+		}
+		if err := s.defineStep(c, ops[0], reached, vals); err != nil {
+			return err
 		}
 		for i, l := range st.Labels {
 			if i < len(vals) {
@@ -289,6 +298,38 @@ func (s *assembly) input(directive string) asm.Directive {
 		}
 		return nil
 	}
+}
+
+// defineStep gives a step's label the three lists the sources index with
+// @ (reverse-engineered, #32): the values the step held before this pass,
+// the ones it was reached with and the ones it ends with, each a list of
+// one integer per field, counted from 0. A source compares @1 with @2 to
+// see whether the step changed anything, and reads @2 to see where it
+// ended up.
+//
+// The first list should hold what the step held before — the value .ALD
+// read back, or the format's default. Here it is the values the step was
+// reached with, which is the same in every state but a read-back; no
+// shipped source indexes it (they use only @1 and @2).
+func (s *assembly) defineStep(c *asm.Ctx, name string, reached, final []asm.Value) error {
+	// Reassign, not Define: a source may use the step's name for
+	// something else too, as one that registers the function it provides
+	// with AssistantConflictCheck does.
+	return c.Reassign(name, asm.ListVal(fields(reached), fields(reached), fields(final)))
+}
+
+// fields is one of the step label's inner lists: a step's values as
+// integers, which is how the sources read them.
+func fields(vals []asm.Value) asm.Value {
+	l := make([]asm.Value, 0, len(vals))
+	for _, v := range vals {
+		n, err := v.AsInt()
+		if err != nil {
+			n = 0
+		}
+		l = append(l, asm.IntVal(n))
+	}
+	return asm.ListVal(l...)
 }
 
 // defaults returns the values offered at st: Options.Defaults, else each
@@ -372,13 +413,16 @@ func (s *assembly) als(c *asm.Ctx, lbl string, ops []string) error {
 	if lbl == "" || len(ops) != 1 {
 		return fmt.Errorf("%w: label .ALS value", asm.ErrSyntax)
 	}
-	switch strings.ToUpper(ops[0]) {
-	case "D", "N", "P", "X":
+	if alsMode(ops[0]) {
 		return nil
 	}
 	v, _, err := c.Eval(ops[0])
 	if err != nil {
 		return err
+	}
+	// The sources write the mode letter quoted as well as bare.
+	if v.K == asm.Str && alsMode(v.S) {
+		return nil
 	}
 	if v.K != asm.Int {
 		return fmt.Errorf(".ALS value must be an integer or D, N, P, X")
@@ -387,6 +431,16 @@ func (s *assembly) als(c *asm.Ctx, lbl string, ops []string) error {
 		return nil
 	}
 	return c.Define(lbl, v)
+}
+
+// alsMode reports whether v is one of the letters .ALS takes in place of
+// a value to say where the default comes from.
+func alsMode(v string) bool {
+	switch strings.ToUpper(strings.TrimSpace(v)) {
+	case "D", "N", "P", "X":
+		return true
+	}
+	return false
 }
 
 func (s *assembly) text(c *asm.Ctx, ops []string) string {
@@ -409,15 +463,28 @@ func (s *assembly) aerror(c *asm.Ctx, lbl string, ops []string) error {
 }
 
 // funcs are the read-back and text functions (reverse-engineered, #8):
-// RB1/RB2 read a byte/word of the image, RBO the operand of the
+// RB1/RB2/RB3 read a byte, a word or three bytes of the image, low byte
+// first — a package that writes a value as three bytes binds its label
+// with RB3 at the same offset — RBO the operand of the
 // instruction at an offset, RB_<mnemonic> whether the opcode there is
 // that instruction; AssistantText returns a text section, and
 // AssistantLabelValue a value entered at an earlier step.
 func (s *assembly) funcs() map[string]asm.Func {
-	img := func(c *asm.Ctx, args []asm.Value, n int) (int, error) {
-		if s.o.Image == nil {
-			return 0, fmt.Errorf("%w: no image to read back", asm.ErrUnknown)
+	// absent reports that there is no image to read back, so a read gives
+	// zero: that is a fresh build of an assistant the unit does not hold
+	// yet, where the RC… comparisons the sources build on the image are
+	// meant to find nothing. The read-back build itself cannot do without
+	// the image and says so.
+	absent := func() (bool, error) {
+		switch {
+		case s.o.Image != nil:
+			return false, nil
+		case s.o.State == BackReadBuild:
+			return true, fmt.Errorf("%w: no image to read back", asm.ErrUnknown)
 		}
+		return true, nil
+	}
+	img := func(c *asm.Ctx, args []asm.Value, n int) (int, error) {
 		if len(args) != 1 {
 			return 0, fmt.Errorf("%w: one offset", asm.ErrSyntax)
 		}
@@ -432,6 +499,9 @@ func (s *assembly) funcs() map[string]asm.Func {
 	}
 	f := map[string]asm.Func{
 		"RB1": func(c *asm.Ctx, a []asm.Value) (asm.Value, error) {
+			if no, err := absent(); no {
+				return asm.IntVal(0), err
+			}
 			x, err := img(c, a, 1)
 			if err != nil {
 				return asm.Value{}, err
@@ -439,13 +509,30 @@ func (s *assembly) funcs() map[string]asm.Func {
 			return asm.IntVal(int64(s.o.Image[x])), nil
 		},
 		"RB2": func(c *asm.Ctx, a []asm.Value) (asm.Value, error) {
+			if no, err := absent(); no {
+				return asm.IntVal(0), err
+			}
 			x, err := img(c, a, 2)
 			if err != nil {
 				return asm.Value{}, err
 			}
 			return asm.IntVal(int64(binary.LittleEndian.Uint16(s.o.Image[x:]))), nil
 		},
+		"RB3": func(c *asm.Ctx, a []asm.Value) (asm.Value, error) {
+			if no, err := absent(); no {
+				return asm.IntVal(0), err
+			}
+			x, err := img(c, a, 3)
+			if err != nil {
+				return asm.Value{}, err
+			}
+			b := s.o.Image[x:]
+			return asm.IntVal(int64(b[0]) | int64(b[1])<<8 | int64(b[2])<<16), nil
+		},
 		"RBO": func(c *asm.Ctx, a []asm.Value) (asm.Value, error) {
+			if no, err := absent(); no {
+				return asm.IntVal(0), err
+			}
 			x, err := img(c, a, 1)
 			if err != nil {
 				return asm.Value{}, err
@@ -472,6 +559,9 @@ func (s *assembly) funcs() map[string]asm.Func {
 	}
 	for name := range opcodes {
 		f["RB_"+name] = func(c *asm.Ctx, a []asm.Value) (asm.Value, error) {
+			if no, err := absent(); no {
+				return asm.BoolVal(Is(name, 0)), err
+			}
 			x, err := img(c, a, 1)
 			if err != nil {
 				return asm.Value{}, err

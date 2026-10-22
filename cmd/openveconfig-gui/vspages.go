@@ -5,7 +5,7 @@ package main
 // load higher than [8349] W for [-1] seconds", and the LED alarms in a group
 // of their own. The labels, the words between the controls and the alarm
 // choices on these lines are the original tool's on-screen words, kept word for word because installers
-// know them (user decision of 2026-10-20, see docs/CLEAN-ROOM.md); the notes
+// know them (user decision of 2026-10-20, see CONTRIBUTING.md); the notes
 // are this project's own words. Which settings make up a line and when a
 // line is in use are from this project's behavioural spec of the settings
 // tabs (reverse-engineered, #6): a delay of -1 (raw 0) turns its condition

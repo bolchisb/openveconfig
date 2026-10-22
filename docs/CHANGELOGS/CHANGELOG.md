@@ -2,11 +2,189 @@
 
 What was implemented, newest first. Each entry names its issues and commits. Hardware checks that are still open are listed in [docs/HARDWARE-TESTING.md](../HARDWARE-TESTING.md) and on #3.
 
+## 2026-10-22
+
+### The read-back recovers a real assistant's answers (#33 closed, #32)
+
+`RB3` is implemented, the read-back function the sources were using and we were not: a
+package writes a value as three bytes, low byte first, and binds its label with `RB3` at
+the same offset, the macro that writes them and the read-back that recovers them sitting
+together in the source. ESS uses it for the two solar-power values.
+
+With it the answers of a real assistant come back out of a real unit's image exactly as
+they were entered — all nine of the ESS wizard's values — so `TestRealReadBack` passes and
+**Start assistant** shows what the unit actually holds. That was the last thing #33 needed.
+
+Two corrections to the tests that read real files, both of them counting steps wrongly: a
+step with labels but no buttons and no fields — the welcome page, whose label is the two
+ends of a link its text puts in its places — was treated as one that asks for something, so
+it ate the value meant for the next step. The walk and the comparison now count only steps
+that ask, and check that as many asked as there are values. Along the way this showed that
+the hand-written list of ESS answers does belong to this unit after all, which an earlier
+note on #32 had got wrong.
+
+The byte-for-byte comparison of a built image against the unit's is still open (#32): 297
+of 1911 program bytes differ, all of them zero on our side where the unit holds a value,
+in isolated runs of one or two bytes rather than one long one — the instructions line up
+and only some operands do not. Building over the previous image, and a missing `RAMWORD`,
+were both ruled out. `TestRealESS` now reports the differences as runs instead of the first
+sixteen bytes.
+
+### An assistant already in the file can be changed, and the list of what works is measured (#33, #32)
+
+**Changing one.** `assistant.Replace` builds the image with one assistant's answers replaced;
+the others keep theirs, read back from the image first, and the order does not change. It
+refuses with `ErrNotThere`, before building, when the image does not hold the assistant, and
+shares its read-back step with `Add`. The wizard opened with **Start assistant** is given the
+package folder, the language and the assistant's ID, which it never had, so its summary acts
+instead of explaining why it cannot: the dialog's button says **Save in the file** for an
+assistant the file holds and **Add to the file** for a new one, and the note under the summary
+says which it will be. Until now that walk ended in a disabled button.
+
+**What works.** `TestRealPackagesReach` walks every assistant of a package folder with the
+default answer at each step and tries to build the image, so the supported list in the README
+is measured rather than counted by hand. It skips without `ASSISTANT_PACKAGES` and
+`ASSISTANT_RVSC`. Writing it found that the test device was built without the unit's **flags**
+and without its **version-extra bytes**, so every assistant that reads a flag or
+`ConnectionBoardWithPIC` stopped at once — ESS among them. With both filled, as the user
+interface already filled them, 19 of 21 packages reach their first question and 13 build an
+image, where 8 did before.
+
+`TestRealESS` was also feeding the wizard values to the wrong steps: a step with labels but
+no buttons and no fields — the welcome page, whose label is the two ends of a link — ate the
+answer meant for the next one. It now gives one value per label, the fields taking the
+answers in order and the rest going back as they came, and the walk runs to the end. The
+byte-for-byte comparison still fails, for two reasons now written on #32.
+
+### The clean-room rules move into CONTRIBUTING, and the work order is written down (#8)
+
+`docs/CLEAN-ROOM.md` is gone. The rules the code and the documents relied on are now a
+**Clean room** section of [CONTRIBUTING.md](../../CONTRIBUTING.md): the allowed sources, what is
+never committed, how a reverse-engineering finding becomes a spec, **Access control** (only
+values the user supplies, never checked, derived, stored or shipped) and **short on-screen
+labels** (the original's words on the settings, grid, virtual-switch and assistant pages;
+help lines and notes are ours). Every reference was moved with it — the README, the ADR on
+localization, the pull-request template, eight source files and `TestCataloguePolicy` — so no
+link points at a file that is not there. The changelog's older entries keep the old path, being
+a record of what was true then.
+
+That section also records the decision #8 asked for: **assistant packages are never shipped with
+this project**. They reach users through their own VEConfigure installation — the program reads
+`.vap`/`.dvap` at run time from the folder VEConfigure downloads them into, or one the user
+chooses, and can fetch them from Victron's update server into that folder. Nothing out of a
+package is committed, not even as a test fixture; the tests that need one skip without a
+variable pointing at the user's own files.
+
+[docs/WORK-ORDER.md](../WORK-ORDER.md) now holds the order the open issues that need no hardware
+are worked through, with what is actually left on each, checked against the code rather than the
+issue title. #77 (the assistant-transfer spec) and #35 (the System Configurator) were verified
+and closed: both were finished, their issues had simply never been updated.
+
 ## 2026-10-21
+
+### Assistants: the compiler clears the shipped packages, and one can be added to a file (#32)
+
+Before this, no shipped assistant could be opened at all: every one stopped on the first `.IF` of the hidden
+`asfStart`. All nineteen in a VEConfigure package folder now walk to their first step, fourteen build an
+image, and the summary's **Add to the file** button works.
+
+- **Calculator** (`pkg/assistant/asm/calc.go`): an operand of `AND`/`OR`/`XOR` written as a string holds an
+  expression and is calculated (`.IF 'Params=1' or '!DispatchFlagTested'`); the right-hand one is left alone
+  when the left already settles the result, which is why the sources quote it — it may name a label of a
+  branch not taken. `Known('cVEConfigVersion')` calculates its quoted argument instead of always answering
+  true (nearly every call in the sources quotes it, so the check was passing silently). `Err(condition,
+  message)` raises only when the condition holds and is 0 otherwise, so it can be added into an expression.
+  `pos(element, list)` counts from 0 and is -1 when absent, beside the string form that counts from 1.
+  `ins(container, item, index)` takes the container first, as `copy` and `del` do, and works on a list;
+  positions in a list count from 0 in all three. A unary `+` is accepted, which the sources produce when
+  they join expression pieces. A function and a plain label may share a name, and a value no longer takes
+  the function away.
+- **Assembler** (`pkg/assistant/asm/asm.go`, `ctx.go`): `$ParamString` is a macro call's arguments as
+  written, which the macros that defer their work re-assemble themselves with. A pass that stopped — the
+  wizard waiting at a step — no longer reports the labels the unreached rest of the program would have
+  defined; `Result.Errors` still holds them, and an error of any other kind is still reported. New
+  `Ctx.Reassign` sets a label whatever it holds, for a directive that writes its own value into a name the
+  source also used for something else.
+- **Wizard** (`pkg/assistant/wizard`): a format's bounds may be hexadecimal (`0N 0 0x3FFF 10`). `.ALS`
+  takes its mode letter quoted as well as bare. A build with no image to read back reads it as zero rather
+  than failing, so an assistant the unit does not hold yet can be built; the read-back build itself still
+  needs the image. `.AID` defines no label of its own; the step's label is given its value by the `.AUE`
+  that shows the step, as three lists the sources index with `@` — the values the step held, the ones it
+  was reached with and the ones it ends with, one entry per field. `$HandledAUEStep` is a string, which a
+  source joins to text to build an expression over that step's label.
+- **Environment** (`pkg/assistant/varnames.go`, `fromsettings.go`, `env.go`): the 311-entry table of the
+  names the sources use for the unit's RAM variables, flags and settings, with `SettingName`/`FlagName`
+  (entry 0 is a sentinel, 1-38 RAM variables, 39-118 flags, 119-310 settings). A flag's current bit is read
+  as `<name>_VEC`, the suffix a setting's value takes. `Device.FromSettings` works out the values no reply
+  carries — the AC voltage, the DC code, the nominal power, the Winmon ID offset, `cRatedPower` and
+  `cDeviceInfo` — from the settings model, so they are there from a saved file as well as from a unit.
+  `Layout.Users` returns an image's user assistants in program order.
+- **Adding** (`pkg/assistant/add.go`, `cmd/openveconfig-gui/assistantwizard.go`): `assistant.Add` builds the
+  image that holds what a file holds plus one more assistant; the ones already there keep their answers,
+  read back from the image first, and `ErrTooBig`/`ErrAlreadyThere` are refused before anything is made.
+  The GUI's summary puts the assistant into the open file, which the user then saves as usual, and
+  `assistantLabels` no longer drops the unit's values — it derives them.
+- **Step text** (`pkg/assistant/wizard/spans.go`, `cmd/openveconfig-gui/assistantwizard.go`): a step's text
+  carries markup that was being printed raw — ESS's welcome step showed `\FS:1\`, `%0:s` and
+  `\IL:http://…\` on screen. `wizard.Spans` resolves it: `%N:s`/`%N:d` are places for the step's label
+  values in the order `.AUE` names them (a label holding a list fills as many places as it has elements),
+  `\FS:n\` switches the font style, and `\IS\`…`\IL:address\` is a link — which is how a package gives one
+  through a single label. A line holding only `_` is blank and a line opens without its leading `.`. The
+  GUI shows the result as rich text. A stray empty input box on such a step is gone too: a label is a
+  field only when it has a format descriptor, and the rest are values for the text's places — they still
+  go back as they came, so the step gets one value per label.
+- **`AssistantText('#Tag')`** (`pkg/assistant/wizard/text.go`): a section may be named with the `#` its
+  line opens with as well as bare, and 58 of the calls in the sources do. We looked up the bare name only,
+  so those calls returned nothing — which is why an assistant's own error text came out empty. An `.AER`
+  step now shows that text instead of only our generic line, so the unit's own explanation reaches the
+  user. **ESS walks to its summary and builds (1155 bytes)** once the unit allows feed-in; with the flag
+  off the assistant refuses, as the original does.
+- **Still open**: of the nineteen, two stop on a precondition of the test unit (feed-in not allowed), two
+  need answers a default build does not give, and `Microgrid enabler` reads `cgcVersionNone`, which nothing
+  in the sources defines. Replacing an assistant already in a file is not implemented yet, and the Add
+  button of the picker dialog still only previews.
+- **Tests**: `calc_test.go` covers the string operands, the quoted `Known`, `Err(condition, message)`,
+  `pos`/`ins`/`copy`/`del` on lists and the unary `+`; `asm_test.go` that a stopped pass keeps its unknown
+  labels out of the reported error; `wizard_test.go` the hexadecimal bounds and the image-less build;
+  `varnames_test.go` the name table against the two anchors; `fromsettings_test.go` the derived values
+  against the unit the spec records; `add_test.go` that a second assistant goes in after the first and the
+  first keeps its answer; `assistantspage_test.go` `TestAssistantAddToFile` the whole path through the GUI.
+
+### Grid send is enabled for real devices (#52, hardware-validated); firmware flash stays gated (#38)
+
+- **Removed the artificial grid-send gate** (`pkg/gridcode/send.go`, #52): the maintainer validated the dedicated grid send on real hardware, so `CheckSendGate`/`ErrNotHardwareValidated` (which refused a real device up front) are deleted. `Send` loses its `isSimulator` parameter — it is now `Send(ctx, w, plan)` — and runs the plan against any device. The `SendPlan` order (81 → check word A 128 → parameter words 129-190 → check word B 191 last) and the typed `*SendError` (`Done`/`Pending`/`At`) reporting are unchanged, so an interrupted send still reports the exact state the device was left in, and a device that refuses a write (e.g. a missing installer password surfaced through `WriteSetting`) still stops the send and is reported the same way.
+- **Bulk-send exclusion kept, reworded** (`pkg/gridcode/checker.go`, `cmd/openveconfig-gui/grid.go`): `CheckDeviceWrite`/`gridWriteCheck` still keep the grid code and grid words out of the ordinary "Send settings" (their two check words must be written in a fixed order), but `ErrDeviceWrite` and the GUI message no longer say "has not been verified on hardware" — they now say the grid settings are sent with the dedicated "Send grid settings to device" action on the Grid page. The flagged IDs (81 and 128-191) are unchanged.
+- **GUI dedicated send** (`cmd/openveconfig-gui/grid.go`): `sendToDevice` no longer refuses real devices; it proceeds to the existing high-importance confirmation dialog (kept — nothing is written without the user confirming) and `runGridSend` runs the plan and reports the outcome/partial state. Access level / installer password is still enforced by the device itself; no artificial password gate was added and no password is ever bypassed (#2).
+- **No password bypass, firmware flash untouched**: `pkg/firmware`'s hardware gate (`CheckHardwareGate`/`ErrNotHardwareValidated`) is unchanged — firmware flash (#38) stays gated off for real hardware.
+- **Tests**: `send_test.go` real-device refusal becomes device-driven (`TestSendRefusedAtFirstWrite`: a writer that refuses the first write yields a `*SendError` with nothing done); `send_sim_test.go` full-sequence and refusal-point tests pass with the new `Send` signature (the gate-only test was removed); `grid_test.go` `TestGridSendPlanAndGate` is now `TestGridSendPlan` (plan builder plus a full send against the device), and the bulk-send block message assertion follows the reworded text. GUI strings updated in both `translations/en.json` and `ro.json`; the orphaned "not yet validated on hardware" string was removed.
+
+### Hardware testing: hardware/firmware matrix (#3)
+
+- **`docs/HARDWARE-TESTING.md` gains a hardware/firmware matrix** (#3): a maintained table of interface / unit model / firmware / compatibility ID / OS / phase reached / result, with a template row kept as the format example. The release rule, the phase overview and phase 3's preconditions, abort criteria and backup/restore steps were already in the document. The phase-execution checks on real hardware stay open (#3, `needs:hardware-test`).
+
+### `.rvsc`/`.rvms` writer: carry device-provided fields and a minimal assistant area (#74; GX acceptance stays HW-gated)
+
+- **`pkg/rvsc` writer is now a strict superset** (`build.go`, `unit.go`, #74): `Build`/`encodeSettingInfo`/`encodeSettingData` can carry the device-provided parts a real download has but the MK2 protocol cannot read from a bus, when the caller supplies them; a caller that supplies none gets today's structurally valid defaults, so the backup writer is unchanged. New inputs:
+  - **Setting-info** (`SettingInfoTable`): `HeaderByte8` (the header's ninth byte — reverse-engineered #74: not constant, 2 and 0x2f both seen; zero means the old default 2), and `AccessRegion` + `GridTable` appended after the records as `access region | u16 length | grid table` (read back by `GridInfo`). `SettingInfo` now also decodes `HeaderByte8`.
+  - **Per unit** (`BuildUnit`): `VersionExtra` (the six device-version extra bytes; nil means six zero bytes, a non-nil slice must be exactly six long), `ResponseChar`, and the 9-byte `SystemRecord` (its bytes 6/7/8 are phase/assistant-flag/index). Previously all three were zeroed.
+  - **Assistant area**: Build now emits the minimal compact empty area (`assistant.Compact(nil)`, expands to no bytes) instead of a zero-length area, matching that even a bare download carries that container. No assistant code is generated (#56 unchanged).
+- **Tests** (`build_test.go`): round trips (Build → MarshalBinary → Parse) for the new fields, a from-scratch unit with no download (default byte8, no grid table, empty-but-present assistant area, zeroed device fields, identify=1), and rejection of wrong-length version-extra bytes. All data synthetic; no Victron files committed. Existing `pkg/rvsc` tests and the `pkg/firmware` backup round-trip pass unchanged.
+- **Still open (HW-gated)**: whether a real GX `mk2vsc` accepts a generated file, and the correct device-supplied values for byte8, the access region, the grid table, the version-extra bytes and the system record, can only be confirmed on hardware (#3 phase 2; `TODO(#74)` in `build.go`). No GX compatibility is claimed.
+
+### Grid code / grid parameter "send to device" (simulator only; real-device send stays gated)
+
+- **Send-sequence builder and executor** (`pkg/gridcode/send.go`, #52): `SendPlan(old, code, v, params)` builds the ordered list of `SendWrite{ID, Value}` that sends a changed grid code and changed grid parameters while keeping the two check words consistent — setting 81 (grid code), check word A (128) stamped for the next generation (`Stamp`), the changed parameter words (129-190, ascending), then check word B (191) **last**, so an interrupted send leaves A and B on different generations and the device refuses the half-written set. `Send(ctx, w, isSimulator, plan)` runs the plan against a `SettingWriter` (`*mk2.Client`).
+- **Safety gate** (mirrors `pkg/firmware.CheckHardwareGate`): `CheckSendGate(isSimulator)` returns `ErrNotHardwareValidated` ("grid send is not yet validated on hardware (#52/#3)") for a real device; the full sequence runs against the simulator only. There is no opt-in. `Send` refuses a real device before any write, naming the refused grid settings via the existing `CheckDeviceWrite`.
+- **Refusal / interruption reporting**: typed `*SendError` carries `Done` (writes that reached the device, in order), `Pending` (not attempted) and `At` (the write that failed), so a caller can report the exact state the device was left in. A write the device refuses (password-required check word) or a cancelled context stops the send and is surfaced this way.
+- **Simulator extension** (`pkg/simulator/profiles.go`): `GridSettings(passwordRequired...)` returns simulated settings for the grid code (81) and grid words (128-191), with listed IDs given an access level so a device modelled with `AccessPasswords` refuses them ("access level required") — lets tests drive the full sequence and every refusal point. All values invented.
+- **GUI "Send grid settings to device"** (`cmd/openveconfig-gui/grid.go`, `session.go`): a high-importance button on the Grid parameters tab, shown only for a model read from a device and enabled only while the grid code or parameters changed. It builds the plan (`gridSendPlan`), refuses a real device with a clear message (save to a file and apply via a GX device instead), and against the demo runs the full sequence, records what reached the device (`SetRead`) and reports the outcome, including a partial state if the send stopped. The demo device now carries grid settings so the action is exercisable. The ordinary "Send settings" path is unchanged and still never touches the grid settings (`gridWriteCheck`). All new strings go through `tr`/`trn`, added to both `translations/en.json` and `ro.json`.
+- **Tests**: `pkg/gridcode/send_test.go` (plan order, rejections, real-device refusal, partial-state reporting, context cancellation) and `pkg/gridcode/send_sim_test.go` (acceptance criterion 4: the full sequence against the simulator, and a refusal driven at each step — grid code, check word A, a parameter word, check word B — verifying `SendError.Done` and the device's left state). `cmd/openveconfig-gui/grid_test.go` adds `TestGridSendPlanAndGate` (GUI plan builder + real-device gate + simulator run).
+- **Still open (HW-gated)**: acceptance criterion 1 — confirming the write order and the device's password/replies on real hardware (#3) — stays open; the real-device send remains refused until then.
 
 ### GUI: battery voltage chart shows the charge-target steps
 
 - **Battery voltage levels chart** (`cmd/openveconfig-gui/visuals.go`, `theme.go`): the single blue *Normal* zone is split into the charge steps it already marks — blue *Normal* up to the float level, a green *Float* band from float to absorption, and a purple *Absorption* band above it. Zones are clamped into the normal range, so a model without a float or absorption setting (or with out-of-order levels) collapses the empty band back to the plain blue zone. Two new theme tokens, `zoneFloat` (Okabe-Ito bluish green) and `zoneAbsorb` (reddish purple), with light and dark variants; both stay distinguishable from the blue zone and from each other under red-green colour blindness, in keeping with the chart's existing Okabe-Ito palette. Legend reuses the existing *Float*/*Absorption* strings (no new translations). `TestBatteryChart` checks the two new bands' bounds.
+- **Scale zones drawn at full opacity** (`tintZone`): the voltage-scale zones (this chart and the AC input window) were filled at half opacity, so the bar looked washed out next to its full-strength legend swatches. They are now drawn at full opacity, so the bar shows the same colours as the legend and the Okabe-Ito hues stay maximally apart for colour-blind readers (at half opacity the red *off* zone and the reddish-purple *absorption* band washed close together); adjacent zones are separated by the mark tick lines.
 
 ### Firmware: GUI flashing wizard and live-device `.rvsc` auto-backup (simulator/demo only, gated off for real hardware)
 

@@ -58,10 +58,20 @@ type DeviceSetting struct {
 	Value             int64
 }
 
-// DeviceFlag is a flag the unit supports, with its default bit.
+// DeviceFlag is a flag the unit supports, with its default bit and the
+// bit it currently holds.
 type DeviceFlag struct {
 	Name    string // without the "ee" prefix
 	Default bool
+	Value   bool
+}
+
+// bit is a flag's value as the sources read it.
+func bit(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // Labels returns the environment labels for d (spec addendum §8.2, §8.3).
@@ -102,11 +112,11 @@ func Labels(d Device) map[string]asm.Value {
 		if f.Name == "" || strings.Contains(f.Name, "@") {
 			continue
 		}
-		v := int64(0)
-		if f.Default {
-			v = 1
-		}
-		l["ee"+f.Name+"_default"] = asm.IntVal(v)
+		l["ee"+f.Name+"_default"] = asm.IntVal(bit(f.Default))
+		// A flag's current bit is read as <name>_VEC, the same suffix a
+		// setting's value takes (the sources ask AddVECSettingToChange
+		// for _AssistEnabled_VEC and the like).
+		l[f.Name+"_VEC"] = asm.IntVal(bit(f.Value))
 	}
 	for _, s := range d.Settings {
 		if s.Name == "" || strings.Contains(s.Name, "@") {

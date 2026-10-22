@@ -6,7 +6,7 @@ import "github.com/bolchisb/openveconfig/pkg/gridcode"
 // parameters, choices, units and regions) through these tables, so that
 // they are translated. The labels are the original tool's words: the text
 // on screen where it is a whole label, otherwise the name the original
-// shows when the value is edited (see docs/CLEAN-ROOM.md). Names without
+// shows when the value is edited (see CONTRIBUTING.md, short on-screen labels). Names without
 // a counterpart keep this project's wording.
 
 // gridLabels returns the labels of the gridcode names that read the same

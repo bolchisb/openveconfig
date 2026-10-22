@@ -223,6 +223,19 @@ type Layout struct {
 	Free    int
 }
 
+// Users returns the user assistants of the tail, in program order: the
+// tail lists them backwards between asfStop and asfStart.
+func (l *Layout) Users() []uint16 {
+	if len(l.IDs) < 2 {
+		return nil
+	}
+	ids := make([]uint16, 0, len(l.IDs)-2)
+	for i := len(l.IDs) - 2; i >= 1; i-- {
+		ids = append(ids, l.IDs[i])
+	}
+	return ids
+}
+
 // ParseLayout reads the tail and the program length of an image. The
 // tail is the run of words before the checksum up to the free space; the
 // program ends at the last byte before the free space that is not 0xFF

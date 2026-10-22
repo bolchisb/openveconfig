@@ -92,12 +92,29 @@ How these and the other write features are tested on real units, with backups an
 - **Settings pages** (General, Inverter, Charger, Virtual switch, Advanced): get the settings from a device, edit them offline (unsent changes, and settings that need a reset or a password, are marked; the sidebar counts the unsent changes of each page), review, discard, send or save the changes from the bar under the page, send the changed or all settings with a per-setting report, reset all to defaults, find a setting by number or name (Ctrl+F), and open/save `.rvsc` files (Ctrl+O, Ctrl+S). Only the settings the device reports as supported are shown.
 - **Grid page**: the grid code and the AC input limits. The device enforces the installer password for grid codes; the program never enters or bypasses one. Grid code parameters can be viewed and edited. A changed grid code and changed grid parameters are saved to a settings file with newly computed check words (reverse-engineered), to apply through a GX device; sending them straight to a device is disabled until the write order has been verified on hardware.
 - **Overview** page with the connection and live values, and **Tools > VE.Bus monitor** with per-phase values.
-- **Assistants** page: the assistants installed in the open file and, after **Read from unit**, in the unit, named from your assistant packages (otherwise by ID), with the bytes used and free; **Copy into the file** reads the assistants of the file's unit (found by its long ID) into the file, to save as a backup with assistants. A unit keeps its assistants when only settings are sent. **Available assistants** lists the packages in VEConfigure's download folder, or a folder you choose; the packages come from your own VEConfigure installation and are never shipped with this program. **Preview…** walks through an assistant's questions (choices, values with their range and unit, Back and Next, the summary) and writes nothing. Adding, removing and reordering assistants wait until the compiler builds the same code as VEConfigure (#32); for now real assistants stop before their first question, and the preview says so.
+- **Assistants** page: the assistants installed in the open file and, after **Read from unit**, in the unit, named from your assistant packages (otherwise by ID), with the bytes used and free; **Copy into the file** reads the assistants of the file's unit (found by its long ID) into the file, to save as a backup with assistants. A unit keeps its assistants when only settings are sent. **Available assistants** lists the packages in VEConfigure's download folder, or a folder you choose; the packages come from your own VEConfigure installation and are never shipped with this program. **Add** walks through an assistant's questions — its own words on the buttons, each value named by the words around it with its range and unit, Back and Next — and its summary puts the assistant into the open file, which you then save. Replacing an assistant the file already holds, and removing or reordering assistants, are not implemented yet (#33). How far each assistant gets is in [Assistants that work](#assistants-that-work).
 - **Send settings** for a settings file offers **Keep the unit's assistants** (the default) or **Write the file's assistants**. With write, the checks run before anything is sent and the comparison shows both areas; after the settings the area is written, read back and the units restart, and the result lists each step. On real devices reading assistants is not available yet (#77) and writing them is off until the hardware checks pass (#3): the card and the dialog say so and send nothing; the demo does both.
 - **Tools > Remote panel**: on/off/charger only/inverter only, the AC input current limit (where the device lets a panel override it) and the LEDs.
 - **Tools > System Configurator**: find the units of a VE.Bus system, arrange them on a grid of phases and AC inputs (drag and drop, or choose the unit and the cell), set the phases, AC inputs, L2 option and grouping, and see the system check as you go; errors block sending. Send writes and checks every unit, restores the previous configuration if one fails, and asks separately before assistants are removed. Units can be identified (their LEDs flash), renamed (names are kept on this computer) and opened in the main window. Layouts are opened and saved as `.vms` files, and can be put into a copy of a GX backup (`.rvms`) of the same units. The connection dialog offers a demo of three new units.
 - **Tools > Quick Configure**: a wizard that sets up two or three units in parallel, split phase (fixed or with automatic detection), two phases at 120° or 240°, or three phase, by switching the units on one at a time; each new unit is checked against the first, and a mismatch stops the flow before anything is written. It also shows which system existing units form and opens each unit's settings, resets a unit to standalone, and reads a VE.Bus error code from the LEDs (based on Victron's public error-code pages).
 - English and Romanian (**Options > Language**, applied at the next start), and a light and a dark theme that follow the OS or are chosen in **Options > Theme**.
+
+### Assistants that work
+
+An assistant is a small program Victron ships in a package; this project reads your own packages and
+builds the same kind of image from your answers (#32). Of the 21 packages in a current VEConfigure
+folder, 19 reach their first question and 13 walk through to the end and build an image:
+
+| Works through to the end | Stops part-way |
+|---|---|
+| AC Current sensor, charge current control, ESS, Fan control, general flag user, generator start and stop, grid converter support, input current limit control, programmable relay, relay locker, safety switch, VE.Bus BMS | Li-Ion BMS support, Microgrid enabler, Self consumption Hub-4, Self-consumption Hub-2 v2, self consumption HUB-1, self consumption HUB-2 always connected, self consumption HUB-2 v3 |
+
+The ones that stop hit a part of the assembler or of the device environment that is not finished;
+each stops with the line it stopped on rather than writing anything. The table is produced by
+`go test ./pkg/assistant/ -run TestRealPackagesReach -v` with `ASSISTANT_PACKAGES` and
+`ASSISTANT_RVSC` pointing at your own package folder and settings file; it depends on the unit the
+file describes, so your own run is the one that counts. An image built from your answers has not
+yet been shown to match, byte for byte, what VEConfigure writes for the same answers (#32).
 
 ## Building
 
@@ -125,7 +142,7 @@ Signing: the macOS app and CLI are signed with a Developer ID and notarized by A
 
 Suggestions, bug reports and ideas are welcome. Open an [issue](https://github.com/bolchisb/openveconfig/issues) or send a pull request; [CONTRIBUTING.md](CONTRIBUTING.md) explains the setup, the rules and the workflow.
 
-This is a clean-room, interoperability-only project. Before contributing, read the [clean-room and licensing policy](docs/CLEAN-ROOM.md): never paste decompiled code, data extracted from Victron software, firmware or help text into code, issues or pull requests.
+This is a clean-room, interoperability-only project. Before contributing, read the [clean-room rules](CONTRIBUTING.md#clean-room): never paste decompiled code, data extracted from Victron software, firmware or help text into code, issues or pull requests.
 
 To add or improve a GUI translation, follow the rules in [ADR 0001](docs/adr-0001-localization.md).
 

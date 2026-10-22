@@ -205,13 +205,28 @@ func (a *Assembler) Assemble(name string, src []byte) (*Result, error) {
 		a.last = a.code
 	}
 	res := &Result{Code: a.code, Passes: min(a.pass, MaxPasses), Messages: a.msgs, Errors: a.errs, labels: a}
-	switch {
-	case len(a.errs) > 0:
-		return res, a.errs[0]
+	switch bad := firstReportable(a.errs, errors.Is(err, ErrStop)); {
+	case bad != nil:
+		return res, bad
 	case !converged:
 		return res, fmt.Errorf("%s: labels still change after %d passes", name, MaxPasses)
 	}
 	return res, err // nil or ErrStop
+}
+
+// firstReportable returns the error of a pass that the caller should see.
+// A pass that stopped (.STOP, or a step of the wizard waiting for an
+// answer) never reached the rest of the program, so the labels that rest
+// would have defined are expected to be unknown and are not worth
+// reporting; an error of any other kind still is. Result.Errors keeps
+// them all either way.
+func firstReportable(errs []error, stopped bool) error {
+	for _, e := range errs {
+		if !stopped || !errors.Is(e, ErrUnknown) {
+			return e
+		}
+	}
+	return nil
 }
 
 // snapshot records each label's value at the end of the previous pass.
@@ -428,7 +443,7 @@ func (a *Assembler) line(f *frame, l srcLine) error {
 		return b(a, c, ops)
 	}
 	if m := a.macros[key(mnem)]; m != nil {
-		return a.callMacro(c, m, splitOps(ops))
+		return a.callMacro(c, m, ops, splitOps(ops))
 	}
 	return fmt.Errorf("%w: unknown mnemonic %s", ErrSyntax, mnem)
 }
@@ -552,12 +567,30 @@ func (a *Assembler) define(f *frame, name string, v Value, err error, stale, fix
 		return fmt.Errorf("%w: bad label %q", ErrSyntax, name)
 	}
 	l := a.target(f, nil, name)
-	if l.fixed && l.pass == a.pass && l.known && err == nil && !l.v.Equal(v) {
+	// A function and a plain label of the same name do not clash, and a
+	// value does not take the function away: a call is always written
+	// name(…) and a value always bare, so a source can use one name for
+	// both (generator start and stop defines Load(Percentage) and has a
+	// step labelled Load).
+	fn := l.fn
+	if l.fixed && fn == nil && l.pass == a.pass && l.known && err == nil && !l.v.Equal(v) {
 		return fmt.Errorf("label %s already defined", name)
 	}
 	a.set(l, v, err, fixed)
-	l.stale = stale
+	l.fn, l.stale = fn, stale
 	return err
+}
+
+// reassign sets name in f to v whatever it holds; see Ctx.Reassign.
+func (a *Assembler) reassign(f *frame, name string, v Value) error {
+	if name == "" || !isIdentStart(name[0]) {
+		return fmt.Errorf("%w: bad label %q", ErrSyntax, name)
+	}
+	l := a.target(f, nil, name)
+	fn := l.fn
+	a.set(l, v, nil, false)
+	l.fn = fn
+	return nil
 }
 
 // equ handles "name .EQU expr" and "name .SET expr[, width, signed]", and
@@ -687,8 +720,11 @@ func (a *Assembler) defMacro(f *frame, name, ops string) error {
 // callMacro assembles the body of m with its parameters bound: a
 // parameter is the value of its argument, or for s:param the argument's
 // text; Params is the number of arguments (reverse-engineered, #8). A
-// missing argument leaves its parameter unknown.
-func (a *Assembler) callMacro(c *Ctx, m *macro, args []string) error {
+// missing argument leaves its parameter unknown. $ParamString is ops, the
+// arguments as written, which the macros that defer their work use to
+// re-assemble themselves (inferred: every source that reads it does so as
+// .ASSEMBLE '…'+$ParamString).
+func (a *Assembler) callMacro(c *Ctx, m *macro, ops string, args []string) error {
 	if len(args) < m.min {
 		return fmt.Errorf("%w: %d arguments, at least %d expected", ErrSyntax, len(args), m.min)
 	}
@@ -699,6 +735,7 @@ func (a *Assembler) callMacro(c *Ctx, m *macro, args []string) error {
 		l.stale = stale
 	}
 	bind("params", IntVal(int64(len(args))), nil, false)
+	bind("$paramstring", StrVal(ops), nil, false)
 	for i, p := range m.params {
 		switch {
 		case i >= len(args):

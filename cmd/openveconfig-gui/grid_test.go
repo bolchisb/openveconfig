@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"slices"
@@ -122,6 +123,47 @@ func TestGridCodeSelectAndSend(t *testing.T) {
 	}
 }
 
+// TestGridSendPlan checks the grid "Send to device" of #52: the plan builder
+// picks up the changed grid code and parameter words with stamped check
+// words, and Send runs the full sequence so the device holds the new values.
+func TestGridSendPlan(t *testing.T) {
+	_, s, g, d := gridSetup(t, 2699481)
+	selectCode(t, g, 17)
+	if err := d.SetRaw(vebus.SettingID(150), 0x1234); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := gridSendPlan(d, g.u.settings.grid)
+	if err != nil {
+		t.Fatalf("gridSendPlan: %v", err)
+	}
+	if len(plan) < 4 || plan[0].ID != gridCodeSetting || plan[0].Value != 17 ||
+		plan[1].ID != gridcode.CheckerWordA || plan[len(plan)-1].ID != gridcode.CheckerWordB {
+		t.Fatalf("plan order wrong: %+v", plan)
+	}
+	if !slices.ContainsFunc(plan, func(w gridcode.SendWrite) bool { return w.ID == 150 && w.Value == 0x1234 }) {
+		t.Errorf("plan missing the changed param 150: %+v", plan)
+	}
+
+	// The send runs the full sequence and the device holds the new values.
+	var rep *gridcode.SendReport
+	var serr error
+	if err := s.Do(ctxT(t), func(ctx context.Context, c *mk2.Client) error {
+		rep, serr = gridcode.Send(ctx, c, plan)
+		return serr
+	}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if rep == nil || len(rep.Done) != len(plan) {
+		t.Fatalf("send report = %+v, want all %d writes done", rep, len(plan))
+	}
+	if v := deviceValue(t, s, gridCodeSetting); v != 17 {
+		t.Errorf("device grid code = %d, want 17", v)
+	}
+	if v := deviceValue(t, s, 150); v != 0x1234 {
+		t.Errorf("device setting 150 = 0x%04X, want 0x1234", v)
+	}
+}
+
 func TestGridOrdinaryEntries(t *testing.T) {
 	_, _, g, _ := gridSetup(t, 2699481)
 	ids := rowIDs(g.ordinary)
@@ -207,8 +249,8 @@ func TestGridParamEditBlocksSend(t *testing.T) {
 
 	// Sending is refused before anything is written, also the grid code.
 	sendSettings(u)
-	if dlg := u.win.Canvas().Overlays().Top(); dlg == nil || !strings.Contains(labelTexts(dlg), "cannot be sent straight to a device yet") {
-		t.Fatal("no message that grid parameters cannot be sent")
+	if dlg := u.win.Canvas().Overlays().Top(); dlg == nil || !strings.Contains(labelTexts(dlg), "dedicated \"Send grid settings to device\" action") {
+		t.Fatal("no message that grid parameters go through the dedicated grid send")
 	}
 	for _, all := range []bool{false, true} {
 		if rep, err := writeSettings(ctxT(t), s, d, all, nil); rep != nil || err == nil {
@@ -826,5 +868,76 @@ func TestGridCodeAsksPassword(t *testing.T) {
 	selectCode(t, g, 14) // already given for this connection
 	if c := code(); c != 14 || u.win.Canvas().Overlays().Top() != nil {
 		t.Errorf("device, second code: code %d, or asked again", c)
+	}
+}
+
+// feedInProfile is gridProfile with the flag word (setting 60) that holds
+// the feed-in flag, so the device supports it.
+func feedInProfile(fw uint32) simulator.Profile {
+	p := gridProfile(fw)
+	p.Settings = append(p.Settings, simulator.Setting{ID: 60, Name: "Flags2", Sc: 1, Max: 0x03FF})
+	return p
+}
+
+// TestGridFeedInFlagFollowsCode checks that the feed-in flag follows the
+// grid code on a device, as the original's invisible checkbox does.
+func TestGridFeedInFlagFollowsCode(t *testing.T) {
+	u := newTestUI(t)
+	s, _ := simSession(t, simulator.Device{Address: 0, Profile: feedInProfile(2699481)})
+	u.sess = s
+	g := newGridTab(u)
+	d, _, err := readSettings(ctxT(t), s, 0, deviceSettingIDs(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.settings.load(d, nil)
+	if !d.Supported(vebus.FlagID(feedInFlag)) {
+		t.Fatal("the test device does not support the feed-in flag")
+	}
+	flag := func() bool {
+		t.Helper()
+		v, err := d.Flag(feedInFlag)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if flag() {
+		t.Error("the feed-in flag is on without a grid code")
+	}
+	selectCode(t, g, 17)
+	if !flag() {
+		t.Error("the feed-in flag stayed off after a grid code was chosen")
+	}
+	selectCode(t, g, 0)
+	if flag() {
+		t.Error("the feed-in flag stayed on after the grid code was cleared")
+	}
+}
+
+// TestGridFeedInFlagOnLoad checks that a file whose grid code and feed-in
+// flag are out of step is put right when it is loaded.
+func TestGridFeedInFlagOnLoad(t *testing.T) {
+	u := newTestUI(t)
+	g := newGridTab(u)
+	spec := rvsctest.FromProfile(feedInProfile(2699481), 192, 0x0A0B0C0D, "ZZ0001TEST")
+	versions := make([]byte, 33)
+	versions[17] = 2
+	spec.InfoTail = gridInfoTail(192, versions)
+	// Grid code 17 with checker words that fit it, but the flag off: what
+	// a program that forgot the flag leaves behind.
+	spec.Units[0].Settings[gridCodeSetting] = 17
+	spec.Units[0].Settings[128], spec.Units[0].Settings[191] = 0x0311, 0x0313
+	spec.Units[0].Settings[60] = 0
+	sf, err := parseSettingsFile("grid.rvsc", spec.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadSettingsFile(u, sf)
+	if g.checkStatus != "" {
+		t.Fatalf("the test file's check words do not fit: %s", g.checkStatus)
+	}
+	if v, err := u.settings.dev.Flag(feedInFlag); err != nil || !v {
+		t.Errorf("feed-in flag = %v, %v after loading; want it turned on", v, err)
 	}
 }

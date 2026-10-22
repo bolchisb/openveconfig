@@ -27,6 +27,19 @@ Each phase starts only after the previous one has passed.
 
 The checks of phases 1 and 2 are listed on #3. This document describes phase 3 in detail.
 
+## Hardware/firmware matrix
+
+The interface/unit/firmware combinations this project has been tested against. Keep it up to date: add a row
+the first time a combination is used, record which phase it has reached, and link the result in the results
+table at the end of this document. Captures and files made by the original tools stay out of the repository
+(#2); record only their names.
+
+| Interface (version) | Unit model | Firmware | Compatibility ID | OS(es) | Phase reached | Result |
+|---|---|---|---|---|---|---|
+| _MK3-USB (…)_ | _e.g. MultiPlus-II 48/5000/70_ | _e.g. 5xx_ | _…_ | _Windows / macOS / Linux_ | _1 / 2 / 3 / 4_ | _—_ |
+
+(The template row is kept as the format example; real rows are added as hardware is used.)
+
 ## Phase 3: VE.Bus system configuration
 
 Needs at least two units of the same model and firmware (three for a three-phase test), straight RJ45 cables between them, and the interface on one of them. Disconnect GX devices from the VE.Bus during the test, and connect only supported remote panels.

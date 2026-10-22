@@ -48,7 +48,7 @@ func UnitLabel(u *rvsc.Unit) string {
 // standard, loss-of-mains behaviour, feed-in) with a password that installers
 // get from their distributor (#9), and kylehart reports a system that went
 // offline after a file changed only one of those words. This project accepts
-// only credentials the user enters (docs/CLEAN-ROOM.md, "Access control"),
+// only credentials the user enters (CONTRIBUTING.md, "Access control"),
 // and the grid code's encoding is not understood (#9), so these settings are
 // not edited through files by default.
 func GridCodeSetting(id uint16) bool { return id == 81 || id >= 128 && id <= 191 }

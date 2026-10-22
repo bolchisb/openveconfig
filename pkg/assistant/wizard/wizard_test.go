@@ -217,6 +217,13 @@ func TestDirectiveErrors(t *testing.T) {
 	if _, err := p.Assemble(Options{State: BackReadBuild}); !errors.Is(err, asm.ErrUnknown) {
 		t.Errorf("read-back without image: %v", err)
 	}
+	// Building an assistant the unit does not hold yet has nothing to
+	// read back, and the image then reads as zero rather than failing.
+	p = &Program{Main: "t", Source: []byte(" DATA RB1(0), RB2(0)\n")}
+	run, err = p.Assemble(Options{State: Build})
+	if err != nil || !bytes.Equal(run.Code, []byte{0, 0}) {
+		t.Errorf("build without an image: %v %v", run, err)
+	}
 }
 
 func TestEdit(t *testing.T) {
@@ -265,6 +272,13 @@ func TestTextAndFormat(t *testing.T) {
 	}
 	if f, err := ParseFormat("LN 0 3 1 extra"); err != nil || f.Type != "LN" || f.Decimals != 0 || len(f.Extra) != 1 {
 		t.Errorf("%+v %v", f, err)
+	}
+	// The sources write a bound in hexadecimal as well as in decimal.
+	if f, err := ParseFormat("0N 0 0x3FFF 10"); err != nil || f.Max != 0x3FFF || f.Default != 10 {
+		t.Errorf("hexadecimal bound: %+v %v", f, err)
+	}
+	if f, err := ParseFormat("0A -20 0xFFFF 60"); err != nil || f.Min != -20 || f.Max != 0xFFFF {
+		t.Errorf("signed bound: %+v %v", f, err)
 	}
 	if _, err := ParseFormat("0N 1 x 2"); err == nil {
 		t.Error("bad number accepted")

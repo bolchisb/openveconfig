@@ -9,18 +9,23 @@
 // the parameter's bits.
 //
 // Source: every fact here is reverse-engineered (#9, #27), restated in this
-// project's own tables, names and wording (docs/CLEAN-ROOM.md). Some are
+// project's own tables, names and wording (CONTRIBUTING.md). Some are
 // inferences, marked INFERRED. None has been checked against a device yet.
 //
 // The checker words (settings 128 and 191) are computed by Stamp and
-// checked by Pair.Consistent and Pair.CheckShown (checker.go). Writing them
-// straight to a device needs a fixed write order that has not been checked
-// on hardware, so CheckDeviceWrite refuses grid settings for a device;
-// settings files can be stamped and saved.
+// checked by Pair.Consistent and Pair.CheckShown (checker.go). They carry
+// the grid code and must be written in a fixed order, so CheckDeviceWrite
+// keeps grid settings out of the ordinary bulk write; they go through the
+// dedicated send instead, and settings files can be stamped and saved.
+//
+// SendPlan builds the ordered writes of that fixed order (setting 81, check
+// word 128, the parameter words, check word 191 last) and Send runs them
+// against the device (#52). A stopped send reports which writes had already
+// reached the device (SendError).
 //
 // Not known, and therefore not implemented:
 //   - Passwords, unlocking and key codes. They are out of scope; only values
-//     the user supplies may ever be sent (docs/CLEAN-ROOM.md, "Access
+//     the user supplies may ever be sent (CONTRIBUTING.md, "Access
 //     control").
 //   - The encoding of parameters spread over several words, and which page
 //     some grid codes use (PageFor reports those as unknown).
