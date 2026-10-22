@@ -21,8 +21,8 @@ if the repository changed, record on the issue what was verified, and close it.
 | 2 | #35 GUI: System Configurator | Whole scope implemented, seven tests; all acceptance criteria were already met | **done** 2026-10-22 |
 | 3 | #8 RE: Assistants | Specs written; the ESS build matches a real unit byte for byte; the decision on how packages reach users is in CONTRIBUTING | **done** 2026-10-22 |
 | 4 | #48 Roadmap / tracking | Epics ticked (#47, M1, M2, M3) and the working order linked. Stays open: it tracks the whole project | **done** 2026-10-22 |
-| 5 | #32 Assistants: compiler | Supported list measured and in the README, README brought up to date. Left: the byte-identical check, which needs the read-back function `RB3` in the assembler, or the backup `essAnswers` belongs to | |
-| 6 | #33 GUI: Assistants tab | Replacing an assistant in the file is implemented and tested. Left: removing and reordering, and the read-back fidelity that waits on `RB3` (#32) | |
+| 5 | #32 Assistants: compiler | Supported list measured, README up to date, `RB3` implemented. Left: 297 of 1911 program bytes differ from the unit's image, all zero on our side in isolated runs; the next step is mapping a differing offset back to the source line | |
+| 6 | #33 GUI: Assistants tab | Replacing an assistant works, and the read-back recovers a real unit's answers exactly | **done** 2026-10-22 |
 | 7 | #72 pkg/vms on real files | The test is small (follow `RVSC_TESTDATA`). Blocked on sample `.vms` files made with the original tool | |
 | 8 | #9 RE: Grid codes, access levels, passwords | The per-code parameter lists exist in `pkg/gridcode`. The unlock flow and the access-level semantics are thin and partly wait on hardware | |
 | 9 | #12 RE: VFF container and reprogram protocol | The container is done and the reprogram protocol is written up privately. Left: the device/firmware support matrix and the decision on interface self-update | |

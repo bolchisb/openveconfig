@@ -463,7 +463,9 @@ func (s *assembly) aerror(c *asm.Ctx, lbl string, ops []string) error {
 }
 
 // funcs are the read-back and text functions (reverse-engineered, #8):
-// RB1/RB2 read a byte/word of the image, RBO the operand of the
+// RB1/RB2/RB3 read a byte, a word or three bytes of the image, low byte
+// first — a package that writes a value as three bytes binds its label
+// with RB3 at the same offset — RBO the operand of the
 // instruction at an offset, RB_<mnemonic> whether the opcode there is
 // that instruction; AssistantText returns a text section, and
 // AssistantLabelValue a value entered at an earlier step.
@@ -515,6 +517,17 @@ func (s *assembly) funcs() map[string]asm.Func {
 				return asm.Value{}, err
 			}
 			return asm.IntVal(int64(binary.LittleEndian.Uint16(s.o.Image[x:]))), nil
+		},
+		"RB3": func(c *asm.Ctx, a []asm.Value) (asm.Value, error) {
+			if no, err := absent(); no {
+				return asm.IntVal(0), err
+			}
+			x, err := img(c, a, 3)
+			if err != nil {
+				return asm.Value{}, err
+			}
+			b := s.o.Image[x:]
+			return asm.IntVal(int64(b[0]) | int64(b[1])<<8 | int64(b[2])<<16), nil
 		},
 		"RBO": func(c *asm.Ctx, a []asm.Value) (asm.Value, error) {
 			if no, err := absent(); no {

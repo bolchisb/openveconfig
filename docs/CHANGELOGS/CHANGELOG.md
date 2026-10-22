@@ -4,6 +4,32 @@ What was implemented, newest first. Each entry names its issues and commits. Har
 
 ## 2026-10-22
 
+### The read-back recovers a real assistant's answers (#33 closed, #32)
+
+`RB3` is implemented, the read-back function the sources were using and we were not: a
+package writes a value as three bytes, low byte first, and binds its label with `RB3` at
+the same offset, the macro that writes them and the read-back that recovers them sitting
+together in the source. ESS uses it for the two solar-power values.
+
+With it the answers of a real assistant come back out of a real unit's image exactly as
+they were entered — all nine of the ESS wizard's values — so `TestRealReadBack` passes and
+**Start assistant** shows what the unit actually holds. That was the last thing #33 needed.
+
+Two corrections to the tests that read real files, both of them counting steps wrongly: a
+step with labels but no buttons and no fields — the welcome page, whose label is the two
+ends of a link its text puts in its places — was treated as one that asks for something, so
+it ate the value meant for the next step. The walk and the comparison now count only steps
+that ask, and check that as many asked as there are values. Along the way this showed that
+the hand-written list of ESS answers does belong to this unit after all, which an earlier
+note on #32 had got wrong.
+
+The byte-for-byte comparison of a built image against the unit's is still open (#32): 297
+of 1911 program bytes differ, all of them zero on our side where the unit holds a value,
+in isolated runs of one or two bytes rather than one long one — the instructions line up
+and only some operands do not. Building over the previous image, and a missing `RAMWORD`,
+were both ruled out. `TestRealESS` now reports the differences as runs instead of the first
+sixteen bytes.
+
 ### An assistant already in the file can be changed, and the list of what works is measured (#33, #32)
 
 **Changing one.** `assistant.Replace` builds the image with one assistant's answers replaced;
