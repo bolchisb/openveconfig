@@ -230,6 +230,10 @@ func (w *assistantWizard) stepTo(st *wizard.Step, err error) {
 		if w.adds {
 			w.next.SetText(tr("Add to the file"))
 			w.next.SetIcon(theme.ContentAddIcon())
+			if w.inFile() {
+				w.next.SetText(tr("Save in the file"))
+				w.next.SetIcon(theme.DocumentSaveIcon())
+			}
 			w.next.IconPlacement = widget.ButtonIconLeadingText
 		}
 	default:
@@ -667,18 +671,37 @@ func (w *assistantWizard) summaryView() fyne.CanvasObject {
 	// the file is what the walk was for, so it is the dialog's own
 	// button, and Cancel is the way out without it.
 	switch {
-	case w.dir == "": // an assistant of the file: editing it comes later
-		box.Add(callout(theme.InfoIcon(), tr("Nothing was written. Saving the answers of an assistant already in the "+
-			"file comes once {{.App}} can replace one in place.", args{"App": appName})))
+	case w.dir == "":
+		box.Add(callout(theme.InfoIcon(), tr("Nothing was written: the packages this assistant was built from were not found.")))
 		return box
 	case w.u.settings.file == nil:
 		box.Add(callout(theme.InfoIcon(), tr("Nothing was written. Open a settings file to add an assistant to it.")))
 		return box
 	}
 	w.adds = true
+	if w.inFile() {
+		box.Add(callout(theme.InfoIcon(), tr("The answers replace the ones the open file holds for this assistant. "+
+			"The file itself is written when you save it.")))
+		return box
+	}
 	box.Add(callout(theme.InfoIcon(), tr("The assistant is put into the open file. The file itself is written "+
 		"when you save it.")))
 	return box
+}
+
+// inFile reports whether the open file already holds this assistant, so
+// that the summary saves its answers instead of adding it again.
+func (w *assistantWizard) inFile() bool {
+	sf := w.u.settings.file
+	if sf == nil || w.id == 0 {
+		return false
+	}
+	img, err := sf.unit.AssistantImage()
+	if err != nil {
+		return false
+	}
+	l, err := assistant.ParseLayout(img)
+	return err == nil && slices.Contains(l.Users(), w.id)
 }
 
 // addToFile builds the file's assistants with this one after them and
@@ -690,13 +713,18 @@ func (w *assistantWizard) addToFile() {
 		return
 	}
 	answers, dir, lang, id := w.sess.Answers(), w.dir, w.lang, w.id
+	replace := w.inFile()
 	labels := assistantLabels(w.u, dir)
 	runWithProgress(w.u, tr("Adding the assistant"), func(context.Context, func(done, total int)) error {
 		img, err := sf.unit.AssistantImage()
 		if err != nil {
 			return &uiError{err: err, msg: tr("The file's assistants cannot be read: {{.Err}}", args{"Err": err})}
 		}
-		out, err := assistant.Add(dir, lang, img, id, labels, answers)
+		put := assistant.Add
+		if replace {
+			put = assistant.Replace
+		}
+		out, err := put(dir, lang, img, id, labels, answers)
 		if err != nil {
 			return addError(err)
 		}
@@ -704,9 +732,13 @@ func (w *assistantWizard) addToFile() {
 			sf.unit.SetAssistantImage(out.Bytes)
 			w.u.settings.changed()
 			w.dlg.Hide()
-			showMessage(w.u, tr("Assistant added"),
-				tr("{{.Name}} is in the open file, which uses {{.Used}} of {{.Total}} bytes of assistant memory. Save the file to write it.",
-					args{"Name": w.title, "Used": out.Used, "Total": assistant.Budget}))
+			title, text := tr("Assistant added"), tr("{{.Name}} is in the open file, which uses {{.Used}} of {{.Total}} bytes of assistant memory. Save the file to write it.",
+				args{"Name": w.title, "Used": out.Used, "Total": assistant.Budget})
+			if replace {
+				title, text = tr("Assistant saved"), tr("The answers of {{.Name}} in the open file were replaced; it uses {{.Used}} of {{.Total}} bytes of assistant memory. Save the file to write it.",
+					args{"Name": w.title, "Used": out.Used, "Total": assistant.Budget})
+			}
+			showMessage(w.u, title, text)
 		})
 		return nil
 	})
@@ -719,6 +751,8 @@ func addError(err error) error {
 		return &uiError{err: err, msg: tr("The assistants do not fit in the unit's assistant memory. Nothing was changed.")}
 	case errors.Is(err, assistant.ErrAlreadyThere):
 		return &uiError{err: err, msg: tr("This assistant is already in the file. Nothing was changed.")}
+	case errors.Is(err, assistant.ErrNotThere):
+		return &uiError{err: err, msg: tr("This assistant is no longer in the file. Nothing was changed.")}
 	}
 	return &uiError{err: err, msg: tr("The assistant cannot be built yet: {{.Err}}. Nothing was changed.", args{"Err": err})}
 }

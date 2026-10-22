@@ -9,7 +9,7 @@
 // the parameter's bits.
 //
 // Source: every fact here is reverse-engineered (#9, #27), restated in this
-// project's own tables, names and wording (docs/CLEAN-ROOM.md). Some are
+// project's own tables, names and wording (CONTRIBUTING.md). Some are
 // inferences, marked INFERRED. None has been checked against a device yet.
 //
 // The checker words (settings 128 and 191) are computed by Stamp and
@@ -25,7 +25,7 @@
 //
 // Not known, and therefore not implemented:
 //   - Passwords, unlocking and key codes. They are out of scope; only values
-//     the user supplies may ever be sent (docs/CLEAN-ROOM.md, "Access
+//     the user supplies may ever be sent (CONTRIBUTING.md, "Access
 //     control").
 //   - The encoding of parameters spread over several words, and which page
 //     some grid codes use (PageFor reports those as unknown).

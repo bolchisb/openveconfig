@@ -5,7 +5,7 @@ package main
 // password, which the program hands it before writing
 // (mk2.Client.SendAccessPassword, reverse-engineered, #9). The original
 // tool also checks the password itself when it is entered; this program
-// does not (docs/CLEAN-ROOM.md, Access control): it never checks, derives,
+// does not (CONTRIBUTING.md, Access control): it never checks, derives,
 // keeps or saves a password. The passwords live in the session and are
 // gone when it closes. That the device itself refuses a wrong password is
 // inferred from the original's replies and not yet checked on hardware

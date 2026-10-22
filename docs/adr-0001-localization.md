@@ -6,7 +6,7 @@
 
 ## Context
 
-`openveconfig-gui` must be translatable from the start (#30): every UI string goes through one mechanism, English ships first, contributors add languages, the user picks the language in the settings with the OS locale as the default, and numbers are formatted per locale. Translations are written by contributors; Victron's catalogs must never be copied (see [CLEAN-ROOM.md](CLEAN-ROOM.md)).
+`openveconfig-gui` must be translatable from the start (#30): every UI string goes through one mechanism, English ships first, contributors add languages, the user picks the language in the settings with the OS locale as the default, and numbers are formatted per locale. Translations are written by contributors; Victron's catalogs must never be copied (see [the clean-room rules](../CONTRIBUTING.md#clean-room)).
 
 Two options were considered: Fyne's built-in `fyne.io/fyne/v2/lang`, or a gettext-style catalog.
 

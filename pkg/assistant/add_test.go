@@ -128,3 +128,59 @@ func mustLayout(t *testing.T, img []byte) *Layout {
 	}
 	return l
 }
+
+// TestReplace changes the answers of one assistant of an image: the
+// others keep theirs and the order does not change.
+func TestReplace(t *testing.T) {
+	dir := addFolder(t)
+	labels := map[string]asm.Value{"big": asm.BoolVal(false)}
+	bare, err := Load(dir, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare.Labels = labels
+	empty, err := bare.Build(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := Add(dir, "en", empty.Bytes, 0x0190, labels,
+		wizard.Answers{{Source: "User", Step: "level"}: {asm.IntVal(0x1234)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := Add(dir, "en", one.Bytes, 0x0191, labels,
+		wizard.Answers{{Source: "Other", Step: "mark"}: {asm.IntVal(0x5A)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	back, err := Replace(dir, "en", two.Bytes, 0x0190, labels,
+		wizard.Answers{{Source: "User", Step: "level"}: {asm.IntVal(0x4321)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := mustLayout(t, back.Bytes).Users()
+	if len(got) != 2 || got[0] != 0x0190 || got[1] != 0x0191 {
+		t.Fatalf("after the replace the image holds %v", got)
+	}
+	c, err := Load(dir, "en", got...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Labels = labels
+	read, _, err := c.ReadBack(back.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := read[wizard.Key{Source: "User", Step: "level"}]; len(v) != 1 || v[0].I != 0x4321 {
+		t.Errorf("the replaced answer is %v, want 0x4321", v)
+	}
+	if v := read[wizard.Key{Source: "Other", Step: "mark"}]; len(v) != 1 || v[0].I != 0x5A {
+		t.Errorf("the other assistant lost its answer: %v", v)
+	}
+
+	// One the image does not hold is refused, and nothing is built.
+	if _, err := Replace(dir, "en", one.Bytes, 0x0191, labels, nil); !errors.Is(err, ErrNotThere) {
+		t.Errorf("replacing one that is not there: %v", err)
+	}
+}

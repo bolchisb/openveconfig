@@ -8,7 +8,7 @@
 
 ## Checklist
 
-- [ ] Contains no Victron-extracted content: no decompiled code, extracted data, firmware, help text or translations ([clean-room policy](https://github.com/bolchisb/openveconfig/blob/main/docs/CLEAN-ROOM.md))
+- [ ] Contains no Victron-extracted content: no decompiled code, extracted data, firmware, help text or translations ([clean-room rules](https://github.com/bolchisb/openveconfig/blob/main/CONTRIBUTING.md#clean-room))
 - [ ] Code adapted from third-party projects is MIT-compatible, attributed at the reuse site and listed in `THIRD_PARTY_NOTICES.md`
 - [ ] No local filesystem paths
 - [ ] Protocol and format facts say where they come from (public document, community, our hardware, reverse-engineered, ours)

@@ -12,7 +12,7 @@ package main
 // bulk "Send settings" (gridWriteCheck), because the two check words must be
 // written in a fixed order. Whether a grid code
 // needs a password is up to the device; this program never enters or
-// derives one (docs/CLEAN-ROOM.md, "Access control").
+// derives one (CONTRIBUTING.md, "Access control").
 
 import (
 	"context"

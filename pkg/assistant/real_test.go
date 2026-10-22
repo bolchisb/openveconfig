@@ -54,6 +54,11 @@ func essDevice(t *testing.T, dir string, f *rvsc.File, u *rvsc.Unit) assistant.D
 			"cRatedPower": asm.IntVal(10000),
 		},
 	}
+	// The bytes after the version in the firmware-version reply, which the
+	// file keeps: they give ConnectionBoardWithPIC, which some assistants
+	// read. The chosen cVLLVersion and cVLLSystem above still win, being
+	// in Extra.
+	d.VersionExtra = u.VersionExtra
 	var err error
 	if d.PackageVersion, d.DownloadedBy, err = vap.ReadIndex(dir); err != nil {
 		t.Logf("package index: %v", err)
@@ -72,6 +77,24 @@ func essDevice(t *testing.T, dir string, f *rvsc.File, u *rvsc.Unit) assistant.D
 			ID: id, Name: name, Scale: int64(si.Sc), Offset: int64(si.Offset),
 			Default: int64(si.Default), Min: int64(si.Min), Max: int64(si.Max), Value: int64(raw),
 		})
+	}
+	// The flags, which the sources read as <name>_VEC just as a setting's
+	// value is read: flag n is bit n%16 of the words below, which is how
+	// the user interface fills them from a loaded model.
+	flagWords := [4]int{0, 1, 60, 61}
+	for n := range assistant.FlagCount {
+		name, ok := assistant.FlagName(n)
+		if !ok {
+			continue
+		}
+		w := flagWords[n/16]
+		raw, err := u.Setting(w)
+		if err != nil || w >= len(info.Settings) {
+			continue
+		}
+		bit := uint(n % 16)
+		d.Flags = append(d.Flags, assistant.DeviceFlag{Name: name,
+			Default: info.Settings[w].Default>>bit&1 == 1, Value: raw>>bit&1 == 1})
 	}
 	return d
 }
@@ -165,15 +188,32 @@ func TestRealESS(t *testing.T) {
 	next := 0
 	for err == nil && st != nil {
 		t.Logf("step %s %s type %c, %d labels, offered %v", st.Name, st.Directive, st.Type, len(st.Labels), st.Values)
-		var vals []asm.Value
-		if len(st.Labels) > 0 {
+		// A step asks for something when it has buttons or fields; one
+		// with labels but neither — the welcome page, whose label is the
+		// two ends of a link its text puts in its places — takes none of
+		// the wizard values. A step still wants one value per label, so
+		// the labels that are not asked for go back as they came.
+		var ans []int64
+		if st.Type != 'E' || len(st.Formats) > 0 {
 			if next == len(essAnswers) {
 				t.Fatalf("more input steps than the wizard values")
 			}
-			for _, v := range essAnswers[next] {
-				vals = append(vals, asm.IntVal(v))
+			ans, next = essAnswers[next], next+1
+		}
+		vals := make([]asm.Value, len(st.Labels))
+		k := 0
+		for i := range st.Labels {
+			fi := i
+			if st.Type != 'E' {
+				fi = i - 1
 			}
-			next++
+			if (st.Type != 'E' && i == 0 || fi >= 0 && fi < len(st.Formats)) && k < len(ans) {
+				vals[i], k = asm.IntVal(ans[k]), k+1
+				continue
+			}
+			if i < len(st.Values) {
+				vals[i] = st.Values[i]
+			}
 		}
 		st, err = s.Next(vals)
 	}

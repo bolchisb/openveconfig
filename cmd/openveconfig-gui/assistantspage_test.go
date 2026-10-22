@@ -14,7 +14,9 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/bolchisb/openveconfig/pkg/assistant"
+	"github.com/bolchisb/openveconfig/pkg/assistant/asm"
 	"github.com/bolchisb/openveconfig/pkg/assistant/vap"
+	"github.com/bolchisb/openveconfig/pkg/assistant/wizard"
 	"github.com/bolchisb/openveconfig/pkg/simulator"
 )
 
@@ -376,12 +378,14 @@ func TestAssistantWizard(t *testing.T) {
 	want("Step 4 · Confirm")
 	radio().SetSelected("Choice 2")
 	test.Tap(next)
-	want("Summary", "Battery", "Choice 3", "Level", "50.50 V", "is put into the open file")
+	// The file of this test already holds this assistant, so the walk ends
+	// in a save of its answers rather than in adding it a second time.
+	want("Summary", "Battery", "Choice 3", "Level", "50.50 V", "replace the ones the open file holds")
 	if strings.Contains(dialogTexts(dlg), "Confirm") {
 		t.Error("an unlisted step is in the summary")
 	}
-	if findButton(t, dlg, "Add to the file").Disabled() {
-		t.Error("Add to the file is disabled with a file open")
+	if findButton(t, dlg, "Save in the file").Disabled() {
+		t.Error("Save in the file is disabled with a file open")
 	}
 	test.Tap(back)
 	want("Step 4 · Confirm")
@@ -500,15 +504,26 @@ func TestAssistantAddToFile(t *testing.T) {
 		return len(u.assistants.installed) == 1 && u.assistants.installed[0] == 0x0190
 	})
 
-	// The same one again is refused and the file is left as it is.
+	// Walking the same one again saves over the answers it already has,
+	// rather than adding a second copy: the summary says so and the
+	// dialog's button says Save in the file (#33).
 	before, _ := sf.unit.AssistantImage()
-	test.Tap(findButton(t, toSummary(), "Add to the file"))
-	waitFor(t, "the refusal", func() bool {
+	dlg := toSummary()
+	if text := dialogTexts(dlg); !strings.Contains(text, "replace the ones the open file holds") {
+		t.Fatalf("walking one the file holds: %s", text)
+	}
+	test.Tap(findButton(t, dlg, "Save in the file"))
+	waitFor(t, "the answers to be saved", func() bool {
 		top := u.win.Canvas().Overlays().Top()
-		return top != nil && strings.Contains(dialogTexts(top), "already in the file")
+		return top != nil && strings.Contains(dialogTexts(top), "Assistant saved")
 	})
-	if got, _ := sf.unit.AssistantImage(); !bytes.Equal(got, before) {
-		t.Error("the refused add changed the file")
+	after, _ := sf.unit.AssistantImage()
+	l, err := assistant.ParseLayout(after)
+	if err != nil || len(l.Users()) != 1 {
+		t.Fatalf("after saving the file holds %v (%v)", l.Users(), err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Error("saving the same answers changed the image")
 	}
 }
 
@@ -648,5 +663,79 @@ func TestWizardFieldLabels(t *testing.T) {
 	}
 	if a, b := entries[0].(*numberEntry).Text, entries[1].(*numberEntry).Text; a != "48.00" || b != "50.00" {
 		t.Errorf("fields hold %q and %q, want the defaults 48.00 and 50.00", a, b)
+	}
+}
+
+// TestAssistantSaveInFile: Start assistant on one the file already holds
+// offers Save in the file, and saving replaces its answers in place —
+// the assistant stays, and the file keeps only one of it.
+func TestAssistantSaveInFile(t *testing.T) {
+	dir := writePackages(t)
+	u, pg := assistantsUI(t, dir)
+	bare, err := assistant.Load(dir, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := bare.Build(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := assistant.Add(dir, "en", empty.Bytes, 0x0190, nil,
+		wizard.Answers{{Source: "Helper", Step: "battery"}: {asm.IntVal(1)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sf := assistantFile(t, one.Bytes)
+	loadSettingsFile(u, sf)
+	if len(u.assistants.installed) != 1 {
+		t.Fatalf("the file holds %v", u.assistants.installed)
+	}
+
+	// Start assistant walks it with the file's values.
+	u.assistants.list.Select(0)
+	test.Tap(findButton(t, pg.view, "Start assistant"))
+	var dlg fyne.CanvasObject
+	waitFor(t, "the assistant", func() bool {
+		dlg = u.win.Canvas().Overlays().Top()
+		return dlg != nil && strings.Contains(dialogTexts(dlg), "Step 1")
+	})
+	next := findButton(t, dlg, "Next")
+	radio := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.RadioGroup); return ok })[0].(*widget.RadioGroup)
+	radio.SetSelected("Choice 3")
+	test.Tap(next) // step 1
+	test.Tap(next) // step 2, no input
+	test.Tap(next) // step 3, its default
+	test.Tap(next) // step 4, the confirmation
+	if text := dialogTexts(dlg); !strings.Contains(text, "Summary") || !strings.Contains(text, "replace the ones the open file holds") {
+		t.Fatalf("the summary of an assistant of the file: %s", text)
+	}
+
+	test.Tap(findButton(t, dlg, "Save in the file"))
+	waitFor(t, "the answers to be saved", func() bool {
+		top := u.win.Canvas().Overlays().Top()
+		return top != nil && strings.Contains(dialogTexts(top), "Assistant saved")
+	})
+	img, err := sf.unit.AssistantImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := assistant.ParseLayout(img)
+	if err != nil || len(l.Users()) != 1 || l.Users()[0] != 0x0190 {
+		t.Fatalf("after saving the file holds %v (%v)", l.Users(), err)
+	}
+	if bytes.Equal(img, one.Bytes) {
+		t.Fatal("saving did not change the file")
+	}
+	// The file holds what replacing the answer builds: the third button
+	// where it held the second. (The synthetic package gives its buttons
+	// no read-back label, so the answer cannot be read back out of the
+	// image; the image itself is the check.)
+	want, err := assistant.Replace(dir, "en", one.Bytes, 0x0190, assistantLabels(u, dir),
+		wizard.Answers{{Source: "Helper", Step: "battery"}: {asm.IntVal(2)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(img, want.Bytes) {
+		t.Error("the saved image is not the one the new answer builds")
 	}
 }

@@ -2,8 +2,30 @@
 
 Thank you for helping. This project writes to inverter/chargers that people depend on, and it reimplements tools that are not open source. So two rules come before everything else:
 
-1. **Clean room.** Never put decompiled code, data or text extracted from Victron software, firmware, or Victron's help text into code, comments, issues, pull requests or commit messages. Read the [clean-room and licensing policy](docs/CLEAN-ROOM.md) before your first contribution.
+1. **Clean room.** Never put decompiled code, data or text extracted from Victron software, firmware, or Victron's help text into code, comments, issues, pull requests or commit messages. Read [Clean room](#clean-room) below before your first contribution.
 2. **Hardware safety.** Do not test write or flash features on equipment that others depend on. Follow the [hardware test plan](docs/HARDWARE-TESTING.md): read-only first, a backup before any write, and stop when an abort criterion is met.
+
+## Clean room
+
+This repository is public and holds an independent, interoperability-only implementation of the PC side of Victron's VE.Bus configuration tools. It never redistributes Victron's code, data or other copyrighted material. The rules apply to everything here: code, comments, documentation, test fixtures, issues, pull requests and commit messages.
+
+**Allowed sources.** Victron's public documents (cite the document and section); observations of our own hardware, for example serial traffic captured with this project's own tool; MIT-compatible community code, with attribution; public community findings, cited by URL and marked community-reported where Victron has not confirmed them.
+
+**Never committed**, in whole or in part:
+
+- decompiled or disassembled code from Victron software, or code transcribed from it;
+- data tables, payloads, images, icons, help text, strings or translations extracted from Victron binaries, including demo device descriptors and setting or variable tables;
+- Victron firmware files (`.vff`, `.vfd`) and Victron assistant packages, or excerpts of them;
+- private reverse-engineering notes, tool output, decompiler projects or screenshots of decompiled code;
+- local filesystem paths of contributors' machines.
+
+Reverse-engineering findings become behavioural specs in our own words before anyone implements them, each statement marked with its source, and that work stays out of this repository. Test fixtures and simulator profiles are synthetic or come from our own captures of our own hardware.
+
+**Access control.** Password, access-level and key-code features accept only values the user supplies. The project never checks, derives, stores, brute-forces or ships such values. Where the original tool checks a password itself, this one leaves that to the device.
+
+**Short on-screen labels.** Settings, grid, virtual-switch and assistant pages use the original tool's short on-screen words, kept as they are because installers know them (decided 2026-10-20). Help lines, notes and anything longer are this project's own wording, and a label with no counterpart in the original is ours.
+
+**Assistant packages.** Assistant definitions are Victron content and are never shipped with this project, in any form. They reach users through their own VEConfigure installation: the program reads `.vap`/`.dvap` packages at run time from the folder VEConfigure downloads them into, or from a folder the user chooses, and can fetch them from Victron's update server into that folder on the user's behalf. Nothing taken from a package — no source, no help text, no compiled output — is committed, including as a test fixture; the tests that need one skip unless the user points a variable at their own files. (#8)
 
 ## Setup
 

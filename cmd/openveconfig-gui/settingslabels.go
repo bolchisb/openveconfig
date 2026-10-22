@@ -2,7 +2,7 @@ package main
 
 // Labels and presentation of the catalogue entries on the settings tabs.
 // The labels are the original tool's words: the text on screen, or the name
-// it shows when the value is edited (see docs/CLEAN-ROOM.md); the help lines
+// it shows when the value is edited (see CONTRIBUTING.md); the help lines
 // are this project's own. Facts (which flag is shown inverted, which flags
 // are a choice of two, the units the values are shown in) are from this
 // project's behavioural spec of the settings tabs (reverse-engineered, #6),
@@ -518,7 +518,7 @@ func choiceLabels() map[uint16]map[uint16]string {
 // usageLabels returns the labels of the virtual switch usages (setting 15)
 // while the usage is inverted (flag 26) or not. They are the texts the
 // original tool shows, which states what the switch does in each case
-// (reverse-engineered, #6; see docs/CLEAN-ROOM.md for the labels).
+// (reverse-engineered, #6; see CONTRIBUTING.md for the labels).
 func usageLabels(inverted bool) map[uint16]string {
 	if inverted {
 		return map[uint16]string{

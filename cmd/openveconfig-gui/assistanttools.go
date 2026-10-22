@@ -5,7 +5,7 @@ package main
 // (not available), Repair assistant installation, Manage private
 // assistants and Error report; and the package folder, which the original
 // does not show. The button and check box labels are the original's words
-// (docs/CLEAN-ROOM.md, short on-screen labels). Downloads come from
+// (CONTRIBUTING.md, short on-screen labels). Downloads come from
 // Victron's update server (pkg/assistant/update).
 
 import (

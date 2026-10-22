@@ -5,7 +5,7 @@ package main
 // Setup (the file's assistants in program order, the bytes they use and
 // the buttons that act on one) and the card of the unit's assistants
 // (assistants.go), and the tab Assistant Tools (assistanttools.go). The
-// tab, group and button labels are the original's words (docs/CLEAN-ROOM.md,
+// tab, group and button labels are the original's words (CONTRIBUTING.md,
 // short on-screen labels). Nothing on this page writes assistants into a
 // file or a unit: adding, deleting, moving, saving and loading wait until
 // the compiler (#32) builds the same code as VEConfigure. Start assistant
@@ -405,7 +405,8 @@ func (ap *assistantsPage) openSelected(summary bool) {
 		sess.Edit = name
 		st, err := sess.Start()
 		fyne.Do(func() {
-			w := &assistantWizard{u: ap.u, title: title, sess: sess, n: 1, readErr: rerr}
+			w := &assistantWizard{u: ap.u, title: title, sess: sess, n: 1,
+				dir: s.dir, lang: lang, id: ids[i], readErr: rerr}
 			w.show(st, err)
 		})
 		return nil

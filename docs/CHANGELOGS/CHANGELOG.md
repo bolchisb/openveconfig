@@ -2,6 +2,58 @@
 
 What was implemented, newest first. Each entry names its issues and commits. Hardware checks that are still open are listed in [docs/HARDWARE-TESTING.md](../HARDWARE-TESTING.md) and on #3.
 
+## 2026-10-22
+
+### An assistant already in the file can be changed, and the list of what works is measured (#33, #32)
+
+**Changing one.** `assistant.Replace` builds the image with one assistant's answers replaced;
+the others keep theirs, read back from the image first, and the order does not change. It
+refuses with `ErrNotThere`, before building, when the image does not hold the assistant, and
+shares its read-back step with `Add`. The wizard opened with **Start assistant** is given the
+package folder, the language and the assistant's ID, which it never had, so its summary acts
+instead of explaining why it cannot: the dialog's button says **Save in the file** for an
+assistant the file holds and **Add to the file** for a new one, and the note under the summary
+says which it will be. Until now that walk ended in a disabled button.
+
+**What works.** `TestRealPackagesReach` walks every assistant of a package folder with the
+default answer at each step and tries to build the image, so the supported list in the README
+is measured rather than counted by hand. It skips without `ASSISTANT_PACKAGES` and
+`ASSISTANT_RVSC`. Writing it found that the test device was built without the unit's **flags**
+and without its **version-extra bytes**, so every assistant that reads a flag or
+`ConnectionBoardWithPIC` stopped at once — ESS among them. With both filled, as the user
+interface already filled them, 19 of 21 packages reach their first question and 13 build an
+image, where 8 did before.
+
+`TestRealESS` was also feeding the wizard values to the wrong steps: a step with labels but
+no buttons and no fields — the welcome page, whose label is the two ends of a link — ate the
+answer meant for the next one. It now gives one value per label, the fields taking the
+answers in order and the rest going back as they came, and the walk runs to the end. The
+byte-for-byte comparison still fails, for two reasons now written on #32.
+
+### The clean-room rules move into CONTRIBUTING, and the work order is written down (#8)
+
+`docs/CLEAN-ROOM.md` is gone. The rules the code and the documents relied on are now a
+**Clean room** section of [CONTRIBUTING.md](../../CONTRIBUTING.md): the allowed sources, what is
+never committed, how a reverse-engineering finding becomes a spec, **Access control** (only
+values the user supplies, never checked, derived, stored or shipped) and **short on-screen
+labels** (the original's words on the settings, grid, virtual-switch and assistant pages;
+help lines and notes are ours). Every reference was moved with it — the README, the ADR on
+localization, the pull-request template, eight source files and `TestCataloguePolicy` — so no
+link points at a file that is not there. The changelog's older entries keep the old path, being
+a record of what was true then.
+
+That section also records the decision #8 asked for: **assistant packages are never shipped with
+this project**. They reach users through their own VEConfigure installation — the program reads
+`.vap`/`.dvap` at run time from the folder VEConfigure downloads them into, or one the user
+chooses, and can fetch them from Victron's update server into that folder. Nothing out of a
+package is committed, not even as a test fixture; the tests that need one skip without a
+variable pointing at the user's own files.
+
+[docs/WORK-ORDER.md](../WORK-ORDER.md) now holds the order the open issues that need no hardware
+are worked through, with what is actually left on each, checked against the code rather than the
+issue title. #77 (the assistant-transfer spec) and #35 (the System Configurator) were verified
+and closed: both were finished, their issues had simply never been updated.
+
 ## 2026-10-21
 
 ### Assistants: the compiler clears the shipped packages, and one can be added to a file (#32)

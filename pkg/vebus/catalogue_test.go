@@ -55,7 +55,7 @@ func TestFlagLocation(t *testing.T) {
 	}
 }
 
-// TestCataloguePolicy checks the catalogue against docs/CLEAN-ROOM.md: every
+// TestCataloguePolicy checks the catalogue against CONTRIBUTING.md: every
 // entry cites an allowed source, and no name carries an identifier style of
 // the original tools' binaries.
 func TestCataloguePolicy(t *testing.T) {
