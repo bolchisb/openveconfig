@@ -2,8 +2,8 @@ package main
 
 // The dialog Add assistant of the Assistants page: the assistants of the
 // package folder in a list that a search narrows, one selected at a time,
-// with Preview as its action. Adding to the file stays off until the
-// compiler (#32) builds the same code as VEConfigure.
+// with Add as its action: the walk through its questions ends in a
+// summary that puts it into the open file.
 
 import (
 	"strings"
@@ -27,8 +27,8 @@ type assistantPicker struct {
 	body     *fyne.Container // the list, or why there is nothing in it
 	shown    []availableAssistant
 	selected int // index in shown; -1 for none
-	preview  *widget.Button
 	add      *widget.Button
+	note     *widget.RichText
 	dlg      *dialog.CustomDialog
 }
 
@@ -40,7 +40,7 @@ func (ap *assistantsPage) showAdd() {
 	p.search.SetPlaceHolder(tr("Search by name or ID"))
 	p.search.ActionItem = widget.NewIcon(theme.SearchIcon())
 	p.search.OnChanged = func(string) { p.refresh() }
-	p.search.OnSubmitted = func(string) { p.previewSelected() }
+	p.search.OnSubmitted = func(string) { p.openSelected() }
 	p.count = captionText("", theme.ColorNamePlaceHolder)
 
 	p.list = widget.NewList(func() int { return len(p.shown) },
@@ -65,17 +65,15 @@ func (ap *assistantsPage) showAdd() {
 	p.list.OnUnselected = func(widget.ListItemID) { p.selected = -1; p.updateButtons() }
 	p.body = container.NewStack()
 
-	p.preview = widget.NewButtonWithIcon(tr("Preview…"), theme.MediaPlayIcon(), p.previewSelected)
-	p.preview.Importance = widget.HighImportance
-	p.add = widget.NewButtonWithIcon(tr("Add"), theme.ContentAddIcon(), p.previewSelected)
+	p.add = widget.NewButtonWithIcon(tr("Add"), theme.ContentAddIcon(), p.openSelected)
+	p.add.Importance = widget.HighImportance
 	closeButton := widget.NewButton(tr("Close"), func() { p.dlg.Hide() })
-	note := mutedText(tr("Add walks through the assistant's questions and its summary puts it into the open "+
-		"file, which you then save as usual. Preview is the same walk with nothing to put it into."))
+	p.note = mutedText("")
 
 	frame := container.NewStack(newThemeRect(colorNamePage, theme.ColorNameSeparator, -1, fyne.NewSize(560, 340)), p.body)
-	content := container.NewBorder(container.NewVBox(p.search, p.count), note, nil, nil, frame)
+	content := container.NewBorder(container.NewVBox(p.search, p.count), p.note, nil, nil, frame)
 	p.dlg = dialog.NewCustomWithoutButtons(tr("Add assistant"), content, ap.u.win)
-	p.dlg.SetButtons([]fyne.CanvasObject{closeButton, p.preview, p.add})
+	p.dlg.SetButtons([]fyne.CanvasObject{closeButton, p.add})
 	p.dlg.SetOnClosed(func() {
 		if ap.picker == p {
 			ap.picker = nil
@@ -166,25 +164,36 @@ func (p *assistantPicker) refresh() {
 	p.updateButtons()
 }
 
+// updateButtons shows whether Add can run, and says under the list what
+// it still wants: an assistant to be chosen, or a file to put it into.
 func (p *assistantPicker) updateButtons() {
-	chosen := p.selected >= 0 && p.selected < len(p.shown)
-	if chosen {
-		p.preview.Enable()
-	} else {
-		p.preview.Disable()
+	note := tr("Add walks through the assistant's questions and its summary puts it into the open " +
+		"file, which you then save as usual.")
+	switch {
+	case p.ap.u.settings.file == nil:
+		note = tr("Open a settings file first: an assistant is added to a file, which you then save as usual.")
+	case p.selected < 0 || p.selected >= len(p.shown):
+		note = tr("Choose an assistant to add. Its questions are walked through, and its summary puts it " +
+			"into the open file, which you then save as usual.")
 	}
-	// Add needs a file to put the assistant into.
-	if chosen && p.ap.u.settings.file != nil {
+	setMutedText(p.note, note)
+	if p.canAdd() {
 		p.add.Enable()
 	} else {
 		p.add.Disable()
 	}
 }
 
-// previewSelected opens the preview of the selected assistant over the
-// dialog, which stays open under it.
-func (p *assistantPicker) previewSelected() {
-	if p.selected < 0 || p.selected >= len(p.shown) || p.ap.scan == nil {
+// canAdd reports whether an assistant is chosen and there is a file to
+// put it into.
+func (p *assistantPicker) canAdd() bool {
+	return p.selected >= 0 && p.selected < len(p.shown) && p.ap.u.settings.file != nil
+}
+
+// openSelected walks through the chosen assistant over the dialog, which
+// stays open under it; its summary puts the assistant into the file.
+func (p *assistantPicker) openSelected() {
+	if !p.canAdd() || p.ap.scan == nil {
 		return
 	}
 	previewAssistant(p.ap.u, p.ap.scan.dir, p.shown[p.selected])

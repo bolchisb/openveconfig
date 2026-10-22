@@ -21,7 +21,12 @@ import (
 //     package names a link through a label, as ESS does with
 //     hlManual = ['\IS\', '\IL:http://…\'].
 //
-// Anything else is left as written.
+// One pair of backslashes can carry several marks separated by commas
+// (\FS:0,IN:10\, \DXI:10,TI,DX:10\). The shipped packages write the
+// marks above and a dozen more that place and colour the text: IN, DY,
+// X, Y, DX, DXI, FC, FN, FH, SP, I, TI, FI and ABT. Those are dropped
+// rather than shown, since this program lays a step out its own way.
+// A pair whose contents do not read as marks is left as written.
 
 // Span is a run of a step's text with the styling its package asks for.
 type Span struct {
@@ -32,7 +37,11 @@ type Span struct {
 
 var (
 	placeRe = regexp.MustCompile(`%(\d+):[sd]`)
-	markRe  = regexp.MustCompile(`\\(FS:\d+|IS|IL:[^\\]*)\\`)
+	// A mark is a name, or a name and a value that runs to the next
+	// comma or backslash; a pair of backslashes carries one or more of
+	// them, separated by commas.
+	mark   = `[A-Za-z]+(?::[^,\\]*)?`
+	markRe = regexp.MustCompile(`\\(` + mark + `(?:,` + mark + `)*)\\`)
 )
 
 // Spans returns the runs to show for a step's text, with the values of
@@ -50,16 +59,18 @@ func Spans(text string, values []asm.Value) []Span {
 	for _, m := range markRe.FindAllStringSubmatchIndex(s, -1) {
 		add(s[from:m[0]])
 		from = m[1]
-		switch mark := s[m[2]:m[3]]; {
-		case mark == "IS":
-			// The address is only known at the closing mark, so the runs
-			// between the two are marked when it arrives.
-			link = openLink
-		case strings.HasPrefix(mark, "IL:"):
-			closeLink(spans, mark[len("IL:"):])
-			link = ""
-		default: // FS:n
-			bold = mark == "FS:1"
+		for _, mark := range strings.Split(s[m[2]:m[3]], ",") {
+			switch {
+			case mark == "IS":
+				// The address is only known at the closing mark, so the
+				// runs between the two are marked when it arrives.
+				link = openLink
+			case strings.HasPrefix(mark, "IL:"):
+				closeLink(spans, mark[len("IL:"):])
+				link = ""
+			case strings.HasPrefix(mark, "FS:"):
+				bold = mark == "FS:1"
+			}
 		}
 	}
 	add(s[from:])
@@ -135,4 +146,39 @@ func PlainText(text string, values []asm.Value) string {
 		b.WriteString(s.Text)
 	}
 	return b.String()
+}
+
+// Choices splits the text of a step with buttons into the part before its
+// choices and one text per choice: a line opening with "." opens a
+// choice, and the lines after it belong to it, so a choice can carry an
+// explanation of its own. A line opening with ";" is the author's comment
+// and is dropped here as it is in a step's text.
+//
+// Inferred (#33) from the shipped packages and checked against their
+// steps: the text of a step with n buttons holds exactly n such lines,
+// in button order. When it holds another number the text is left whole
+// and no choice is returned, so a package written otherwise still shows
+// as it is written.
+func Choices(text string, n int) (body string, choices []string) {
+	var head []string
+	var items [][]string
+	for _, l := range strings.Split(text, "\n") {
+		switch {
+		case strings.HasPrefix(l, ";"):
+		case strings.HasPrefix(l, "."):
+			items = append(items, []string{l[1:]})
+		case len(items) > 0:
+			items[len(items)-1] = append(items[len(items)-1], l)
+		default:
+			head = append(head, l)
+		}
+	}
+	if n <= 0 || len(items) != n {
+		return text, nil
+	}
+	choices = make([]string, n)
+	for i, it := range items {
+		choices[i] = strings.TrimRight(strings.Join(it, "\n"), "\n")
+	}
+	return strings.TrimRight(strings.Join(head, "\n"), "\n"), choices
 }

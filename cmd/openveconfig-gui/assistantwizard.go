@@ -123,8 +123,8 @@ type assistantWizard struct {
 	id   uint16
 	lang string
 	sess *wizard.Session // nil when the assistant could not be loaded
-	dlg   dialog.Dialog
-	body  *fyne.Container
+	dlg  dialog.Dialog
+	body *fyne.Container
 	// n is the number of the step shown, from 1.
 	n                  int
 	back, next, cancel *widget.Button
@@ -150,7 +150,7 @@ func (w *assistantWizard) show(st *wizard.Step, err error) {
 	w.next.Importance = widget.HighImportance
 	w.next.IconPlacement = widget.ButtonIconTrailingText
 	scroll := container.NewVScroll(w.body)
-	scroll.SetMinSize(fyne.NewSize(520, 320))
+	scroll.SetMinSize(fyne.NewSize(780, 620))
 	d := dialog.NewCustomWithoutButtons(w.title, scroll, w.u.win)
 	d.SetButtons([]fyne.CanvasObject{w.cancel, w.back, w.next})
 	w.dlg = d
@@ -224,23 +224,85 @@ func (w *assistantWizard) stepTo(st *wizard.Step, err error) {
 			w.next.Disable()
 		}
 	}
-	w.body.Objects = []fyne.CanvasObject{view}
+	w.body.Objects = []fyne.CanvasObject{container.New(layout.NewCustomPaddedLayout(8, 8, 12, 12), view)}
 	w.body.Refresh()
 }
 
 // stepHead is the number of the step and the step's own name.
-func (w *assistantWizard) stepHead(st *wizard.Step) fyne.CanvasObject {
-	return captionText(tr("Step {{.Number}} · {{.Name}}", args{"Number": strconv.Itoa(max(w.n, 1)), "Name": st.Name}), theme.ColorNamePlaceHolder)
+// title is the heading the package gives the step; "" when its section
+// is missing, and then the step's own name stands in beside the number.
+func (w *assistantWizard) stepHead(st *wizard.Step, title string) fyne.CanvasObject {
+	n := strconv.Itoa(max(w.n, 1))
+	if title == "" {
+		return captionText(tr("Step {{.Number}} · {{.Name}}", args{"Number": n, "Name": st.Name}), theme.ColorNamePlaceHolder)
+	}
+	return container.New(layout.NewCustomPaddedVBoxLayout(0),
+		captionText(tr("Step {{.Number}}", args{"Number": n}), theme.ColorNamePlaceHolder), cardTitle(title))
 }
 
-// wizardStepText is the package's text of st, with the markup it carries
+// textValues are the values the step's text puts in its %N:s places:
+// the labels that are neither the choice nor a field, such as the ends
+// of a link. The places are numbered over those alone, so a step that
+// asks for values must not offer them its numbers (#33).
+func textValues(st *wizard.Step) []asm.Value {
+	k := len(st.Formats)
+	if st.Type != 'E' {
+		k++
+	}
+	if k >= len(st.Values) {
+		return nil
+	}
+	return st.Values[k:]
+}
+
+// wizardStepText is a package's step text, with the markup it carries
 // worked out: the places filled with the step's values, bold where the
 // package asks for it, and links as links.
-func wizardStepText(st *wizard.Step) fyne.CanvasObject {
-	if strings.TrimSpace(wizard.PlainText(st.Text, st.Values)) == "" {
+func wizardStepText(text string, values []asm.Value) fyne.CanvasObject {
+	if strings.TrimSpace(wizard.PlainText(text, values)) == "" {
 		return mutedText(tr("The assistant package has no text for this step."))
 	}
-	return richAssistantText(st.Text, st.Values)
+	return richAssistantText(text, values)
+}
+
+// wizardChoiceLabels returns what the buttons of st say: the first line of each
+// of the package's choices (wizard.Choices), plain. It falls back to
+// numbers when the package does not give one per button, or gives one
+// that is empty or says the same as another, since the list tells them
+// apart by their text.
+func wizardChoiceLabels(st *wizard.Step, choices []string) []string {
+	labels := make([]string, st.Buttons)
+	for i := range labels {
+		labels[i] = tr("Choice {{.Number}}", args{"Number": strconv.Itoa(i + 1)})
+	}
+	if len(choices) != st.Buttons {
+		return labels
+	}
+	named := make([]string, st.Buttons)
+	for i, c := range choices {
+		first, _, _ := strings.Cut(c, "\n")
+		named[i] = strings.TrimSpace(wizard.PlainText(first, nil))
+		if named[i] == "" || slices.Contains(named[:i], named[i]) {
+			return labels
+		}
+	}
+	return named
+}
+
+// wizardChoiceNotes returns the lines a package writes under a choice to
+// explain it, which the buttons themselves have no room for, each under
+// the label of the choice it belongs to.
+func wizardChoiceNotes(labels, choices []string) []fyne.CanvasObject {
+	var out []fyne.CanvasObject
+	for i, c := range choices {
+		_, rest, found := strings.Cut(c, "\n")
+		if !found || strings.TrimSpace(wizard.PlainText(rest, nil)) == "" {
+			continue
+		}
+		out = append(out, mutedText(tr("{{.Choice}}: {{.Note}}",
+			args{"Choice": labels[i], "Note": strings.TrimSpace(wizard.PlainText(rest, nil))})))
+	}
+	return out
 }
 
 // assistantMessage is the text an .AER or .AIP step carries in its
@@ -288,7 +350,28 @@ func richAssistantText(text string, values []asm.Value) fyne.CanvasObject {
 
 // stepView shows a step: its text and its inputs, by type.
 func (w *assistantWizard) stepView(st *wizard.Step) fyne.CanvasObject {
-	box := container.NewVBox(w.stepHead(st), wizardStepText(st))
+	// A step keeps what it asks for in its own text: a step with buttons
+	// one dotted line per button, a step with values one dotted block
+	// whose places name the fields. Both are taken out of the text, so
+	// what is left of it reads as prose and nothing is said twice.
+	vals := textValues(st)
+	text, choices := st.Text, []string(nil)
+	var entry []wizard.EntryLine
+	if st.Type == 'E' {
+		// Only a step that has fields writes places for them: in one
+		// that has none the dotted line is prose like the rest, and the
+		// text stays whole so its paragraphs keep their blank lines.
+		if len(st.Formats) > 0 {
+			text, entry = wizard.Entry(st.Text)
+		}
+	} else {
+		text, choices = wizard.Choices(st.Text, st.Buttons)
+	}
+	title, text := wizard.Title(text, vals)
+	box := container.NewVBox(w.stepHead(st, title))
+	if title == "" || strings.TrimSpace(wizard.PlainText(text, vals)) != "" {
+		box.Add(wizardStepText(text, vals))
+	}
 	if w.readErr != nil && w.n == 1 {
 		box.Objects = append([]fyne.CanvasObject{callout(theme.InfoIcon(),
 			tr("The file's values of this assistant cannot be read, so its steps offer their defaults."))}, box.Objects...)
@@ -315,22 +398,23 @@ func (w *assistantWizard) stepView(st *wizard.Step) fyne.CanvasObject {
 		return box
 	}
 	var inputs []func() (asm.Value, bool)
+	fields := map[int]*valueField{}
 	for i := range st.Labels {
 		val := asm.Value{}
 		if i < len(st.Values) {
 			val = st.Values[i]
 		}
 		if st.Type != 'E' && i == 0 {
-			opts := make([]string, st.Buttons)
-			for b := range opts {
-				opts[b] = tr("Choice {{.Number}}", args{"Number": strconv.Itoa(b + 1)})
-			}
+			opts := wizardChoiceLabels(st, choices)
 			radio := widget.NewRadioGroup(opts, nil)
 			radio.Required = true
 			if n, err := val.AsInt(); err == nil && n >= 0 && int(n) < len(opts) {
 				radio.SetSelected(opts[n])
 			}
 			box.Add(radio)
+			for _, note := range wizardChoiceNotes(opts, choices) {
+				box.Add(note)
+			}
 			inputs = append(inputs, func() (asm.Value, bool) {
 				return asm.IntVal(int64(max(slices.Index(opts, radio.Selected), 0))), true
 			})
@@ -349,10 +433,12 @@ func (w *assistantWizard) stepView(st *wizard.Step) fyne.CanvasObject {
 			inputs = append(inputs, func() (asm.Value, bool) { return keep, true })
 			continue
 		}
-		f := &st.Formats[fi]
-		row, get := valueInput(f, val, i, len(st.Labels))
-		box.Add(row)
-		inputs = append(inputs, get)
+		vf := newValueField(&st.Formats[fi], val)
+		fields[fi] = vf
+		inputs = append(inputs, vf.get)
+	}
+	for _, o := range entryBlock(entry, fields, vals) {
+		box.Add(o)
 	}
 	if len(inputs) > 0 {
 		w.values = func() ([]asm.Value, bool) {
@@ -369,57 +455,148 @@ func (w *assistantWizard) stepView(st *wizard.Step) fyne.CanvasObject {
 	return box
 }
 
-// valueInput is the entry of value i of n, with the range and unit of
-// format f (nil: a plain whole number), its default val, and the message
-// under it when the text is not valid. get returns the raw value.
-func valueInput(f *wizard.Format, val asm.Value, i, n int) (row fyne.CanvasObject, get func() (asm.Value, bool)) {
-	e := widget.NewEntry()
-	raw, err := val.AsInt()
-	if err == nil {
-		e.SetText(strconv.FormatInt(raw, 10))
+// valueField is one value a step asks for: its entry, the row it sits
+// in, and whether the step's text found a place for it.
+type valueField struct {
+	f      *wizard.Format
+	entry  *numberEntry
+	row    *formRow
+	label  string // what the step's text calls it
+	unit   string // what the text writes after it
+	placed bool
+	get    func() (asm.Value, bool)
+}
+
+// newValueField makes the field of format f (nil: a plain whole number)
+// holding val. Its row is made later, once every label of the step is
+// known and they can share a column. The field says what is wrong as
+// soon as it is left, as the entries of the settings pages do, and
+// Escape puts the value it was given back.
+func newValueField(f *wizard.Format, val asm.Value) *valueField {
+	v := &valueField{f: f, entry: newNumberEntry()}
+	if raw, err := val.AsInt(); err == nil {
+		v.entry.SetText(strconv.FormatInt(raw, 10))
 		if f != nil {
-			e.SetText(f.Show(raw))
+			v.entry.SetText(f.Show(raw))
 		}
 	}
-	// The message keeps its line while empty, so that the dialog does not
-	// move when it shows.
-	msg := captionText("", theme.ColorNameError)
-	setMsg := func(text string) {
-		msg.Segments[0].(*widget.TextSegment).Text = text
-		msg.Refresh()
-	}
-	right := container.NewHBox()
-	if unit := formatUnit(f); unit != "" {
-		right.Add(widget.NewLabel(unit))
-	}
-	if f != nil {
-		right.Add(captionText(tr("{{.Min}} … {{.Max}}", args{"Min": f.Show(f.Min), "Max": f.Show(f.Max)}), theme.ColorNamePlaceHolder))
-	}
-	entry := container.New(fixedWidth(140), e)
-	line := container.NewHBox(entry, container.NewCenter(right))
-	if n > 1 {
-		line.Objects = append([]fyne.CanvasObject{container.New(fixedWidth(90),
-			widget.NewLabel(tr("Value {{.Number}}", args{"Number": strconv.Itoa(i + 1)})))}, line.Objects...)
-	}
-	get = func() (asm.Value, bool) {
+	given := v.entry.Text
+	v.entry.restore = func() { v.entry.SetText(given) }
+	v.get = func() (asm.Value, bool) {
+		setErr := func(text string) {
+			if v.row != nil {
+				v.row.setError(text)
+			}
+		}
 		if f == nil {
-			v, err := strconv.ParseInt(strings.TrimSpace(e.Text), 10, 64)
+			n, err := strconv.ParseInt(strings.TrimSpace(v.entry.Text), 10, 64)
 			if err != nil {
-				setMsg(tr("Enter a whole number."))
+				setErr(tr("Enter a whole number."))
 				return asm.Value{}, false
 			}
-			setMsg("")
-			return asm.IntVal(v), true
+			setErr("")
+			return asm.IntVal(n), true
 		}
-		v, err := f.Parse(e.Text)
+		n, err := f.Parse(v.entry.Text)
 		if err != nil {
-			setMsg(tr("Enter a number from {{.Min}} to {{.Max}}.", args{"Min": f.Show(f.Min), "Max": f.Show(f.Max)}))
+			setErr(tr("Enter a number from {{.Min}} to {{.Max}}.", args{"Min": f.Show(f.Min), "Max": f.Show(f.Max)}))
 			return asm.Value{}, false
 		}
-		setMsg("")
-		return asm.IntVal(v), true
+		setErr("")
+		return asm.IntVal(n), true
 	}
-	return container.New(layout.NewCustomPaddedVBoxLayout(0), line, msg), get
+	v.entry.commit = func(string) { v.get() }
+	return v
+}
+
+// makeRow puts the field in a row of the form, with the range it accepts
+// under the entry as the settings pages show it.
+func (v *valueField) makeRow(cols *formColumns) *formRow {
+	unit := v.unit
+	if unit == "" {
+		unit = formatUnit(v.f)
+	}
+	v.row = newFormRow(cols, v.label, "", v.entry, numberWidth, unit)
+	if v.f != nil {
+		v.row.setCaption(tr("{{.Min}} … {{.Max}}", args{"Min": v.f.Show(v.f.Min), "Max": v.f.Show(v.f.Max)}))
+	}
+	return v.row
+}
+
+// entryWords trims what the package writes around a place down to a label
+// and a unit: the words before a value often end in "=" or ":" and the
+// ones after it in the full stop of the sentence they were part of,
+// neither of which reads well beside a field.
+func entryWords(s string) string {
+	return strings.TrimSpace(strings.TrimRight(strings.TrimSpace(s), "=:."))
+}
+
+// entryBlock lays out the entry block of a step: its prose as prose, and
+// its fields as rows of one form, their labels in a column of their own
+// width. Fields the text found no place for follow, numbered as they
+// were before a package's places were read.
+func entryBlock(lines []wizard.EntryLine, fields map[int]*valueField, values []asm.Value) []fyne.CanvasObject {
+	plain := func(s string) string { return strings.TrimSpace(wizard.PlainText(s, values)) }
+	// What each field is called, and the order the text puts them in.
+	var order []*valueField
+	for _, l := range lines {
+		if l.Prose() {
+			continue
+		}
+		for i, n := range l.Places {
+			f := fields[n]
+			if f == nil || f.placed {
+				continue
+			}
+			f.placed = true
+			f.unit = entryWords(plain(l.Parts[i+1]))
+			if i == 0 {
+				f.label = entryWords(plain(l.Parts[0]))
+			}
+			order = append(order, f)
+		}
+	}
+	var left []int
+	for n, f := range fields {
+		if !f.placed {
+			left = append(left, n)
+		}
+	}
+	slices.Sort(left)
+	for _, n := range left {
+		f := fields[n]
+		if len(fields) > 1 {
+			f.label = tr("Value {{.Number}}", args{"Number": strconv.Itoa(n + 1)})
+		}
+		order = append(order, f)
+	}
+	if len(order) == 0 {
+		return nil
+	}
+	cols := &formColumns{}
+	labels := make([]string, len(order))
+	for i, f := range order {
+		labels[i] = f.label
+	}
+	cols.fit(labels)
+
+	// The prose of the block heads the card the fields sit in, so that
+	// what the step asks reads as one thing.
+	var head []fyne.CanvasObject
+	var prose []string
+	for _, l := range lines {
+		if l.Prose() {
+			prose = append(prose, l.Parts[0])
+		}
+	}
+	if plain(strings.Join(prose, "\n")) != "" {
+		head = append(head, richAssistantText(strings.Join(prose, "\n"), values))
+	}
+	rows := make([]fyne.CanvasObject, 0, len(order))
+	for _, f := range order {
+		rows = append(rows, f.makeRow(cols).root)
+	}
+	return []fyne.CanvasObject{newFormCard(nil, append(head, rows...)...)}
 }
 
 // formatUnit returns the unit of a format: V for a battery voltage (type
@@ -454,7 +631,7 @@ func (w *assistantWizard) summaryView() fyne.CanvasObject {
 		if !st.Listed {
 			continue
 		}
-		name := widget.NewLabelWithStyle(st.Name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+		name := widget.NewLabelWithStyle(answerName(st), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 		v := widget.NewLabel(answerText(st))
 		v.Wrapping = fyne.TextWrapWord
 		rows.Add(name)
@@ -556,7 +733,7 @@ func showInstalledSummary(u *ui, title, name string, run *wizard.Run, err error)
 			}
 			v := widget.NewLabel(answerText(st))
 			v.Wrapping = fyne.TextWrapWord
-			rows.Add(widget.NewLabelWithStyle(st.Name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
+			rows.Add(widget.NewLabelWithStyle(answerName(st), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
 			rows.Add(v)
 		}
 		body = rows
@@ -566,38 +743,76 @@ func showInstalledSummary(u *ui, title, name string, run *wizard.Run, err error)
 	}
 	head := widget.NewLabelWithStyle(tr("Summary"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	scroll := container.NewVScroll(container.NewVBox(head, body))
-	scroll.SetMinSize(fyne.NewSize(520, 280))
+	scroll.SetMinSize(fyne.NewSize(720, 440))
 	d := dialog.NewCustom(title, tr("Close"), scroll, u.win)
 	d.Show()
 }
 
-// answerText writes the answer of a step: the choice, then the values in
-// the step's formats.
+// answerName is what the summary calls a step: the heading its package
+// gives it, or the step's own name when the package has no text for it.
+func answerName(st *wizard.Step) string {
+	text := st.Text
+	if st.Type != 'E' {
+		text, _ = wizard.Choices(text, st.Buttons)
+	} else if len(st.Formats) > 0 {
+		text, _ = wizard.Entry(text)
+	}
+	if title, _ := wizard.Title(text, textValues(st)); title != "" {
+		return title
+	}
+	return st.Name
+}
+
+// answerText writes the answer of a step: the choice it took, in the
+// words of the button, then its values with the units their places give
+// them. The labels that are neither are what the text puts in its own
+// places, not answers, and are left out.
 func answerText(st *wizard.Step) string {
+	var entry []wizard.EntryLine
+	if st.Type == 'E' && len(st.Formats) > 0 {
+		_, entry = wizard.Entry(st.Text)
+	}
+	units := map[int]string{}
+	for _, l := range entry {
+		for k, n := range l.Places {
+			units[n] = entryWords(wizard.PlainText(l.Parts[k+1], nil))
+		}
+	}
 	var parts []string
 	for i, v := range st.Values {
-		n, err := v.AsInt()
-		switch {
-		case err != nil:
-			parts = append(parts, v.String())
-		case st.Type != 'E' && i == 0:
-			parts = append(parts, tr("Choice {{.Number}}", args{"Number": strconv.FormatInt(n+1, 10)}))
-		default:
-			fi := i
-			if st.Type != 'E' {
-				fi = i - 1
-			}
-			if fi < len(st.Formats) {
-				f := st.Formats[fi]
-				s := f.Show(n)
-				if u := formatUnit(&f); u != "" {
-					s = tr("{{.Value}} {{.Unit}}", args{"Value": s, "Unit": u})
+		fi := i
+		if st.Type != 'E' {
+			if i == 0 {
+				_, choices := wizard.Choices(st.Text, st.Buttons)
+				opts := wizardChoiceLabels(st, choices)
+				n, err := v.AsInt()
+				if err == nil && n >= 0 && int(n) < len(opts) {
+					parts = append(parts, opts[n])
+					continue
 				}
-				parts = append(parts, s)
-			} else {
-				parts = append(parts, strconv.FormatInt(n, 10))
+				parts = append(parts, tr("Choice {{.Number}}", args{"Number": strconv.FormatInt(n+1, 10)}))
+				continue
 			}
+			fi = i - 1
 		}
+		if fi >= len(st.Formats) {
+			continue // a value of the step's text, not an answer
+		}
+		n, err := v.AsInt()
+		if err != nil {
+			parts = append(parts, v.String())
+			continue
+		}
+		f := st.Formats[fi]
+		s := f.Show(n)
+		u := units[fi]
+		if u == "" {
+			u = formatUnit(&f)
+		}
+		if u != "" {
+			s = tr("{{.Value}} {{.Unit}}", args{"Value": s, "Unit": u})
+		}
+		parts = append(parts, s)
 	}
 	return strings.Join(parts, ", ")
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -225,7 +226,7 @@ func openAdd(t *testing.T, u *ui, pg *page) fyne.CanvasObject {
 	t.Helper()
 	test.Tap(findButton(t, pg.view, "Add assistant"))
 	dlg := u.win.Canvas().Overlays().Top()
-	if dlg == nil || !strings.Contains(dialogTexts(dlg), "Preview is the same walk") {
+	if dlg == nil || !strings.Contains(dialogTexts(dlg), "Add assistant") {
 		t.Fatal("no Add assistant dialog")
 	}
 	return dlg
@@ -250,8 +251,8 @@ func TestAssistantsPageAvailable(t *testing.T) {
 		}
 	}
 	p := u.assistants.picker
-	if len(p.shown) != 4 || p.selected != 0 || findButton(t, add, "Preview…").Disabled() || !findButton(t, add, "Add").Disabled() {
-		t.Errorf("%d assistants, %d selected; Preview or Add in the wrong state", len(p.shown), p.selected)
+	if len(p.shown) != 4 || p.selected != 0 || !findButton(t, add, "Add").Disabled() {
+		t.Errorf("%d assistants, %d selected; Add in the wrong state", len(p.shown), p.selected)
 	}
 	if !strings.Contains(text, "4 assistants") {
 		t.Errorf("no count:\n%s", text)
@@ -274,7 +275,7 @@ func TestAssistantPickerSearch(t *testing.T) {
 		}
 	}
 	p.search.SetText("zzz")
-	if text := dialogTexts(add); len(p.shown) != 0 || !strings.Contains(text, "No assistant matches “zzz”") || !findButton(t, add, "Preview…").Disabled() {
+	if text := dialogTexts(add); len(p.shown) != 0 || !strings.Contains(text, "No assistant matches “zzz”") || !findButton(t, add, "Add").Disabled() {
 		t.Errorf("no match shows:\n%s", text)
 	}
 	p.search.SetText("")
@@ -283,28 +284,33 @@ func TestAssistantPickerSearch(t *testing.T) {
 	}
 }
 
-// previewOf opens the preview of the assistant whose row in Add assistant
-// shows title and returns the dialog.
+// previewOf walks through the assistant whose row in Add assistant shows
+// title and returns the dialog of its first step.
 func previewOf(t *testing.T, u *ui, pg *page, title string) fyne.CanvasObject {
 	t.Helper()
-	tapPreview(t, u, pg, title)
+	tapAdd(t, u, pg, title)
 	var dlg fyne.CanvasObject
-	waitFor(t, "the preview", func() bool {
+	waitFor(t, "the assistant", func() bool {
 		dlg = u.win.Canvas().Overlays().Top()
 		return dlg != nil && strings.Contains(dialogTexts(dlg), "Step 1")
 	})
 	return dlg
 }
 
-// tapPreview opens Add assistant and taps Preview on the row of title.
-func tapPreview(t *testing.T, u *ui, pg *page, title string) {
+// tapAdd opens Add assistant and taps Add on the row of title. Adding
+// wants a file to put the assistant into, so one is opened when the test
+// has none.
+func tapAdd(t *testing.T, u *ui, pg *page, title string) {
 	t.Helper()
+	if u.settings.file == nil {
+		loadSettingsFile(u, assistantFile(t, simulator.ErasedArea()))
+	}
 	add := openAdd(t, u, pg)
 	p := u.assistants.picker
 	for i, a := range p.shown {
 		if a.title == title {
 			p.list.Select(i)
-			test.Tap(findButton(t, add, "Preview…"))
+			test.Tap(findButton(t, add, "Add"))
 			return
 		}
 	}
@@ -350,7 +356,7 @@ func TestAssistantWizard(t *testing.T) {
 	want("Step 2 · Note", "Values shown: 20", "no text for this step")
 	test.Tap(next)
 	want("Step 3 · Level", "44.00 … 58.00", "V")
-	entry := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.Entry); return ok })[0].(*widget.Entry)
+	entry := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*numberEntry); return ok })[0].(*numberEntry)
 	if entry.Text != "48.00" {
 		t.Errorf("default %q", entry.Text)
 	}
@@ -385,7 +391,7 @@ func TestAssistantWizard(t *testing.T) {
 	test.Tap(next)
 	want("Summary")
 	test.Tap(findButton(t, dlg, "Close"))
-	if top := u.win.Canvas().Overlays().Top(); top == nil || !strings.Contains(dialogTexts(top), "Preview is the same walk") {
+	if top := u.win.Canvas().Overlays().Top(); top == nil || !strings.Contains(dialogTexts(top), "Add assistant") {
 		t.Error("closing the preview does not return to Add assistant")
 	}
 	if got, _ := sf.unit.AssistantImage(); !bytes.Equal(got, img) || countChanges(u.settings.dev).total() != 0 {
@@ -433,7 +439,7 @@ func TestAssistantStepMarkup(t *testing.T) {
 			t.Errorf("step text still shows %q:\n%s", not, text)
 		}
 	}
-	if n := len(findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.Entry); return ok })); n != 0 {
+	if n := len(findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*numberEntry); return ok })); n != 0 {
 		t.Errorf("%d input fields on a step that asks nothing", n)
 	}
 	// The label without a field goes back as it came, so Next works.
@@ -509,7 +515,7 @@ func TestAssistantAddToFile(t *testing.T) {
 // step says so, names itself, and offers neither Back nor Next.
 func TestAssistantWizardEarlyStop(t *testing.T) {
 	u, pg := assistantsUI(t, writePackages(t))
-	tapPreview(t, u, pg, "Early stop")
+	tapAdd(t, u, pg, "Early stop")
 	var dlg fyne.CanvasObject
 	waitFor(t, "the preview", func() bool {
 		dlg = u.win.Canvas().Overlays().Top()
@@ -520,5 +526,126 @@ func TestAssistantWizardEarlyStop(t *testing.T) {
 	}
 	if !findButton(t, dlg, "Next").Disabled() || !findButton(t, dlg, "Back").Disabled() {
 		t.Error("the stopped assistant can go on or back")
+	}
+}
+
+// testChoices is a package with one step of three buttons, written as
+// the shipped packages write them.
+const testChoices = `
+Pick .AID Pick, R, 3, 0
+ .AUE Pick, which
+ DATA which
+`
+
+// TestWizardChoiceTexts: the buttons of a step say what the package's
+// dotted lines say, the step's own text keeps only what is above them,
+// and the line a package writes under a choice shows under the buttons.
+func TestWizardChoiceTexts(t *testing.T) {
+	dir := t.TempDir()
+	write := func(file string, id uint16, src, title, text string) {
+		t.Helper()
+		p := &vap.Package{Format: 1, ID: id, Members: []vap.Member{{Name: "x.vll", Data: []byte(src)}}}
+		if title != "" {
+			p.Members = append(p.Members, vap.Member{Name: title + ".en", Data: []byte(text)})
+		}
+		if err := os.WriteFile(filepath.Join(dir, file), vap.Encode(p), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("asfStart_0015.vap", 0x0015, testStart, "", "")
+	write("asfStop_000E.vap", 0x000E, testStop, "", "")
+	write("Picker_0190.vap", 0x0190, testChoices, "Picker",
+		"#Pick\r\nBattery system\r\nPlease select your system\r\n"+
+			".Gel or AGM batteries\r\n"+
+			"."+`\ABT,FS:4\LiFePo4 with other type BMS\FS:0\`+"\r\n"+
+			`\FC:$00606060\(A BMS over CAN bus, or external protection.)`+"\r\n"+
+			".Redflow ZCell batteries\r\n;----\r\n")
+
+	u, pg := assistantsUI(t, dir)
+	dlg := previewOf(t, u, pg, "Picker")
+	r := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*widget.RadioGroup); return ok })
+	if len(r) != 1 {
+		t.Fatalf("%d radio groups", len(r))
+	}
+	want := []string{"Gel or AGM batteries", "LiFePo4 with other type BMS", "Redflow ZCell batteries"}
+	if got := r[0].(*widget.RadioGroup).Options; !slices.Equal(got, want) {
+		t.Errorf("buttons %q, want %q", got, want)
+	}
+	text := dialogTexts(dlg)
+	if !strings.Contains(text, "Please select your system") {
+		t.Errorf("the step does not show its own text:\n%s", text)
+	}
+	// The choices are off the step's text now: they are on the buttons,
+	// which this text does not reach.
+	if strings.Contains(text, "Redflow ZCell batteries") {
+		t.Errorf("a choice is still in the step's text:\n%s", text)
+	}
+	if !strings.Contains(text, "LiFePo4 with other type BMS: (A BMS over CAN bus, or external protection.)") {
+		t.Errorf("the explanation of a choice is not shown under it:\n%s", text)
+	}
+	if strings.Contains(text, "ABT") || strings.Contains(text, "FC:$") {
+		t.Errorf("markup shows as text:\n%s", text)
+	}
+}
+
+// testEntryStep is a package with one step of two values, written as the
+// shipped packages write them.
+const testEntryStep = `
+Levels .AID Levels, E, '2B 4400 5800 4800', '2B 4400 5800 5000'
+ .AUE Levels, low, high
+ DATA low, high
+`
+
+// TestWizardFieldLabels: a field is named by the words the package
+// writes around its place, the places are off the step's text, the
+// first line of the section is the step's heading, and no field is left
+// to be called "Value 1".
+func TestWizardFieldLabels(t *testing.T) {
+	dir := t.TempDir()
+	write := func(file string, id uint16, src, title, text string) {
+		t.Helper()
+		p := &vap.Package{Format: 1, ID: id, Members: []vap.Member{{Name: "x.vll", Data: []byte(src)}}}
+		if title != "" {
+			p.Members = append(p.Members, vap.Member{Name: title + ".en", Data: []byte(text)})
+		}
+		if err := os.WriteFile(filepath.Join(dir, file), vap.Encode(p), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("asfStart_0015.vap", 0x0015, testStart, "", "")
+	write("asfStop_000E.vap", 0x000E, testStop, "", "")
+	write("Levels_0190.vap", 0x0190, testEntryStep, "Levels",
+		"#Levels\r\nSustain voltage\r\nSet the two levels.\r\n"+
+			".Sustain voltage during the first 24 hours is |0 V.\r\n"+
+			"Sustain voltage after 24 hours is |1 V.\r\n;----\r\n")
+
+	u, pg := assistantsUI(t, dir)
+	dlg := previewOf(t, u, pg, "Levels")
+	text := dialogTexts(dlg)
+	for _, want := range []string{
+		"Step 1",              // the number alone
+		"Sustain voltage",     // the heading
+		"Set the two levels.", // the prose under it
+		"Sustain voltage during the first 24 hours is", // the name of a field
+		"Sustain voltage after 24 hours is",
+		"V", "44.00 … 58.00",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the step does not show %q:\n%s", want, text)
+		}
+	}
+	// The full stop that ended the sentence the words came from is not
+	// part of the unit beside a field.
+	for _, not := range []string{"Value 1", "Value 2", "|0", "|1", "Step 1 ·", "V."} {
+		if strings.Contains(text, not) {
+			t.Errorf("the step still shows %q:\n%s", not, text)
+		}
+	}
+	entries := findObjects(dlg, func(o fyne.CanvasObject) bool { _, ok := o.(*numberEntry); return ok })
+	if len(entries) != 2 {
+		t.Fatalf("%d fields, want 2", len(entries))
+	}
+	if a, b := entries[0].(*numberEntry).Text, entries[1].(*numberEntry).Text; a != "48.00" || b != "50.00" {
+		t.Errorf("fields hold %q and %q, want the defaults 48.00 and 50.00", a, b)
 	}
 }
