@@ -66,8 +66,9 @@ func TestAssistantShots(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// The summary is the last thing to see: there Next becomes Close.
-		if next.Disabled() || next.Text == tr("Close") {
+		// The summary is the last thing to see, and its button acts on
+		// the file, so it is not tapped here.
+		if next.Disabled() || strings.Contains(text, tr("Summary")) {
 			break
 		}
 		test.Tap(next)

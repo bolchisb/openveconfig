@@ -123,7 +123,7 @@ type assistantWizard struct {
 	id   uint16
 	lang string
 	sess *wizard.Session // nil when the assistant could not be loaded
-	dlg  dialog.Dialog
+	dlg  *dialog.CustomDialog
 	body *fyne.Container
 	// n is the number of the step shown, from 1.
 	n                  int
@@ -133,9 +133,9 @@ type assistantWizard struct {
 	values  func() ([]asm.Value, bool)
 	done    bool // the summary is shown
 	stopped bool // the assistant stopped at the step it was given
-	// apply is the label of the summary's button that would put the
-	// assistant into the file; "" for Add to the file.
-	apply string
+	// adds says that the summary's button puts the assistant into the
+	// open file, rather than only closing the dialog.
+	adds bool
 	// readErr is why the file's values could not be read, for an
 	// assistant of the file; its steps then offer their defaults.
 	readErr error
@@ -162,9 +162,15 @@ func (w *assistantWizard) show(st *wizard.Step, err error) {
 	})
 }
 
-// goNext answers the step shown, or closes the dialog after the summary.
+// goNext answers the step shown, or, after the summary, puts the
+// assistant into the file and closes the dialog; Cancel is the way out
+// without it.
 func (w *assistantWizard) goNext() {
 	if w.done {
+		if w.adds {
+			w.addToFile()
+			return
+		}
 		w.dlg.Hide()
 		return
 	}
@@ -200,9 +206,10 @@ func (w *assistantWizard) goBack() {
 // stepTo shows st, the summary when st is nil, or why the assistant
 // stopped when err is not nil.
 func (w *assistantWizard) stepTo(st *wizard.Step, err error) {
-	w.values, w.done, w.stopped = nil, false, err != nil
+	w.values, w.done, w.stopped, w.adds = nil, false, err != nil, false
 	w.next.SetText(tr("Next"))
 	w.next.SetIcon(theme.NavigateNextIcon())
+	w.next.IconPlacement = widget.ButtonIconTrailingText
 	w.next.Enable()
 	w.back.Disable()
 	if w.sess != nil && (w.n > 1 || w.stopped && w.sess.Current() != nil) {
@@ -214,10 +221,17 @@ func (w *assistantWizard) stepTo(st *wizard.Step, err error) {
 		view = w.stopView(err)
 		w.next.Disable()
 	case st == nil:
+		// summaryView says whether the assistant can be put into the
+		// file, which is what the dialog's own button then does.
 		view = w.summaryView()
 		w.done = true
 		w.next.SetText(tr("Close"))
 		w.next.SetIcon(theme.ConfirmIcon())
+		if w.adds {
+			w.next.SetText(tr("Add to the file"))
+			w.next.SetIcon(theme.ContentAddIcon())
+			w.next.IconPlacement = widget.ButtonIconLeadingText
+		}
 	default:
 		view = w.stepView(st)
 		if st.Directive == ".AER" {
@@ -226,6 +240,12 @@ func (w *assistantWizard) stepTo(st *wizard.Step, err error) {
 	}
 	w.body.Objects = []fyne.CanvasObject{container.New(layout.NewCustomPaddedLayout(8, 8, 12, 12), view)}
 	w.body.Refresh()
+	// The dialog lays its buttons out in a grid of cells measured when
+	// they were set, so a label that grew with the step would run over
+	// its neighbour; setting the row again measures it afresh.
+	if w.dlg != nil {
+		w.dlg.SetButtons([]fyne.CanvasObject{w.cancel, w.back, w.next})
+	}
 }
 
 // stepHead is the number of the step and the step's own name.
@@ -643,27 +663,19 @@ func (w *assistantWizard) summaryView() fyne.CanvasObject {
 	} else {
 		box.Add(rows)
 	}
-	label := w.apply
-	if label == "" {
-		label = tr("Add to the file")
-	}
-	add := widget.NewButtonWithIcon(label, theme.ContentAddIcon(), nil)
-	add.Importance = widget.HighImportance
+	// The summary has no button of its own: putting the assistant into
+	// the file is what the walk was for, so it is the dialog's own
+	// button, and Cancel is the way out without it.
 	switch {
 	case w.dir == "": // an assistant of the file: editing it comes later
-		add.Disable()
-		box.Add(container.NewHBox(add))
 		box.Add(callout(theme.InfoIcon(), tr("Nothing was written. Saving the answers of an assistant already in the "+
 			"file comes once {{.App}} can replace one in place.", args{"App": appName})))
 		return box
 	case w.u.settings.file == nil:
-		add.Disable()
-		box.Add(container.NewHBox(add))
 		box.Add(callout(theme.InfoIcon(), tr("Nothing was written. Open a settings file to add an assistant to it.")))
 		return box
 	}
-	add.OnTapped = func() { w.addToFile() }
-	box.Add(container.NewHBox(add))
+	w.adds = true
 	box.Add(callout(theme.InfoIcon(), tr("The assistant is put into the open file. The file itself is written "+
 		"when you save it.")))
 	return box

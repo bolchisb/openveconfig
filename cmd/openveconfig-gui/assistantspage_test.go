@@ -390,12 +390,13 @@ func TestAssistantWizard(t *testing.T) {
 	test.Tap(next)
 	test.Tap(next)
 	want("Summary")
-	test.Tap(findButton(t, dlg, "Close"))
+	// Cancel is the way out of the summary without adding anything.
+	test.Tap(findButton(t, dlg, "Cancel"))
 	if top := u.win.Canvas().Overlays().Top(); top == nil || !strings.Contains(dialogTexts(top), "Add assistant") {
-		t.Error("closing the preview does not return to Add assistant")
+		t.Error("leaving the walk does not return to Add assistant")
 	}
 	if got, _ := sf.unit.AssistantImage(); !bytes.Equal(got, img) || countChanges(u.settings.dev).total() != 0 {
-		t.Error("the preview changed the file")
+		t.Error("cancelling the walk changed the file")
 	}
 }
 

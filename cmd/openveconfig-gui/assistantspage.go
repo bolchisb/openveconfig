@@ -405,7 +405,7 @@ func (ap *assistantsPage) openSelected(summary bool) {
 		sess.Edit = name
 		st, err := sess.Start()
 		fyne.Do(func() {
-			w := &assistantWizard{u: ap.u, title: title, sess: sess, n: 1, apply: tr("Save in the file"), readErr: rerr}
+			w := &assistantWizard{u: ap.u, title: title, sess: sess, n: 1, readErr: rerr}
 			w.show(st, err)
 		})
 		return nil
